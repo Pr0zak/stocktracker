@@ -1,6 +1,7 @@
 package com.stocktracker.app.widget
 
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.stocktracker.app.data.model.Quote
@@ -14,6 +15,7 @@ object TickerWidgetState {
     val SPARK = stringPreferencesKey("spark")
     val ERROR = stringPreferencesKey("error")
     val LAST_REFRESH = longPreferencesKey("last_refresh")
+    val HIDE_ZERO_CENTS = booleanPreferencesKey("hide_zero_cents")
 
     fun readConfig(prefs: Preferences): TickerWidgetConfig =
         prefs[CONFIG]?.let { runCatching { Http.json.decodeFromString<TickerWidgetConfig>(it) }.getOrNull() }

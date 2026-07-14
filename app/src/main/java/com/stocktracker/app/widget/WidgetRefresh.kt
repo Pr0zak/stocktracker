@@ -13,6 +13,7 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.data.remote.Http
 import com.stocktracker.app.util.downsample
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.encodeToString
 
 /** Fetches fresh prices and pushes them into widget state. Used by the worker + config activity. */
@@ -31,6 +32,7 @@ object WidgetRefresh {
         if (!force && now - lastRefresh < config.refreshMinutes * 60_000L) return // not due yet
 
         val asset = config.toAsset()
+        val hideZeroCents = ServiceLocator.settingsStore.hideZeroCents.first()
         try {
             val quote = ServiceLocator.repository.quote(asset)
             ServiceLocator.priceCache.putQuote(asset.id, quote)
@@ -39,6 +41,7 @@ object WidgetRefresh {
                 mutable[TickerWidgetState.QUOTE] = Http.json.encodeToString(quote)
                 mutable[TickerWidgetState.SPARK] = Http.json.encodeToString(spark)
                 mutable[TickerWidgetState.LAST_REFRESH] = System.currentTimeMillis()
+                mutable[TickerWidgetState.HIDE_ZERO_CENTS] = hideZeroCents
                 mutable.remove(TickerWidgetState.ERROR)
             }
         } catch (e: Exception) {
@@ -78,10 +81,12 @@ object WidgetRefresh {
         }
         // A fetch failure (non-empty watchlist but no rows) is distinct from an empty watchlist.
         val fetchFailed = assets.isNotEmpty() && rows.isEmpty()
+        val hideZeroCents = ServiceLocator.settingsStore.hideZeroCents.first()
         val json = Http.json.encodeToString(rows)
         ids.forEach { id ->
             updateAppWidgetState(context, id) { mutable ->
                 mutable[WatchlistWidgetState.ROWS] = json
+                mutable[WatchlistWidgetState.HIDE_ZERO_CENTS] = hideZeroCents
                 if (fetchFailed) {
                     mutable[WatchlistWidgetState.ERROR] = "Couldn't load prices"
                 } else {

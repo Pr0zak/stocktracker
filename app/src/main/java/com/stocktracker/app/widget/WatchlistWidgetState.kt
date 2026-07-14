@@ -1,6 +1,7 @@
 package com.stocktracker.app.widget
 
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.stocktracker.app.data.remote.Http
 import kotlinx.serialization.Serializable
@@ -21,6 +22,7 @@ data class WatchlistRow(
 object WatchlistWidgetState {
     val ROWS = stringPreferencesKey("rows")
     val ERROR = stringPreferencesKey("error")
+    val HIDE_ZERO_CENTS = booleanPreferencesKey("hide_zero_cents")
 
     fun readRows(prefs: Preferences): List<WatchlistRow> =
         prefs[ROWS]?.let { runCatching { Http.json.decodeFromString<List<WatchlistRow>>(it) }.getOrNull() }

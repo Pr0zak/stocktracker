@@ -34,6 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -45,6 +46,7 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.update.UpdateDialog
 import com.stocktracker.app.update.UpdateUiState
 import com.stocktracker.app.update.rememberUpdateController
+import com.stocktracker.app.widget.WidgetRefreshScheduler
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,10 +54,12 @@ import kotlinx.coroutines.launch
 fun SettingsScreen() {
     val settings = ServiceLocator.settingsStore
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val theme by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
     val dynamic by settings.dynamicColor.collectAsState(initial = true)
     val refresh by settings.defaultRefreshMinutes.collectAsState(initial = 15)
     val savedKey by settings.finnhubApiKey.collectAsState(initial = "")
+    val hideZeroCents by settings.hideZeroCents.collectAsState(initial = false)
     val stocksEnabled = savedKey.ifBlank { BuildConfig.FINNHUB_API_KEY }.isNotBlank()
 
     var keyField by remember { mutableStateOf<String?>(null) }
@@ -91,6 +95,22 @@ fun SettingsScreen() {
             ) {
                 Text("Material You dynamic color")
                 Switch(checked = dynamic, onCheckedChange = { scope.launch { settings.setDynamicColor(it) } })
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Hide .00 on whole prices")
+                Switch(
+                    checked = hideZeroCents,
+                    onCheckedChange = {
+                        scope.launch {
+                            settings.setHideZeroCents(it)
+                            WidgetRefreshScheduler.refreshNow(context) // reflect on placed widgets
+                        }
+                    },
+                )
             }
 
             Header("Widgets")

@@ -53,13 +53,14 @@ class WatchlistWidget : GlanceAppWidget() {
                 rows = WatchlistWidgetState.readRows(prefs),
                 loaded = prefs.contains(WatchlistWidgetState.ROWS),
                 error = prefs[WatchlistWidgetState.ERROR],
+                hideZeroCents = prefs[WatchlistWidgetState.HIDE_ZERO_CENTS] ?: false,
             )
         }
     }
 }
 
 @Composable
-private fun WatchlistContent(rows: List<WatchlistRow>, loaded: Boolean, error: String?) {
+private fun WatchlistContent(rows: List<WatchlistRow>, loaded: Boolean, error: String?, hideZeroCents: Boolean) {
     val context = LocalContext.current
     Column(
         modifier = GlanceModifier
@@ -74,7 +75,7 @@ private fun WatchlistContent(rows: List<WatchlistRow>, loaded: Boolean, error: S
         )
         Spacer(GlanceModifier.height(6.dp))
         when {
-            rows.isNotEmpty() -> rows.take(6).forEach { row -> WatchlistRowItem(row) }
+            rows.isNotEmpty() -> rows.take(6).forEach { row -> WatchlistRowItem(row, hideZeroCents) }
             error != null -> Message(error)
             !loaded -> Message("Loading…")
             else -> Message("Add tickers in the app")
@@ -88,7 +89,7 @@ private fun Message(text: String) {
 }
 
 @Composable
-private fun WatchlistRowItem(row: WatchlistRow) {
+private fun WatchlistRowItem(row: WatchlistRow, hideZeroCents: Boolean) {
     val color = if (row.isUp) Up else Down
     Row(
         modifier = GlanceModifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -102,7 +103,7 @@ private fun WatchlistRowItem(row: WatchlistRow) {
             )
         }
         Text(
-            text = Formatting.price(row.price, row.currency),
+            text = Formatting.price(row.price, row.currency, hideZeroCents),
             style = TextStyle(color = ColorProvider(OnSurface), fontSize = 13.sp, fontWeight = FontWeight.Medium),
             maxLines = 1,
         )

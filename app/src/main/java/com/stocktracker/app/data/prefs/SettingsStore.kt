@@ -17,9 +17,13 @@ class SettingsStore(private val context: Context) {
     private val dynamicKey = booleanPreferencesKey("dynamic_color")
     private val refreshKey = intPreferencesKey("default_refresh_minutes")
     private val finnhubKeyKey = stringPreferencesKey("finnhub_api_key")
+    private val hideZeroCentsKey = booleanPreferencesKey("hide_zero_cents")
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }
+
+    /** When true, whole-dollar prices are shown without a trailing ".00". */
+    val hideZeroCents: Flow<Boolean> = context.dataStore.data.map { it[hideZeroCentsKey] ?: false }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: ThemeMode.SYSTEM.name) }.getOrDefault(ThemeMode.SYSTEM)
@@ -33,4 +37,5 @@ class SettingsStore(private val context: Context) {
     suspend fun setDynamicColor(enabled: Boolean) = context.dataStore.edit { it[dynamicKey] = enabled }
     suspend fun setDefaultRefreshMinutes(minutes: Int) = context.dataStore.edit { it[refreshKey] = minutes }
     suspend fun setFinnhubApiKey(key: String) = context.dataStore.edit { it[finnhubKeyKey] = key.trim() }
+    suspend fun setHideZeroCents(enabled: Boolean) = context.dataStore.edit { it[hideZeroCentsKey] = enabled }
 }

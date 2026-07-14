@@ -56,6 +56,7 @@ class TickerWidget : GlanceAppWidget() {
                 quote = TickerWidgetState.readQuote(prefs),
                 spark = TickerWidgetState.readSpark(prefs),
                 error = prefs[TickerWidgetState.ERROR],
+                hideZeroCents = prefs[TickerWidgetState.HIDE_ZERO_CENTS] ?: false,
             )
         }
     }
@@ -67,6 +68,7 @@ private fun TickerContent(
     quote: Quote?,
     spark: List<Double>,
     error: String?,
+    hideZeroCents: Boolean,
 ) {
     val context = LocalContext.current
     val accent = Color(config.accentArgb.toInt())
@@ -94,7 +96,7 @@ private fun TickerContent(
             maxLines = 1,
         )
         Text(
-            text = quote?.let { Formatting.price(it.price, it.currency) } ?: "—",
+            text = quote?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
             style = TextStyle(color = ColorProvider(OnSurface), fontSize = 22.sp, fontWeight = FontWeight.Bold),
             maxLines = 1,
         )
@@ -102,7 +104,7 @@ private fun TickerContent(
             val changeStr = if (config.showChangePercent) {
                 "${Formatting.arrow(up)} ${Formatting.percent(quote.changePercent)}"
             } else {
-                "${Formatting.arrow(up)} ${Formatting.change(quote.change)}"
+                "${Formatting.arrow(up)} ${Formatting.change(quote.change, hideZeroCents)}"
             }
             Text(
                 text = changeStr,

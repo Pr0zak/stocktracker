@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.ChartRange
+import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.components.PriceChart
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
@@ -51,6 +52,7 @@ fun DetailScreen(
 ) {
     val vm: DetailViewModel = viewModel(key = asset.id) { DetailViewModel(asset) }
     val state by vm.state.collectAsState()
+    val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
     val context = LocalContext.current
     val quote = state.quote
     val up = quote?.isUp ?: true
@@ -94,12 +96,12 @@ fun DetailScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = quote?.let { Formatting.price(it.price, it.currency) } ?: "—",
+                text = quote?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
                 style = PriceLarge,
             )
             if (quote != null) {
                 Text(
-                    text = "${Formatting.changeLine(quote.change, quote.changePercent, up)} Today",
+                    text = "${Formatting.changeLine(quote.change, quote.changePercent, up, hideZeroCents)} Today",
                     color = if (up) GainGreen else LossRed,
                     fontWeight = FontWeight.Medium,
                 )
@@ -135,10 +137,10 @@ fun DetailScreen(
             Text("Statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             StatGrid(
                 rows = listOf(
-                    "Open" to fmt(quote?.open),
-                    "High" to fmt(quote?.high),
-                    "Low" to fmt(quote?.low),
-                    "Prev Close" to fmt(quote?.prevClose),
+                    "Open" to fmt(quote?.open, hideZeroCents),
+                    "High" to fmt(quote?.high, hideZeroCents),
+                    "Low" to fmt(quote?.low, hideZeroCents),
+                    "Prev Close" to fmt(quote?.prevClose, hideZeroCents),
                 ),
             )
 
@@ -161,7 +163,8 @@ fun DetailScreen(
     }
 }
 
-private fun fmt(value: Double?): String = value?.let { Formatting.price(it) } ?: "—"
+private fun fmt(value: Double?, hideZeroCents: Boolean): String =
+    value?.let { Formatting.price(it, hideZeroCents = hideZeroCents) } ?: "—"
 
 @Composable
 private fun StatGrid(rows: List<Pair<String, String>>) {

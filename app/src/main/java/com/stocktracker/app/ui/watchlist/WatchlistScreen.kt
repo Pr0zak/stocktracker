@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
+import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.components.AssetRow
 import com.stocktracker.app.util.Formatting
 
@@ -53,6 +54,7 @@ fun WatchlistScreen(
 ) {
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsState()
+    val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
     var filter by remember { mutableStateOf(Filter.ALL) }
 
     Scaffold(
@@ -134,8 +136,8 @@ fun WatchlistScreen(
                         AssetRow(
                             symbol = item.asset.symbol,
                             name = item.asset.displayName,
-                            priceText = q?.let { Formatting.price(it.price, it.currency) } ?: "—",
-                            changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp) } ?: "…",
+                            priceText = q?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
+                            changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents) } ?: "…",
                             up = up,
                             sparkline = item.sparkline,
                             onClick = { onOpenDetail(item.asset) },

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetAlerts
 import com.stocktracker.app.data.model.ChartRange
+import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,7 +16,7 @@ import kotlinx.coroutines.launch
 data class DetailUiState(
     val asset: Asset,
     val quote: Quote? = null,
-    val chart: List<Double> = emptyList(),
+    val chart: List<PricePoint> = emptyList(),
     val range: ChartRange = ChartRange.MONTH,
     val loadingChart: Boolean = true,
     val inWatchlist: Boolean = false,
@@ -27,9 +28,12 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
 
     private val repo = ServiceLocator.repository
     private val store = ServiceLocator.watchlistStore
+    private val settings = ServiceLocator.settingsStore
 
     private val _state = MutableStateFlow(DetailUiState(asset))
     val state = _state.asStateFlow()
+
+    @Volatile private var showExtended = false
 
     init {
         viewModelScope.launch {
@@ -44,8 +48,14 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 }
             }
         }
+        // Drives the initial chart load and re-fetches when the extended-hours toggle changes.
+        viewModelScope.launch {
+            settings.showExtendedHours.collect { ext ->
+                showExtended = ext
+                selectRange(_state.value.range)
+            }
+        }
         loadQuote()
-        selectRange(ChartRange.MONTH)
     }
 
     private fun loadQuote() {
@@ -59,8 +69,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     fun selectRange(range: ChartRange) {
         _state.update { it.copy(range = range, loadingChart = true) }
         viewModelScope.launch {
-            val points = runCatching { repo.history(asset, range) }.getOrDefault(emptyList())
-            _state.update { it.copy(chart = points.map { p -> p.price }, loadingChart = false) }
+            val points = runCatching { repo.history(asset, range, includeExtended = showExtended) }
+                .getOrDefault(emptyList())
+            _state.update { it.copy(chart = points, loadingChart = false) }
         }
     }
 

@@ -54,9 +54,9 @@ data class Quote(
     val isUp: Boolean get() = change >= 0.0
 }
 
-/** A single (time, price) sample for charts / sparklines. */
+/** A single (time, price) sample for charts / sparklines. [extended] = pre/post-market. */
 @Serializable
-data class PricePoint(val epochMs: Long, val price: Double)
+data class PricePoint(val epochMs: Long, val price: Double, val extended: Boolean = false)
 
 /** Chart time ranges shown on the detail screen. */
 enum class ChartRange(val label: String) {

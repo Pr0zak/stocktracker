@@ -60,6 +60,7 @@ fun SettingsScreen() {
     val refresh by settings.defaultRefreshMinutes.collectAsState(initial = 15)
     val savedKey by settings.finnhubApiKey.collectAsState(initial = "")
     val hideZeroCents by settings.hideZeroCents.collectAsState(initial = false)
+    val showExtendedHours by settings.showExtendedHours.collectAsState(initial = false)
     val stocksEnabled = savedKey.ifBlank { BuildConfig.FINNHUB_API_KEY }.isNotBlank()
 
     var keyField by remember { mutableStateOf<String?>(null) }
@@ -112,6 +113,24 @@ fun SettingsScreen() {
                     },
                 )
             }
+
+            Header("Chart")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Show extended-hours (pre/post-market)")
+                Switch(
+                    checked = showExtendedHours,
+                    onCheckedChange = { scope.launch { settings.setShowExtendedHours(it) } },
+                )
+            }
+            Text(
+                "Adds pre-market and after-hours to the 1D stock chart, drawn dashed in a shaded band.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Header("Widgets")
             Text("Default refresh interval", style = MaterialTheme.typography.bodyMedium)

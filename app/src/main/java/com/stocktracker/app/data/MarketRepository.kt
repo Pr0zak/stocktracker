@@ -30,10 +30,14 @@ class MarketRepository(
         return coinGecko.markets(ids).associateBy { it.id }
     }
 
-    suspend fun history(asset: Asset, range: ChartRange): List<PricePoint> = when (asset.type) {
+    suspend fun history(
+        asset: Asset,
+        range: ChartRange,
+        includeExtended: Boolean = false,
+    ): List<PricePoint> = when (asset.type) {
         AssetType.CRYPTO ->
             coinGecko.history(asset.coinGeckoId ?: asset.symbol.lowercase(), range.toCoinGeckoDays())
-        AssetType.STOCK -> yahoo.history(asset.symbol, range)
+        AssetType.STOCK -> yahoo.history(asset.symbol, range, includeExtended)
     }
 
     suspend fun search(query: String): List<SearchResult> {

@@ -131,7 +131,7 @@ fun DetailScreen(
             ) {
                 when {
                     state.loadingChart -> CircularProgressIndicator()
-                    state.chart.size >= 2 -> PriceChart(values = state.chart, up = up, modifier = Modifier.fillMaxSize())
+                    state.chart.size >= 2 -> PriceChart(points = state.chart, up = up, modifier = Modifier.fillMaxSize())
                     else -> Text(
                         "No chart data for this range",
                         style = MaterialTheme.typography.bodySmall,

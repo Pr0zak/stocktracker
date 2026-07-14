@@ -100,7 +100,20 @@ class WatchlistViewModel : ViewModel() {
 
     private suspend fun loadQuotes(assets: List<Asset>) {
         val gen = ++loadGeneration
-        _state.update { it.copy(loading = true) }
+
+        // Seed instantly from cache so the dashboard is never a blank spinner while the network
+        // is in flight (rows show last-known prices, or "—" on a first-ever launch).
+        val seedQuotes = cache.snapshotQuotes()
+        val seedBuffers = cache.snapshotBuffers()
+        _state.update { st ->
+            st.copy(
+                items = assets.map { a ->
+                    WatchlistItemUi(a, seedQuotes[a.id], (seedBuffers[a.id] ?: emptyList()).downsample(40))
+                },
+                loading = true,
+            )
+        }
+
         val markets = runCatching { repo.cryptoMarkets(assets) }.getOrDefault(emptyMap())
 
         // Fetch + cache in parallel (sequential stock quotes + 429 backoff made refresh slow).

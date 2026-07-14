@@ -17,8 +17,9 @@ object Http {
     private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) StockTracker/1.0"
 
     val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .callTimeout(20, TimeUnit.SECONDS) // hard ceiling so a stuck call fails fast to cached data
         .build()
 
     val json = Json {
@@ -48,7 +49,7 @@ object Http {
                     return@withContext body ?: throw IOException("Empty body for $url")
                 }
             }
-            delay(((attempt + 1) * 2L) * 1000L) // 2s, 4s
+            delay((attempt + 1) * 1000L) // 1s, 2s
         }
         throw lastError ?: IOException("Request failed after retries: $url")
     }

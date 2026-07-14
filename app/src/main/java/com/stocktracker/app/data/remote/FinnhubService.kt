@@ -48,14 +48,29 @@ class FinnhubService(private val keyProvider: () -> String) {
     }
 
     suspend fun search(query: String): List<SearchResult> {
-        val body = Http.getString("$base/search?q=${query.urlEncode()}&token=$apiKey")
-        val dto = Http.json.decodeFromString<FinnhubSearchDto>(body)
-        return dto.result
-            // Don't filter by instrument type — that dropped ETFs/ETPs (e.g. FBTC) and warrants
-            // (e.g. GME-WS). Keep any result with a symbol.
-            .filter { it.symbol.isNotBlank() }
-            .map { SearchResult(it.symbol, it.description.ifBlank { it.symbol }, AssetType.STOCK) }
-            .take(25)
+        // Finnhub uses a dot for share-class / warrant symbols (e.g. BRK.B, GME.WS) and won't
+        // match a dash. Try the query plus dash↔dot variants so either form finds them.
+        val queries = buildList {
+            add(query)
+            if (query.contains('-')) add(query.replace('-', '.'))
+            if (query.contains('.')) add(query.replace('.', '-'))
+        }.distinct()
+
+        val seen = LinkedHashSet<String>()
+        val out = ArrayList<SearchResult>()
+        for (q in queries) {
+            val body = runCatching { Http.getString("$base/search?q=${q.urlEncode()}&token=$apiKey") }
+                .getOrNull() ?: continue
+            val dto = runCatching { Http.json.decodeFromString<FinnhubSearchDto>(body) }.getOrNull() ?: continue
+            for (r in dto.result) {
+                // Don't filter by instrument type — that dropped ETFs/ETPs (FBTC) and warrants (GME.WS).
+                if (r.symbol.isNotBlank() && seen.add(r.symbol)) {
+                    out.add(SearchResult(r.symbol, r.description.ifBlank { r.symbol }, AssetType.STOCK))
+                }
+            }
+            if (out.size >= 25) break
+        }
+        return out.take(25)
     }
 }
 

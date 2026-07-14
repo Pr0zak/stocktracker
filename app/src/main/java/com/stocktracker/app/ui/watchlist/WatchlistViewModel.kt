@@ -7,6 +7,9 @@ import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.downsample
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -38,6 +41,10 @@ class WatchlistViewModel : ViewModel() {
 
     private var currentAssets: List<Asset> = emptyList()
 
+    // Bumped whenever the desired list changes; a load whose generation is stale won't emit,
+    // so an in-flight refresh can't re-add a just-removed row.
+    private var loadGeneration = 0
+
     init {
         viewModelScope.launch {
             // Reload when the watchlist OR the Finnhub key changes (adding a key should immediately
@@ -60,39 +67,48 @@ class WatchlistViewModel : ViewModel() {
     }
 
     fun remove(asset: Asset) {
+        // Drop it from the UI immediately — don't wait for the DataStore write + quote refetch —
+        // and invalidate any in-flight load so it can't re-add the row.
+        loadGeneration++
+        _state.update { it.copy(items = it.items.filterNot { i -> i.asset.id == asset.id }) }
         viewModelScope.launch { store.remove(asset) }
     }
 
     private class Fetched(val asset: Asset, val quote: Quote?, val cryptoSpark: List<Double>)
 
     private suspend fun loadQuotes(assets: List<Asset>) {
+        val gen = ++loadGeneration
         _state.update { it.copy(loading = true) }
         val markets = runCatching { repo.cryptoMarkets(assets) }.getOrDefault(emptyMap())
 
-        // Fetch + cache first...
-        val fetched = assets.map { asset ->
-            when (asset.type) {
-                AssetType.CRYPTO -> {
-                    val m = markets[asset.coinGeckoId]
-                    val quote = m?.let {
-                        Quote(
-                            symbol = asset.symbol,
-                            price = it.price,
-                            change = it.change,
-                            changePercent = it.changePercent,
-                            currency = "USD",
-                            asOfEpochMs = System.currentTimeMillis(),
-                        )
+        // Fetch + cache in parallel (sequential stock quotes + 429 backoff made refresh slow).
+        val fetched = coroutineScope {
+            assets.map { asset ->
+                async {
+                    when (asset.type) {
+                        AssetType.CRYPTO -> {
+                            val m = markets[asset.coinGeckoId]
+                            val quote = m?.let {
+                                Quote(
+                                    symbol = asset.symbol,
+                                    price = it.price,
+                                    change = it.change,
+                                    changePercent = it.changePercent,
+                                    currency = "USD",
+                                    asOfEpochMs = System.currentTimeMillis(),
+                                )
+                            }
+                            if (quote != null) cache.putQuote(asset.id, quote)
+                            Fetched(asset, quote, (m?.sparkline ?: emptyList()).downsample(40))
+                        }
+                        AssetType.STOCK -> {
+                            val fresh = runCatching { repo.quote(asset) }.getOrNull()
+                            if (fresh != null) cache.putQuote(asset.id, fresh)
+                            Fetched(asset, fresh, emptyList())
+                        }
                     }
-                    if (quote != null) cache.putQuote(asset.id, quote)
-                    Fetched(asset, quote, (m?.sparkline ?: emptyList()).downsample(40))
                 }
-                AssetType.STOCK -> {
-                    val fresh = runCatching { repo.quote(asset) }.getOrNull()
-                    if (fresh != null) cache.putQuote(asset.id, fresh)
-                    Fetched(asset, fresh, emptyList())
-                }
-            }
+            }.awaitAll()
         }
 
         // ...then read the cache maps ONCE (avoids O(N^2) full-map decodes).
@@ -106,6 +122,7 @@ class WatchlistViewModel : ViewModel() {
             }
             WatchlistItemUi(f.asset, quote, spark)
         }
+        if (gen != loadGeneration) return // superseded (e.g. by a remove) — don't clobber the UI
         _state.update { it.copy(items = items, loading = false) }
     }
 }

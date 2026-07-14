@@ -129,6 +129,7 @@ fun WatchlistScreen(
                     SwipeToDismissBox(
                         state = dismissState,
                         backgroundContent = { RemoveBackground() },
+                        modifier = Modifier.animateItem(),
                     ) {
                         AssetRow(
                             symbol = item.asset.symbol,

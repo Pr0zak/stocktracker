@@ -166,8 +166,7 @@ fun DetailScreen(
                 shares = state.shares,
                 alerts = state.alerts,
                 onSave = { newShares, newAlerts ->
-                    vm.setShares(newShares)
-                    vm.setAlerts(newAlerts)
+                    vm.saveHoldingsAndAlerts(newShares, newAlerts)
                     if (!newAlerts.isEmpty) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=

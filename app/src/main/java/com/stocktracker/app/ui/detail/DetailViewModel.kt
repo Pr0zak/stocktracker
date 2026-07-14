@@ -70,19 +70,14 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
         }
     }
 
-    /** Set owned shares (null clears). Adds the asset to the watchlist if it isn't already there. */
-    fun setShares(shares: Double?) {
+    /**
+     * Persist shares + alerts in a SINGLE write. (Two separate writes raced and clobbered each
+     * other's field, so shares appeared not to save.) Adds the asset to the watchlist if needed.
+     */
+    fun saveHoldingsAndAlerts(shares: Double?, alerts: AssetAlerts) {
         viewModelScope.launch {
             val base = store.snapshot().firstOrNull { it.id == asset.id } ?: asset
-            store.update(base.copy(shares = shares))
-        }
-    }
-
-    /** Set price/percent alert thresholds (empty clears). Adds the asset to the watchlist if needed. */
-    fun setAlerts(alerts: AssetAlerts) {
-        viewModelScope.launch {
-            val base = store.snapshot().firstOrNull { it.id == asset.id } ?: asset
-            store.update(base.copy(alerts = alerts.takeUnless { it.isEmpty }))
+            store.update(base.copy(shares = shares, alerts = alerts.takeUnless { it.isEmpty }))
         }
     }
 }

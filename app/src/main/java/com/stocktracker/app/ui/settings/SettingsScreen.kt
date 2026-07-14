@@ -42,6 +42,9 @@ import androidx.compose.ui.unit.dp
 import com.stocktracker.app.BuildConfig
 import com.stocktracker.app.data.prefs.ThemeMode
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.update.UpdateDialog
+import com.stocktracker.app.update.UpdateUiState
+import com.stocktracker.app.update.rememberUpdateController
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -147,6 +150,29 @@ fun SettingsScreen() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            Header("Updates")
+            val updater = rememberUpdateController()
+            Button(onClick = { updater.check() }) { Text("Check for updates") }
+            when (val us = updater.state) {
+                is UpdateUiState.Checking -> Text(
+                    "Checking…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                is UpdateUiState.UpToDate -> Text(
+                    "✓ You're on the latest version.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                is UpdateUiState.Error -> Text(
+                    us.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                else -> Unit
+            }
+            UpdateDialog(updater) // shows the Available/Downloading modal
 
             Header("About")
             Text("StockTracker v${BuildConfig.VERSION_NAME}")

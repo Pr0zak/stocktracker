@@ -49,11 +49,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.lifecycle.lifecycleScope
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.SearchResult
@@ -89,6 +92,7 @@ class WidgetConfigActivity : ComponentActivity() {
         setContent {
             StockTrackerTheme {
                 WidgetConfigScreen(
+                    appWidgetId = appWidgetId,
                     onCancel = { finish() },
                     onConfirm = ::confirm,
                 )
@@ -115,10 +119,22 @@ class WidgetConfigActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WidgetConfigScreen(
+    appWidgetId: Int,
     onCancel: () -> Unit,
     onConfirm: (TickerWidgetConfig) -> Unit,
 ) {
+    val context = LocalContext.current
     var config by remember { mutableStateOf(TickerWidgetConfig()) }
+    // When reconfiguring an existing widget, seed the form with its saved config.
+    LaunchedEffect(appWidgetId) {
+        runCatching {
+            val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
+            val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId)
+            if (prefs.contains(TickerWidgetState.CONFIG)) {
+                config = TickerWidgetState.readConfig(prefs)
+            }
+        }
+    }
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }

@@ -18,7 +18,10 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
   - Ticker detail with an area chart (1D–ALL) and key stats
   - Search + add stocks and crypto
   - Material You dynamic color, light/dark/system theme
+  - Finnhub API key editable in **Settings → Data** (no rebuild needed)
+  - **In-app updates**: checks GitHub Releases on launch (and on demand in Settings) and installs the new APK
 - Background refresh via WorkManager; last-known prices cached for offline display.
+- Ticker widgets are **reconfigurable** (long-press → reconfigure on Android 12+).
 
 ## Data sources (all free)
 
@@ -82,6 +85,13 @@ Cut a release:
 # bump VERSION, then:
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+## Updating
+
+The app checks `github.com/Pr0zak/stocktracker` releases on launch; if a newer `vX.Y.Z` exists it offers
+to download and install the attached APK (via the system installer — requires "install unknown apps",
+which Android prompts for once). You can also trigger it from **Settings → Updates → Check for updates**.
+In-app updates only install cleanly over builds signed with the same release key.
 
 ## Architecture
 

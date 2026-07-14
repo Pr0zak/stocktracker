@@ -13,6 +13,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -29,6 +30,8 @@ import com.stocktracker.app.ui.gallery.WidgetGalleryScreen
 import com.stocktracker.app.ui.search.AddTickerScreen
 import com.stocktracker.app.ui.settings.SettingsScreen
 import com.stocktracker.app.ui.watchlist.WatchlistScreen
+import com.stocktracker.app.update.UpdateDialog
+import com.stocktracker.app.update.rememberUpdateController
 
 private sealed class TopDest(val route: String, val label: String, val icon: ImageVector) {
     data object Watchlist : TopDest("watchlist", "Watchlist", Icons.Filled.ShowChart)
@@ -50,6 +53,11 @@ fun StockTrackerRoot() {
     val backStackEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = topDestinations.any { it.route == currentRoute }
+
+    // Launch-time update check (silent — only surfaces a dialog if a newer release exists).
+    val updater = rememberUpdateController()
+    LaunchedEffect(Unit) { updater.check(silent = true) }
+    UpdateDialog(updater)
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),

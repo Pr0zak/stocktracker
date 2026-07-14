@@ -51,8 +51,9 @@ class FinnhubService(private val keyProvider: () -> String) {
         val body = Http.getString("$base/search?q=${query.urlEncode()}&token=$apiKey")
         val dto = Http.json.decodeFromString<FinnhubSearchDto>(body)
         return dto.result
-            // Keep common stock (and untyped) results; this retains US class shares like BRK.B.
-            .filter { it.symbol.isNotBlank() && (it.type.isBlank() || it.type == "Common Stock") }
+            // Don't filter by instrument type — that dropped ETFs/ETPs (e.g. FBTC) and warrants
+            // (e.g. GME-WS). Keep any result with a symbol.
+            .filter { it.symbol.isNotBlank() }
             .map { SearchResult(it.symbol, it.description.ifBlank { it.symbol }, AssetType.STOCK) }
             .take(25)
     }

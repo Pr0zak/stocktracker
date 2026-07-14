@@ -2,6 +2,7 @@ package com.stocktracker.app.ui
 
 import android.net.Uri
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Widgets
@@ -27,6 +28,7 @@ import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.ui.detail.DetailScreen
 import com.stocktracker.app.ui.gallery.WidgetGalleryScreen
+import com.stocktracker.app.ui.portfolio.PortfolioScreen
 import com.stocktracker.app.ui.search.AddTickerScreen
 import com.stocktracker.app.ui.settings.SettingsScreen
 import com.stocktracker.app.ui.watchlist.WatchlistScreen
@@ -35,11 +37,12 @@ import com.stocktracker.app.update.rememberUpdateController
 
 private sealed class TopDest(val route: String, val label: String, val icon: ImageVector) {
     data object Watchlist : TopDest("watchlist", "Watchlist", Icons.Filled.ShowChart)
+    data object Portfolio : TopDest("portfolio", "Portfolio", Icons.Filled.PieChart)
     data object Widgets : TopDest("widgets", "Widgets", Icons.Filled.Widgets)
     data object Settings : TopDest("settings", "Settings", Icons.Filled.Settings)
 }
 
-private val topDestinations = listOf(TopDest.Watchlist, TopDest.Widgets, TopDest.Settings)
+private val topDestinations = listOf(TopDest.Watchlist, TopDest.Portfolio, TopDest.Widgets, TopDest.Settings)
 
 private fun detailRoute(asset: Asset): String {
     val name = Uri.encode(asset.displayName)
@@ -93,6 +96,7 @@ fun StockTrackerRoot() {
                     onAdd = { nav.navigate("add") },
                 )
             }
+            composable(TopDest.Portfolio.route) { PortfolioScreen() }
             composable(TopDest.Widgets.route) { WidgetGalleryScreen() }
             composable(TopDest.Settings.route) { SettingsScreen() }
             composable("add") { AddTickerScreen(onBack = { nav.popBackStack() }) }

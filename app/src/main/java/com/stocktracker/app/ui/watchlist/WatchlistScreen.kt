@@ -1,19 +1,15 @@
 package com.stocktracker.app.ui.watchlist
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,11 +19,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -42,6 +35,7 @@ import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.components.AssetRow
+import com.stocktracker.app.ui.components.SwipeToDeleteRow
 import com.stocktracker.app.util.Formatting
 
 private enum class Filter(val label: String) { ALL("All"), STOCKS("Stocks"), CRYPTO("Crypto") }
@@ -118,19 +112,14 @@ fun WatchlistScreen(
                 items(filtered, key = { it.asset.id }) { item ->
                     val q = item.quote
                     val up = q?.isUp ?: true
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { value ->
-                            if (value != SwipeToDismissBoxValue.Settled) {
-                                vm.remove(item.asset)
-                                true
-                            } else {
-                                false
-                            }
-                        },
-                    )
-                    SwipeToDismissBox(
-                        state = dismissState,
-                        backgroundContent = { RemoveBackground() },
+                    val shares = item.asset.shares
+                    val holdingsText = if (shares != null && shares > 0.0 && q != null) {
+                        "${Formatting.shares(shares)} sh · ${Formatting.price(shares * q.price, q.currency, hideZeroCents)}"
+                    } else {
+                        null
+                    }
+                    SwipeToDeleteRow(
+                        onDelete = { vm.remove(item.asset) },
                         modifier = Modifier.animateItem(),
                     ) {
                         AssetRow(
@@ -140,6 +129,7 @@ fun WatchlistScreen(
                             changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents) } ?: "…",
                             up = up,
                             sparkline = item.sparkline,
+                            holdingsText = holdingsText,
                             onClick = { onOpenDetail(item.asset) },
                         )
                     }
@@ -150,22 +140,5 @@ fun WatchlistScreen(
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
         }
-    }
-}
-
-@Composable
-private fun RemoveBackground() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(20.dp))
-            .padding(horizontal = 24.dp),
-        contentAlignment = Alignment.CenterEnd,
-    ) {
-        Icon(
-            Icons.Default.Delete,
-            contentDescription = "Remove",
-            tint = MaterialTheme.colorScheme.onErrorContainer,
-        )
     }
 }

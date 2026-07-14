@@ -3,6 +3,7 @@ package com.stocktracker.app.ui.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.Asset
+import com.stocktracker.app.data.model.AssetAlerts
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.di.ServiceLocator
@@ -18,6 +19,8 @@ data class DetailUiState(
     val range: ChartRange = ChartRange.MONTH,
     val loadingChart: Boolean = true,
     val inWatchlist: Boolean = false,
+    val shares: Double? = null,
+    val alerts: AssetAlerts = AssetAlerts(),
 )
 
 class DetailViewModel(private val asset: Asset) : ViewModel() {
@@ -31,7 +34,14 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     init {
         viewModelScope.launch {
             store.watchlist.collect { list ->
-                _state.update { it.copy(inWatchlist = list.any { a -> a.id == asset.id }) }
+                val stored = list.firstOrNull { it.id == asset.id }
+                _state.update {
+                    it.copy(
+                        inWatchlist = stored != null,
+                        shares = stored?.shares,
+                        alerts = stored?.alerts ?: AssetAlerts(),
+                    )
+                }
             }
         }
         loadQuote()
@@ -57,6 +67,22 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     fun toggleWatchlist() {
         viewModelScope.launch {
             if (_state.value.inWatchlist) store.remove(asset) else store.add(asset)
+        }
+    }
+
+    /** Set owned shares (null clears). Adds the asset to the watchlist if it isn't already there. */
+    fun setShares(shares: Double?) {
+        viewModelScope.launch {
+            val base = store.snapshot().firstOrNull { it.id == asset.id } ?: asset
+            store.update(base.copy(shares = shares))
+        }
+    }
+
+    /** Set price/percent alert thresholds (empty clears). Adds the asset to the watchlist if needed. */
+    fun setAlerts(alerts: AssetAlerts) {
+        viewModelScope.launch {
+            val base = store.snapshot().firstOrNull { it.id == asset.id } ?: asset
+            store.update(base.copy(alerts = alerts.takeUnless { it.isEmpty }))
         }
     }
 }

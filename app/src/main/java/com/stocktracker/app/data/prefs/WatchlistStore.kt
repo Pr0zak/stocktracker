@@ -37,6 +37,15 @@ class WatchlistStore(private val context: Context) {
         prefs[key] = encode(list)
     }
 
+    /** Replace the entry with the same id (used to set shares / alerts). Adds it if absent. */
+    suspend fun update(asset: Asset) = context.dataStore.edit { prefs ->
+        val cur = decode(prefs[key]) ?: DEFAULT
+        prefs[key] = encode(
+            if (cur.any { it.id == asset.id }) cur.map { if (it.id == asset.id) asset else it }
+            else cur + asset,
+        )
+    }
+
     private fun decode(raw: String?): List<Asset>? =
         raw?.let { runCatching { Http.json.decodeFromString<List<Asset>>(it) }.getOrNull() }
 

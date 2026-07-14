@@ -1,7 +1,6 @@
 package com.stocktracker.app.widget
 
 import android.content.Context
-import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -21,6 +20,7 @@ class WidgetRefreshWorker(
     override suspend fun doWork(): Result = try {
         WidgetRefresh.refreshAllTickers(applicationContext)
         WidgetRefresh.refreshWatchlist(applicationContext)
+        com.stocktracker.app.notify.AlertChecker.check(applicationContext)
         Result.success()
     } catch (e: Exception) {
         Result.retry()
@@ -52,15 +52,5 @@ object WidgetRefreshScheduler {
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork(ONE_SHOT_WORK, ExistingWorkPolicy.KEEP, request)
-    }
-
-    /** Cancel the periodic refresh only once no ticker or watchlist widgets remain. */
-    suspend fun cancelIfNoWidgets(context: Context) {
-        val manager = GlanceAppWidgetManager(context)
-        val tickers = manager.getGlanceIds(TickerWidget::class.java).size
-        val watchlists = manager.getGlanceIds(WatchlistWidget::class.java).size
-        if (tickers == 0 && watchlists == 0) {
-            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_WORK)
-        }
     }
 }

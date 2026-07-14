@@ -29,6 +29,7 @@ fun AssetRow(
     up: Boolean,
     sparkline: List<Double>,
     onClick: () -> Unit,
+    holdingsText: String? = null,
 ) {
     Card(
         onClick = onClick,
@@ -50,6 +51,14 @@ fun AssetRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
+                if (holdingsText != null) {
+                    Text(
+                        holdingsText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                }
             }
 
             if (sparkline.size >= 2) {

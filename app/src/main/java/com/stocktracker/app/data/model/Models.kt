@@ -12,6 +12,8 @@ data class Asset(
     val type: AssetType,
     val displayName: String,     // "Apple Inc.", "Bitcoin"
     val coinGeckoId: String? = null,
+    val shares: Double? = null,          // user-owned quantity (for position value)
+    val alerts: AssetAlerts? = null,     // price / percent threshold alerts
 ) {
     /**
      * Stable identity. Crypto is keyed by CoinGecko id (falling back to ticker) so distinct coins
@@ -21,6 +23,18 @@ data class Asset(
         AssetType.CRYPTO -> "CRYPTO:${coinGeckoId ?: symbol.uppercase()}"
         AssetType.STOCK -> "STOCK:${symbol.uppercase()}"
     }
+}
+
+/** Per-asset notification thresholds. Any field set to null is inactive. */
+@Serializable
+data class AssetAlerts(
+    val priceAbove: Double? = null,   // notify when price >= this
+    val priceBelow: Double? = null,   // notify when price <= this
+    val percentUp: Double? = null,    // notify when day change % >= this
+    val percentDown: Double? = null,  // notify when day change % <= -this
+) {
+    val isEmpty: Boolean
+        get() = priceAbove == null && priceBelow == null && percentUp == null && percentDown == null
 }
 
 /** A point-in-time price snapshot. */

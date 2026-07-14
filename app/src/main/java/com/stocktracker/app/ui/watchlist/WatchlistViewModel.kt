@@ -40,6 +40,7 @@ class WatchlistViewModel : ViewModel() {
     val state = _state.asStateFlow()
 
     private var currentAssets: List<Asset> = emptyList()
+    private var lastKey: String? = null
 
     // Bumped whenever the desired list changes; a load whose generation is stale won't emit,
     // so an in-flight refresh can't re-add a just-removed row.
@@ -54,10 +55,31 @@ class WatchlistViewModel : ViewModel() {
                 settings.finnhubApiKey.distinctUntilChanged(),
             ) { assets, key -> assets to key }
                 .collect { (assets, key) ->
+                    val keyChanged = key != lastKey
+                    lastKey = key
                     ServiceLocator.finnhubKeyOverride = key // ensure repo sees it before we fetch
                     currentAssets = assets
-                    _state.update { it.copy(stocksEnabled = repo.stocksEnabled) }
-                    loadQuotes(assets)
+
+                    // Removal (or shares/alerts edit that only drops/keeps existing ids) shouldn't
+                    // trigger a network refetch — reconcile the list instantly. Only fetch when new
+                    // tickers appear or the key changed.
+                    val newIds = assets.map { it.id }.toSet()
+                    val displayedIds = _state.value.items.map { it.asset.id }.toSet()
+                    val noNewTickers = !keyChanged && _state.value.items.isNotEmpty() && newIds.all { it in displayedIds }
+
+                    if (noNewTickers) {
+                        loadGeneration++ // invalidate any in-flight load
+                        _state.update { st ->
+                            st.copy(
+                                items = assets.mapNotNull { a -> st.items.firstOrNull { it.asset.id == a.id }?.copy(asset = a) },
+                                loading = false,
+                                stocksEnabled = repo.stocksEnabled,
+                            )
+                        }
+                    } else {
+                        _state.update { it.copy(stocksEnabled = repo.stocksEnabled) }
+                        loadQuotes(assets)
+                    }
                 }
         }
     }

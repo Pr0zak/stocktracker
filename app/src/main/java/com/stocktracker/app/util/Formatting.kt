@@ -24,6 +24,14 @@ object Formatting {
 
     fun arrow(up: Boolean): String = if (up) "▲" else "▼"
 
+    /** Share quantity without trailing zeros: 10.0 → "10", 2.5 → "2.5". */
+    fun shares(value: Double): String =
+        if (value % 1.0 == 0.0) {
+            String.format(Locale.US, "%,d", value.toLong())
+        } else {
+            String.format(Locale.US, "%,.4f", value).trimEnd('0').trimEnd('.')
+        }
+
     /** "▲ +2.71 (+1.20%)" */
     fun changeLine(change: Double, percent: Double, up: Boolean, hideZeroCents: Boolean = false): String =
         "${arrow(up)} ${change(change, hideZeroCents)} (${percent(percent)})"

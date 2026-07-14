@@ -95,14 +95,22 @@ fun SessionTimelineBar(state: MarketState, modifier: Modifier = Modifier) {
 
             Spacer(Modifier.height(8.dp))
 
-            // Tick times positioned near the segment boundaries.
+            // Tick times (in the device's timezone) positioned at their segment boundaries.
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val w = maxWidth
-                Tick("4:00a", 0.dp, muted)
-                Tick("9:30a", (w * preEnd - 16.dp), muted)
-                Tick("4:00p", (w * regEnd - 16.dp), muted)
-                Box(Modifier.fillMaxWidth()) {
-                    Text("8:00p", style = MaterialTheme.typography.labelSmall, color = muted, modifier = Modifier.align(Alignment.CenterEnd))
+                state.ticks.forEach { t ->
+                    when {
+                        t.fraction >= 1f -> Box(Modifier.fillMaxWidth()) {
+                            Text(t.label, style = MaterialTheme.typography.labelSmall, color = muted, modifier = Modifier.align(Alignment.CenterEnd))
+                        }
+                        t.fraction <= 0f -> Text(t.label, style = MaterialTheme.typography.labelSmall, color = muted)
+                        else -> Text(
+                            t.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = muted,
+                            modifier = Modifier.offset(x = (w * t.fraction - 16.dp)),
+                        )
+                    }
                 }
             }
 
@@ -115,16 +123,6 @@ fun SessionTimelineBar(state: MarketState, modifier: Modifier = Modifier) {
             }
         }
     }
-}
-
-@Composable
-private fun Tick(label: String, x: androidx.compose.ui.unit.Dp, color: Color) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelSmall,
-        color = color,
-        modifier = Modifier.offset(x = if (x < 0.dp) 0.dp else x),
-    )
 }
 
 @Composable

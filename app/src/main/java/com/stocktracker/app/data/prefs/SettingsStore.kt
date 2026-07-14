@@ -19,6 +19,7 @@ class SettingsStore(private val context: Context) {
     private val finnhubKeyKey = stringPreferencesKey("finnhub_api_key")
     private val hideZeroCentsKey = booleanPreferencesKey("hide_zero_cents")
     private val extendedHoursKey = booleanPreferencesKey("show_extended_hours")
+    private val marketStatusKey = booleanPreferencesKey("show_market_status")
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }
@@ -26,8 +27,11 @@ class SettingsStore(private val context: Context) {
     /** When true, whole-dollar prices are shown without a trailing ".00". */
     val hideZeroCents: Flow<Boolean> = context.dataStore.data.map { it[hideZeroCentsKey] ?: false }
 
-    /** When true, the 1D stock chart includes pre/post-market and marks it distinctly. */
+    /** When true, the 1D/1W stock chart includes pre/post-market and marks it distinctly. */
     val showExtendedHours: Flow<Boolean> = context.dataStore.data.map { it[extendedHoursKey] ?: false }
+
+    /** When true, the watchlist shows the market-session timeline at the top. */
+    val showMarketStatus: Flow<Boolean> = context.dataStore.data.map { it[marketStatusKey] ?: true }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: ThemeMode.SYSTEM.name) }.getOrDefault(ThemeMode.SYSTEM)
@@ -43,4 +47,5 @@ class SettingsStore(private val context: Context) {
     suspend fun setFinnhubApiKey(key: String) = context.dataStore.edit { it[finnhubKeyKey] = key.trim() }
     suspend fun setHideZeroCents(enabled: Boolean) = context.dataStore.edit { it[hideZeroCentsKey] = enabled }
     suspend fun setShowExtendedHours(enabled: Boolean) = context.dataStore.edit { it[extendedHoursKey] = enabled }
+    suspend fun setShowMarketStatus(enabled: Boolean) = context.dataStore.edit { it[marketStatusKey] = enabled }
 }

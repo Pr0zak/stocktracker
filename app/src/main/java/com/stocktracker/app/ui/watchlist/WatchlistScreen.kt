@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,8 +36,11 @@ import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.components.AssetRow
+import com.stocktracker.app.ui.components.SessionTimelineBar
 import com.stocktracker.app.ui.components.SwipeToDeleteRow
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.app.util.MarketClock
+import kotlinx.coroutines.delay
 
 private enum class Filter(val label: String) { ALL("All"), STOCKS("Stocks"), CRYPTO("Crypto") }
 
@@ -49,6 +53,13 @@ fun WatchlistScreen(
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsState()
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
+    val showMarketStatus by ServiceLocator.settingsStore.showMarketStatus.collectAsState(initial = true)
+    val marketState by produceState(initialValue = MarketClock.now()) {
+        while (true) {
+            value = MarketClock.now()
+            delay(60_000)
+        }
+    }
     var filter by remember { mutableStateOf(Filter.ALL) }
 
     Scaffold(
@@ -97,6 +108,10 @@ fun WatchlistScreen(
                             )
                         }
                     }
+                }
+
+                if (showMarketStatus) {
+                    item { SessionTimelineBar(marketState) }
                 }
 
                 if (!state.stocksEnabled) {

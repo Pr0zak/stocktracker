@@ -61,6 +61,7 @@ fun SettingsScreen() {
     val savedKey by settings.finnhubApiKey.collectAsState(initial = "")
     val hideZeroCents by settings.hideZeroCents.collectAsState(initial = false)
     val showExtendedHours by settings.showExtendedHours.collectAsState(initial = false)
+    val showMarketStatus by settings.showMarketStatus.collectAsState(initial = true)
     val stocksEnabled = savedKey.ifBlank { BuildConfig.FINNHUB_API_KEY }.isNotBlank()
 
     var keyField by remember { mutableStateOf<String?>(null) }
@@ -111,6 +112,19 @@ fun SettingsScreen() {
                             WidgetRefreshScheduler.refreshNow(context) // reflect on placed widgets
                         }
                     },
+                )
+            }
+
+            Header("Dashboard")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Show market session timeline")
+                Switch(
+                    checked = showMarketStatus,
+                    onCheckedChange = { scope.launch { settings.setShowMarketStatus(it) } },
                 )
             }
 

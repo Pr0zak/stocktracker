@@ -2,7 +2,6 @@ package com.stocktracker.app.data.remote
 
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 
@@ -22,7 +21,8 @@ class YahooFinanceService {
         includeExtended: Boolean = false,
     ): List<PricePoint> {
         val (r, interval) = params(range)
-        val prePost = includeExtended && range == ChartRange.DAY
+        // Pre/post-market is only meaningful (and returned) for the intraday views.
+        val prePost = includeExtended && (range == ChartRange.DAY || range == ChartRange.WEEK)
         val path = "v8/finance/chart/${symbol.uppercase()}?range=$r&interval=$interval&includePrePost=$prePost"
         val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
             .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
@@ -32,15 +32,22 @@ class YahooFinanceService {
         val timestamps = result.timestamp ?: return emptyList()
         val closes = result.indicators?.quote?.firstOrNull()?.close ?: return emptyList()
 
-        // Regular session window (epoch seconds) used to flag pre/post-market points on the 1D view.
-        val regular = result.meta?.currentTradingPeriod?.regular
-        val classify = prePost && regular != null && regular.start > 0 && regular.end > 0
+        // Classify each point by its time-of-day in the exchange timezone (gmtoffset). Regular
+        // session = 09:30–16:00; anything else within the returned data is pre/post-market. This
+        // works per-day, so extended hours are flagged correctly across the multi-day 1W view too.
+        val gmtOffset = result.meta?.gmtoffset
+        val classify = prePost && gmtOffset != null
 
         val out = ArrayList<PricePoint>(timestamps.size)
         for (i in timestamps.indices) {
             val close = closes.getOrNull(i) ?: continue // Yahoo pads gaps with null
             val tsSec = timestamps[i]
-            val extended = classify && (tsSec < regular!!.start || tsSec >= regular.end)
+            val extended = if (classify) {
+                val secOfDay = Math.floorMod(tsSec + gmtOffset!!, 86_400L)
+                secOfDay < REG_START_SEC || secOfDay >= REG_END_SEC
+            } else {
+                false
+            }
             out.add(PricePoint(tsSec * 1000L, close, extended))
         }
         return out
@@ -53,6 +60,11 @@ class YahooFinanceService {
         ChartRange.QUARTER -> "3mo" to "1d"
         ChartRange.YEAR -> "1y" to "1d"
         ChartRange.ALL -> "max" to "1wk"
+    }
+
+    private companion object {
+        const val REG_START_SEC = 9L * 3600 + 30 * 60 // 09:30
+        const val REG_END_SEC = 16L * 3600            // 16:00
     }
 }
 
@@ -70,15 +82,7 @@ data class YahooResult(
 )
 
 @Serializable
-data class YahooMeta(
-    @SerialName("currentTradingPeriod") val currentTradingPeriod: YahooCurrentTradingPeriod? = null,
-)
-
-@Serializable
-data class YahooCurrentTradingPeriod(val regular: YahooPeriod? = null)
-
-@Serializable
-data class YahooPeriod(val start: Long = 0, val end: Long = 0)
+data class YahooMeta(val gmtoffset: Long? = null)
 
 @Serializable
 data class YahooIndicators(val quote: List<YahooQuote>? = null)

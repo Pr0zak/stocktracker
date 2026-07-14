@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand palette (see TickerBubble design system) -->
+    <color name="brand_indigo">#B4A0FF</color>
+    <color name="gain_green">#4ADE80</color>
+    <color name="loss_red">#F87171</color>
+    <color name="surface_dark">#141318</color>
+    <color name="surface_light">#FEF7FF</color>
+
+    <!-- Window background (light default; overridden in values-night) -->
+    <color name="window_background">#FEF7FF</color>
+
+    <!-- Adaptive launcher icon background -->
+    <color name="ic_launcher_background">#141318</color>
+</resources>

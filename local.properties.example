@@ -1,0 +1,6 @@
+## Copy to local.properties and fill in. local.properties is gitignored.
+sdk.dir=/path/to/Android/Sdk
+
+## Finnhub free API key — register at https://finnhub.io/register
+## Used for live stock quotes + symbol search. Crypto (CoinGecko) needs no key.
+FINNHUB_API_KEY=your_finnhub_key_here

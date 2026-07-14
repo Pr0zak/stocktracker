@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      # No FINNHUB_API_KEY here on purpose: the debug APK is a public CI artifact, so it must not
+      # embed the key. Debug builds are crypto-only; the key is baked into signed releases instead.
+      - name: Assemble debug APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stocktracker-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

@@ -9,6 +9,7 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.downsample
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -29,6 +30,7 @@ class WatchlistViewModel : ViewModel() {
 
     private val repo = ServiceLocator.repository
     private val store = ServiceLocator.watchlistStore
+    private val settings = ServiceLocator.settingsStore
     private val cache = ServiceLocator.priceCache
 
     private val _state = MutableStateFlow(WatchlistUiState(stocksEnabled = repo.stocksEnabled))
@@ -38,12 +40,18 @@ class WatchlistViewModel : ViewModel() {
 
     init {
         viewModelScope.launch {
-            // distinctUntilChanged: the watchlist + settings share one DataStore, so a settings
-            // write would otherwise re-emit an identical list and pointlessly refetch quotes.
-            store.watchlist.distinctUntilChanged().collect { assets ->
-                currentAssets = assets
-                loadQuotes(assets)
-            }
+            // Reload when the watchlist OR the Finnhub key changes (adding a key should immediately
+            // start fetching stocks). distinctUntilChanged avoids reacting to unrelated settings.
+            combine(
+                store.watchlist.distinctUntilChanged(),
+                settings.finnhubApiKey.distinctUntilChanged(),
+            ) { assets, key -> assets to key }
+                .collect { (assets, key) ->
+                    ServiceLocator.finnhubKeyOverride = key // ensure repo sees it before we fetch
+                    currentAssets = assets
+                    _state.update { it.copy(stocksEnabled = repo.stocksEnabled) }
+                    loadQuotes(assets)
+                }
         }
     }
 

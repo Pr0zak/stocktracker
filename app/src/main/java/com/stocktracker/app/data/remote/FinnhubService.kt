@@ -11,9 +11,11 @@ import java.io.IOException
  * Finnhub free tier: live stock quotes + symbol search.
  * Note: the free tier no longer serves historical candles — stock charts use Stooq instead.
  */
-class FinnhubService(private val apiKey: String) {
+class FinnhubService(private val keyProvider: () -> String) {
 
     private val base = "https://finnhub.io/api/v1"
+
+    private val apiKey: String get() = keyProvider()
 
     val hasKey: Boolean get() = apiKey.isNotBlank()
 

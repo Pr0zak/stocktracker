@@ -16,6 +16,10 @@ class SettingsStore(private val context: Context) {
     private val themeKey = stringPreferencesKey("theme_mode")
     private val dynamicKey = booleanPreferencesKey("dynamic_color")
     private val refreshKey = intPreferencesKey("default_refresh_minutes")
+    private val finnhubKeyKey = stringPreferencesKey("finnhub_api_key")
+
+    /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
+    val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: ThemeMode.SYSTEM.name) }.getOrDefault(ThemeMode.SYSTEM)
@@ -28,4 +32,5 @@ class SettingsStore(private val context: Context) {
     suspend fun setThemeMode(mode: ThemeMode) = context.dataStore.edit { it[themeKey] = mode.name }
     suspend fun setDynamicColor(enabled: Boolean) = context.dataStore.edit { it[dynamicKey] = enabled }
     suspend fun setDefaultRefreshMinutes(minutes: Int) = context.dataStore.edit { it[refreshKey] = minutes }
+    suspend fun setFinnhubApiKey(key: String) = context.dataStore.edit { it[finnhubKeyKey] = key.trim() }
 }

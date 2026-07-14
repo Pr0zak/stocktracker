@@ -36,19 +36,20 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
 
 ## Setup
 
-1. Get a free Finnhub key at <https://finnhub.io/register>.
-2. Copy `local.properties.example` → `local.properties` and set:
+Get a free Finnhub key at <https://finnhub.io/register>. There are two ways to provide it:
+
+1. **In the app (recommended, no rebuild):** open **Settings → Data → Finnhub API key**, paste it, and
+   tap **Save key**. It's stored on-device (DataStore) and used immediately by the app and widgets.
+2. **At build time (optional fallback):** copy `local.properties.example` → `local.properties` and set
    ```properties
    sdk.dir=/path/to/Android/Sdk
    FINNHUB_API_KEY=your_finnhub_key_here
    ```
-   The key is injected into `BuildConfig.FINNHUB_API_KEY`. It is **never committed** (`local.properties`
-   is gitignored) and is **not** embedded in the public debug CI artifact. Without a key the app still
-   works for crypto; stocks are disabled.
+   This becomes `BuildConfig.FINNHUB_API_KEY`, used when no in-app key is set. It is **never committed**
+   (`local.properties` is gitignored) and is **not** embedded in the public debug CI artifact.
 
-   > Note: because this is a pure client app, the key **is** compiled into signed release APKs (that's
-   > how the shipped app talks to Finnhub). Treat the free Finnhub key as disposable and rotate it if
-   > abused. For zero client-side exposure you'd need a proxy backend — out of scope for v0.1.
+Without any key the app still works for crypto; stocks stay disabled until a key is provided. The
+in-app key always takes precedence over the build-time key.
 
 ## Build
 

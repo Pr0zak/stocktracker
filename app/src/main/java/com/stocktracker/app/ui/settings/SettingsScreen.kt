@@ -7,21 +7,37 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.BuildConfig
 import com.stocktracker.app.data.prefs.ThemeMode
@@ -36,6 +52,12 @@ fun SettingsScreen() {
     val theme by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
     val dynamic by settings.dynamicColor.collectAsState(initial = true)
     val refresh by settings.defaultRefreshMinutes.collectAsState(initial = 15)
+    val savedKey by settings.finnhubApiKey.collectAsState(initial = "")
+    val stocksEnabled = savedKey.ifBlank { BuildConfig.FINNHUB_API_KEY }.isNotBlank()
+
+    var keyField by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(savedKey) { if (keyField == null) keyField = savedKey }
+    var showKey by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Settings") }) },
@@ -85,6 +107,47 @@ fun SettingsScreen() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            Header("Data")
+            Text("Finnhub API key (for stock quotes)", style = MaterialTheme.typography.bodyMedium)
+            OutlinedTextField(
+                value = keyField ?: "",
+                onValueChange = { keyField = it },
+                label = { Text("Finnhub API key") },
+                singleLine = true,
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    IconButton(onClick = { showKey = !showKey }) {
+                        Icon(
+                            if (showKey) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = if (showKey) "Hide key" else "Show key",
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { scope.launch { settings.setFinnhubApiKey(keyField.orEmpty()) } }) {
+                    Text("Save key")
+                }
+                if (!savedKey.isNullOrBlank()) {
+                    TextButton(onClick = {
+                        keyField = ""
+                        scope.launch { settings.setFinnhubApiKey("") }
+                    }) { Text("Clear") }
+                }
+            }
+            Text(
+                if (stocksEnabled) "✓ Stock quotes enabled" else "Stock quotes disabled — add a key above",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (stocksEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            )
+            Text(
+                "Get a free key at finnhub.io/register. Stored on-device only. Crypto works without a key.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             Header("About")
             Text("StockTracker v${BuildConfig.VERSION_NAME}")
             Text(
@@ -92,13 +155,6 @@ fun SettingsScreen() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (!ServiceLocator.repository.stocksEnabled) {
-                Text(
-                    "No Finnhub API key configured — stock quotes are disabled. See the README.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
         }
     }
 }

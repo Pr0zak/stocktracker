@@ -86,7 +86,13 @@ fun PortfolioScreen() {
             ) {
                 when {
                     state.loadingChart -> CircularProgressIndicator()
-                    state.chart.size >= 2 -> PriceChart(points = state.chart, up = chartUp, modifier = Modifier.fillMaxSize())
+                    state.chart.size >= 2 -> PriceChart(
+                        points = state.chart,
+                        up = chartUp,
+                        modifier = Modifier.fillMaxSize(),
+                        valueFormatter = { Formatting.price(it, hideZeroCents = hideZeroCents) },
+                        timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL) },
+                    )
                     else -> Text(
                         "Not enough history yet",
                         style = MaterialTheme.typography.bodySmall,

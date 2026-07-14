@@ -62,6 +62,7 @@ fun SettingsScreen() {
     val hideZeroCents by settings.hideZeroCents.collectAsState(initial = false)
     val showExtendedHours by settings.showExtendedHours.collectAsState(initial = false)
     val showMarketStatus by settings.showMarketStatus.collectAsState(initial = true)
+    val showVolume by settings.showVolume.collectAsState(initial = false)
     val stocksEnabled = savedKey.ifBlank { BuildConfig.FINNHUB_API_KEY }.isNotBlank()
 
     var keyField by remember { mutableStateOf<String?>(null) }
@@ -138,6 +139,17 @@ fun SettingsScreen() {
                 Switch(
                     checked = showExtendedHours,
                     onCheckedChange = { scope.launch { settings.setShowExtendedHours(it) } },
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Show volume on chart")
+                Switch(
+                    checked = showVolume,
+                    onCheckedChange = { scope.launch { settings.setShowVolume(it) } },
                 )
             }
             Text(

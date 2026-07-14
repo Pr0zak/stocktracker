@@ -56,7 +56,12 @@ data class Quote(
 
 /** A single (time, price) sample for charts / sparklines. [extended] = pre/post-market. */
 @Serializable
-data class PricePoint(val epochMs: Long, val price: Double, val extended: Boolean = false)
+data class PricePoint(
+    val epochMs: Long,
+    val price: Double,
+    val extended: Boolean = false,
+    val volume: Double? = null,
+)
 
 /** Chart time ranges shown on the detail screen. */
 enum class ChartRange(val label: String) {

@@ -20,6 +20,7 @@ class SettingsStore(private val context: Context) {
     private val hideZeroCentsKey = booleanPreferencesKey("hide_zero_cents")
     private val extendedHoursKey = booleanPreferencesKey("show_extended_hours")
     private val marketStatusKey = booleanPreferencesKey("show_market_status")
+    private val showVolumeKey = booleanPreferencesKey("show_volume")
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }
@@ -32,6 +33,9 @@ class SettingsStore(private val context: Context) {
 
     /** When true, the watchlist shows the market-session timeline at the top. */
     val showMarketStatus: Flow<Boolean> = context.dataStore.data.map { it[marketStatusKey] ?: true }
+
+    /** When true, the detail chart overlays volume bars. */
+    val showVolume: Flow<Boolean> = context.dataStore.data.map { it[showVolumeKey] ?: false }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: ThemeMode.SYSTEM.name) }.getOrDefault(ThemeMode.SYSTEM)
@@ -48,4 +52,5 @@ class SettingsStore(private val context: Context) {
     suspend fun setHideZeroCents(enabled: Boolean) = context.dataStore.edit { it[hideZeroCentsKey] = enabled }
     suspend fun setShowExtendedHours(enabled: Boolean) = context.dataStore.edit { it[extendedHoursKey] = enabled }
     suspend fun setShowMarketStatus(enabled: Boolean) = context.dataStore.edit { it[marketStatusKey] = enabled }
+    suspend fun setShowVolume(enabled: Boolean) = context.dataStore.edit { it[showVolumeKey] = enabled }
 }

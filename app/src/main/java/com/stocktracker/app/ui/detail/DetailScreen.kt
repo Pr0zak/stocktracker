@@ -68,6 +68,7 @@ fun DetailScreen(
     val vm: DetailViewModel = viewModel(key = asset.id) { DetailViewModel(asset) }
     val state by vm.state.collectAsState()
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
+    val showVolume by ServiceLocator.settingsStore.showVolume.collectAsState(initial = false)
     val context = LocalContext.current
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val quote = state.quote
@@ -131,7 +132,14 @@ fun DetailScreen(
             ) {
                 when {
                     state.loadingChart -> CircularProgressIndicator()
-                    state.chart.size >= 2 -> PriceChart(points = state.chart, up = up, modifier = Modifier.fillMaxSize())
+                    state.chart.size >= 2 -> PriceChart(
+                        points = state.chart,
+                        up = up,
+                        modifier = Modifier.fillMaxSize(),
+                        showVolume = showVolume,
+                        valueFormatter = { Formatting.price(it, quote?.currency ?: "USD", hideZeroCents) },
+                        timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, state.range) },
+                    )
                     else -> Text(
                         "No chart data for this range",
                         style = MaterialTheme.typography.bodySmall,

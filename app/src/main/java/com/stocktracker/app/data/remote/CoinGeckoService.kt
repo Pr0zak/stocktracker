@@ -54,8 +54,9 @@ class CoinGeckoService {
     suspend fun history(coinId: String, days: String): List<PricePoint> {
         val url = "$base/coins/$coinId/market_chart?vs_currency=usd&days=$days"
         val dto = Http.json.decodeFromString<CoinGeckoChartDto>(Http.getString(url))
-        return dto.prices.mapNotNull {
-            if (it.size >= 2) PricePoint(it[0].toLong(), it[1]) else null
+        val vols = dto.totalVolumes
+        return dto.prices.mapIndexedNotNull { i, p ->
+            if (p.size >= 2) PricePoint(p[0].toLong(), p[1], volume = vols.getOrNull(i)?.getOrNull(1)) else null
         }
     }
 
@@ -88,6 +89,7 @@ data class CoinGeckoPriceDto(
 @Serializable
 data class CoinGeckoChartDto(
     val prices: List<List<Double>> = emptyList(),
+    @SerialName("total_volumes") val totalVolumes: List<List<Double>> = emptyList(),
 )
 
 @Serializable

@@ -24,6 +24,19 @@ object Formatting {
 
     fun arrow(up: Boolean): String = if (up) "▲" else "▼"
 
+    /** Large counts with a K/M/B/T suffix: 34554391 → "34.55M", 2.97e10 → "29.75B". */
+    fun compact(value: Double): String {
+        val a = abs(value)
+        val (scaled, suffix) = when {
+            a >= 1e12 -> value / 1e12 to "T"
+            a >= 1e9 -> value / 1e9 to "B"
+            a >= 1e6 -> value / 1e6 to "M"
+            a >= 1e3 -> value / 1e3 to "K"
+            else -> return String.format(Locale.US, "%,d", value.roundToLong())
+        }
+        return String.format(Locale.US, "%.2f", scaled) + suffix
+    }
+
     /** Share quantity without trailing zeros: 10.0 → "10", 2.5 → "2.5". */
     fun shares(value: Double): String =
         if (value % 1.0 == 0.0) {

@@ -50,6 +50,7 @@ data class Quote(
     val high: Double? = null,
     val low: Double? = null,
     val prevClose: Double? = null,
+    val volume: Double? = null,   // stocks: shares traded today; crypto: 24h USD volume
     val currency: String = "USD",
     val asOfEpochMs: Long = 0L,
 ) {

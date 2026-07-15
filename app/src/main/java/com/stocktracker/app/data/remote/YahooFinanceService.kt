@@ -115,6 +115,7 @@ class YahooFinanceService {
             high = meta.regularMarketDayHigh ?: q0?.high?.firstOrNull(),
             low = meta.regularMarketDayLow ?: q0?.low?.firstOrNull(),
             prevClose = prev,
+            volume = meta.regularMarketVolume?.toDouble(),
             currency = meta.currency ?: "USD",
             asOfEpochMs = System.currentTimeMillis(),
         )
@@ -182,6 +183,7 @@ data class YahooMeta(
     val chartPreviousClose: Double? = null,
     val regularMarketDayHigh: Double? = null,
     val regularMarketDayLow: Double? = null,
+    val regularMarketVolume: Long? = null,
     val currency: String? = null,
 )
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,6 +79,8 @@ fun PriceChart(
     modifier: Modifier = Modifier,
     showVolume: Boolean = false,
     showHighLow: Boolean = false,
+    showReadout: Boolean = true,
+    onScrubChange: (PricePoint?) -> Unit = {},
     valueFormatter: (Double) -> String = { it.toString() },
     timeFormatter: (Long) -> String = { "" },
 ) {
@@ -91,18 +94,23 @@ fun PriceChart(
     val labelStyle = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = onSurface)
 
     var selected by remember(points) { mutableStateOf<Int?>(null) }
+    // Report the scrubbed point up so callers (e.g. the detail header) can react.
+    LaunchedEffect(selected, points) { onScrubChange(selected?.let { points.getOrNull(it) }) }
 
     Column(modifier) {
         // Scrub readout — fixed height so the chart doesn't jump when it appears.
-        Box(Modifier.fillMaxWidth().height(20.dp)) {
-            val i = selected
-            if (i != null && i in points.indices) {
-                Text(
-                    "${valueFormatter(points[i].price)}   ${timeFormatter(points[i].epochMs)}",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
-                    color = onSurface,
-                )
+        // Hidden when a caller owns the readout (showReadout = false).
+        if (showReadout) {
+            Box(Modifier.fillMaxWidth().height(20.dp)) {
+                val i = selected
+                if (i != null && i in points.indices) {
+                    Text(
+                        "${valueFormatter(points[i].price)}   ${timeFormatter(points[i].epochMs)}",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = onSurface,
+                    )
+                }
             }
         }
 

@@ -31,4 +31,11 @@ class FormattingTest {
         assertEquals("10", Formatting.shares(10.0))
         assertEquals("2.5", Formatting.shares(2.5))
     }
+
+    @Test fun `compact volume uses K M B T suffixes`() {
+        assertEquals("34.55M", Formatting.compact(34_554_391.0))
+        assertEquals("29.75B", Formatting.compact(29_747_648_290.0))
+        assertEquals("1.20K", Formatting.compact(1200.0))
+        assertEquals("950", Formatting.compact(950.0))
+    }
 }

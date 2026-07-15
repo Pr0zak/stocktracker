@@ -15,7 +15,9 @@ class CoinGeckoService {
     private val base = "https://api.coingecko.com/api/v3"
 
     suspend fun quote(coinId: String, symbol: String): Quote {
-        val body = Http.getString("$base/simple/price?ids=$coinId&vs_currencies=usd&include_24hr_change=true")
+        val body = Http.getString(
+            "$base/simple/price?ids=$coinId&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true"
+        )
         val map = Http.json.decodeFromString<Map<String, CoinGeckoPriceDto>>(body)
         val d = map[coinId] ?: throw IOException("No CoinGecko price for '$coinId'")
         val price = d.usd
@@ -27,6 +29,7 @@ class CoinGeckoService {
             change = price - prev,
             changePercent = pct,
             prevClose = prev,
+            volume = d.usd24hVol,
             currency = "USD",
             asOfEpochMs = System.currentTimeMillis(),
         )
@@ -84,6 +87,7 @@ data class CoinMarket(
 data class CoinGeckoPriceDto(
     val usd: Double = 0.0,
     @SerialName("usd_24h_change") val usd24hChange: Double? = null,
+    @SerialName("usd_24h_vol") val usd24hVol: Double? = null,
 )
 
 @Serializable

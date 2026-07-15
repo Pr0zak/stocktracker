@@ -6,6 +6,8 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -51,9 +54,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetAlerts
+import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.ChartRange
+import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.components.FiftyTwoWeekRangeBar
 import com.stocktracker.app.ui.components.PriceChart
 import com.stocktracker.app.widget.WidgetRefreshScheduler
 import com.stocktracker.app.ui.theme.GainGreen
@@ -82,6 +88,9 @@ fun DetailScreen(
     val quote = state.quote
     val up = quote?.isUp ?: true
     var percentMode by remember { mutableStateOf(false) }
+    val isCrypto = asset.type == AssetType.CRYPTO
+    // The chart point currently under the scrub crosshair (null at rest); drives the header.
+    var scrubbed by remember(state.chart, percentMode) { mutableStateOf<PricePoint?>(null) }
 
     Scaffold(
         topBar = {
@@ -133,10 +142,26 @@ fun DetailScreen(
                 )
             }
 
+            val chartValueFormatter: (Double) -> String = {
+                if (percentMode) formatPercentChange(it)
+                else Formatting.price(it, quote?.currency ?: "USD", hideZeroCents)
+            }
+            val chartTimeFormatter: (Long) -> String = { com.stocktracker.app.util.formatChartTimestamp(it, state.range) }
+
+            // Scrub-synced stat header: Open/High/Low/Vol at rest, the crosshair reading while dragging.
+            ScrubStatHeader(
+                scrubbed = scrubbed,
+                quote = quote,
+                isCrypto = isCrypto,
+                hideZeroCents = hideZeroCents,
+                valueFormatter = chartValueFormatter,
+                timeFormatter = chartTimeFormatter,
+            )
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(220.dp),
+                    .height(210.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
@@ -149,11 +174,10 @@ fun DetailScreen(
                         modifier = Modifier.fillMaxSize(),
                         showVolume = showVolume,
                         showHighLow = true,
-                        valueFormatter = {
-                            if (percentMode) formatPercentChange(it)
-                            else Formatting.price(it, quote?.currency ?: "USD", hideZeroCents)
-                        },
-                        timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, state.range) },
+                        showReadout = false,
+                        onScrubChange = { scrubbed = it },
+                        valueFormatter = chartValueFormatter,
+                        timeFormatter = chartTimeFormatter,
                     )
                     else -> Text(
                         "No chart data for this range",
@@ -183,17 +207,18 @@ fun DetailScreen(
                 )
             }
 
-            Text("Statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            StatGrid(
-                rows = listOf(
-                    "Open" to fmt(quote?.open, hideZeroCents),
-                    "High" to fmt(quote?.high, hideZeroCents),
-                    "Low" to fmt(quote?.low, hideZeroCents),
-                    "Prev Close" to fmt(quote?.prevClose, hideZeroCents),
-                    "52W High" to fmt(state.fiftyTwoWeekHigh, hideZeroCents),
-                    "52W Low" to fmt(state.fiftyTwoWeekLow, hideZeroCents),
-                ),
-            )
+            val lo = state.fiftyTwoWeekLow
+            val hi = state.fiftyTwoWeekHigh
+            if (lo != null && hi != null && quote != null) {
+                FiftyTwoWeekRangeBar(
+                    low = lo,
+                    high = hi,
+                    current = quote.price,
+                    up = up,
+                    valueFormatter = { Formatting.price(it, quote.currency, hideZeroCents) },
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
 
             HoldingsAndAlertsSection(
                 quote = quote,
@@ -286,23 +311,63 @@ fun DetailScreen(
     }
 }
 
-private fun fmt(value: Double?, hideZeroCents: Boolean): String =
-    value?.let { Formatting.price(it, hideZeroCents = hideZeroCents) } ?: "—"
-
 @Composable
-private fun StatGrid(rows: List<Pair<String, String>>) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        rows.chunked(2).forEach { pair ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                pair.forEach { (label, value) ->
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(value, fontWeight = FontWeight.Medium)
-                    }
+private fun ScrubStatHeader(
+    scrubbed: PricePoint?,
+    quote: Quote?,
+    isCrypto: Boolean,
+    hideZeroCents: Boolean,
+    valueFormatter: (Double) -> String,
+    timeFormatter: (Long) -> String,
+) {
+    val fmtP = { v: Double? -> v?.let { Formatting.price(it, quote?.currency ?: "USD", hideZeroCents) } ?: "—" }
+    val volText = quote?.volume?.let { (if (isCrypto) "$" else "") + Formatting.compact(it) } ?: "—"
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        // Crypto has no intraday O/H/L, so show its meaningful pair instead of empty dashes.
+        val restStats = if (isCrypto) {
+            listOf("Prev Close" to fmtP(quote?.prevClose), "24h Vol" to volText)
+        } else {
+            listOf("Open" to fmtP(quote?.open), "High" to fmtP(quote?.high), "Low" to fmtP(quote?.low), "Volume" to volText)
+        }
+        Crossfade(targetState = scrubbed, label = "scrub") { s ->
+            if (s == null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (restStats.size >= 3) Arrangement.SpaceBetween else Arrangement.spacedBy(32.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    restStats.forEach { (label, value) -> StatMini(label, value) }
                 }
-                if (pair.size == 1) Box(Modifier.weight(1f))
+            } else {
+                Column {
+                    Text(
+                        valueFormatter(s.price),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        timeFormatter(s.epochMs),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun StatMini(label: String, value: String) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }
 

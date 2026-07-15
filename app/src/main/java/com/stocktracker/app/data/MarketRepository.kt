@@ -6,6 +6,7 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.model.SearchResult
+import com.stocktracker.app.data.model.VixQuote
 import com.stocktracker.app.data.remote.CoinGeckoService
 import com.stocktracker.app.data.remote.CoinMarket
 import com.stocktracker.app.data.remote.FinnhubService
@@ -77,6 +78,9 @@ class MarketRepository(
             }
         }
     }
+
+    /** Current market-volatility index (^VIX), for the dashboard fear gauge. Yahoo-only. */
+    suspend fun vix(): VixQuote? = cached("vix", QUOTE_TTL) { yahoo.vix() }
 
     suspend fun search(query: String): List<SearchResult> {
         if (query.isBlank()) return emptyList()

@@ -21,6 +21,7 @@ class SettingsStore(private val context: Context) {
     private val extendedHoursKey = booleanPreferencesKey("show_extended_hours")
     private val marketStatusKey = booleanPreferencesKey("show_market_status")
     private val showVolumeKey = booleanPreferencesKey("show_volume")
+    private val showVixKey = booleanPreferencesKey("show_vix")
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }
@@ -36,6 +37,9 @@ class SettingsStore(private val context: Context) {
 
     /** When true, the detail chart overlays volume bars. */
     val showVolume: Flow<Boolean> = context.dataStore.data.map { it[showVolumeKey] ?: false }
+
+    /** When true, the dashboard shows the VIX "market fear" gauge. */
+    val showVix: Flow<Boolean> = context.dataStore.data.map { it[showVixKey] ?: true }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: ThemeMode.SYSTEM.name) }.getOrDefault(ThemeMode.SYSTEM)
@@ -53,4 +57,5 @@ class SettingsStore(private val context: Context) {
     suspend fun setShowExtendedHours(enabled: Boolean) = context.dataStore.edit { it[extendedHoursKey] = enabled }
     suspend fun setShowMarketStatus(enabled: Boolean) = context.dataStore.edit { it[marketStatusKey] = enabled }
     suspend fun setShowVolume(enabled: Boolean) = context.dataStore.edit { it[showVolumeKey] = enabled }
+    suspend fun setShowVix(enabled: Boolean) = context.dataStore.edit { it[showVixKey] = enabled }
 }

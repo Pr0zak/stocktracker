@@ -2,6 +2,7 @@ package com.stocktracker.app.data.remote
 
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
+import com.stocktracker.app.data.model.VixQuote
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import java.time.Instant
@@ -24,7 +25,9 @@ class YahooFinanceService {
     ): List<PricePoint> {
         // Pre/post-market is only meaningful (and returned) for the intraday views.
         val prePost = includeExtended && (range == ChartRange.DAY || range == ChartRange.WEEK)
-        val path = "v8/finance/chart/${symbol.uppercase()}?${rangeParams(range)}&includePrePost=$prePost"
+        // Index tickers carry a caret (^VIX); pre-encode it so it survives URL construction.
+        val enc = symbol.uppercase().replace("^", "%5E")
+        val path = "v8/finance/chart/$enc?${rangeParams(range)}&includePrePost=$prePost"
         val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
             .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
 
@@ -83,6 +86,19 @@ class YahooFinanceService {
         return if (hi != null && lo != null) hi to lo else null
     }
 
+    /** Current CBOE Volatility Index (^VIX) with its change vs the prior close. */
+    suspend fun vix(): VixQuote? {
+        val path = "v8/finance/chart/%5EVIX?range=1d&interval=1d"
+        val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
+            .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
+        val meta = Http.json.decodeFromString<YahooChartResponse>(body).chart.result?.firstOrNull()?.meta
+        val value = meta?.regularMarketPrice ?: return null
+        val prev = meta.chartPreviousClose ?: meta.previousClose ?: value
+        val change = value - prev
+        val pct = if (prev != 0.0) change / prev * 100.0 else 0.0
+        return VixQuote(value = value, change = change, changePercent = pct)
+    }
+
     private companion object {
         const val REG_START_SEC = 9L * 3600 + 30 * 60 // 09:30
         const val REG_END_SEC = 16L * 3600            // 16:00
@@ -108,6 +124,9 @@ data class YahooMeta(
     val exchangeTimezoneName: String? = null,
     val fiftyTwoWeekHigh: Double? = null,
     val fiftyTwoWeekLow: Double? = null,
+    val regularMarketPrice: Double? = null,
+    val previousClose: Double? = null,
+    val chartPreviousClose: Double? = null,
 )
 
 @Serializable

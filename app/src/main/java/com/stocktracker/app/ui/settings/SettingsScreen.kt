@@ -62,6 +62,7 @@ fun SettingsScreen() {
     val hideZeroCents by settings.hideZeroCents.collectAsState(initial = false)
     val showExtendedHours by settings.showExtendedHours.collectAsState(initial = false)
     val showMarketStatus by settings.showMarketStatus.collectAsState(initial = true)
+    val showVix by settings.showVix.collectAsState(initial = true)
     val showVolume by settings.showVolume.collectAsState(initial = false)
     val stocksEnabled = savedKey.ifBlank { BuildConfig.FINNHUB_API_KEY }.isNotBlank()
 
@@ -126,6 +127,17 @@ fun SettingsScreen() {
                 Switch(
                     checked = showMarketStatus,
                     onCheckedChange = { scope.launch { settings.setShowMarketStatus(it) } },
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Show VIX fear gauge")
+                Switch(
+                    checked = showVix,
+                    onCheckedChange = { scope.launch { settings.setShowVix(it) } },
                 )
             }
 

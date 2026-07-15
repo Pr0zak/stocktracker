@@ -27,6 +27,7 @@ import androidx.navigation.navArgument
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.ui.detail.DetailScreen
+import com.stocktracker.app.ui.detail.VixDetailScreen
 import com.stocktracker.app.ui.gallery.WidgetGalleryScreen
 import com.stocktracker.app.ui.portfolio.PortfolioScreen
 import com.stocktracker.app.ui.search.AddTickerScreen
@@ -94,8 +95,10 @@ fun StockTrackerRoot() {
                 WatchlistScreen(
                     onOpenDetail = { nav.navigate(detailRoute(it)) },
                     onAdd = { nav.navigate("add") },
+                    onOpenVix = { nav.navigate("vix") },
                 )
             }
+            composable("vix") { VixDetailScreen(onBack = { nav.popBackStack() }) }
             composable(TopDest.Portfolio.route) { PortfolioScreen() }
             composable(TopDest.Widgets.route) { WidgetGalleryScreen() }
             composable(TopDest.Settings.route) { SettingsScreen() }

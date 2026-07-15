@@ -54,6 +54,30 @@ data class Quote(
     val isUp: Boolean get() = change >= 0.0
 }
 
+/** CBOE Volatility Index snapshot (^VIX). Higher = more expected volatility ("fear"). */
+data class VixQuote(
+    val value: Double,
+    val change: Double,
+    val changePercent: Double,
+) {
+    val zone: VixZone get() = VixZone.forValue(value)
+    /** VIX up = more fear (bad); down = calmer (good). Sentiment is inverted vs a normal ticker. */
+    val calmer: Boolean get() = change <= 0.0
+}
+
+/** Risk bands for the VIX fear gauge. [ceiling] is the band's exclusive upper bound. */
+enum class VixZone(val label: String, val ceiling: Double) {
+    CALM("Calm", 15.0),
+    NORMAL("Normal", 20.0),
+    ELEVATED("Elevated", 30.0),
+    HIGH("High", 40.0),
+    EXTREME("Extreme", Double.MAX_VALUE);
+
+    companion object {
+        fun forValue(v: Double): VixZone = entries.first { v < it.ceiling }
+    }
+}
+
 /** A single (time, price) sample for charts / sparklines. [extended] = pre/post-market. */
 @Serializable
 data class PricePoint(

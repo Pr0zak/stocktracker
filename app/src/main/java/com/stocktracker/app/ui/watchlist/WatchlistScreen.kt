@@ -34,8 +34,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
+import com.stocktracker.app.data.model.VixQuote
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.components.AssetRow
+import com.stocktracker.app.ui.components.FearGauge
 import com.stocktracker.app.ui.components.SessionTimelineBar
 import com.stocktracker.app.ui.components.SwipeToDeleteRow
 import com.stocktracker.app.util.Formatting
@@ -49,15 +51,23 @@ private enum class Filter(val label: String) { ALL("All"), STOCKS("Stocks"), CRY
 fun WatchlistScreen(
     onOpenDetail: (Asset) -> Unit,
     onAdd: () -> Unit,
+    onOpenVix: () -> Unit = {},
 ) {
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsState()
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
     val showMarketStatus by ServiceLocator.settingsStore.showMarketStatus.collectAsState(initial = true)
+    val showVix by ServiceLocator.settingsStore.showVix.collectAsState(initial = true)
     val marketState by produceState(initialValue = MarketClock.now()) {
         while (true) {
             value = MarketClock.now()
             delay(60_000)
+        }
+    }
+    val vix by produceState<VixQuote?>(initialValue = null) {
+        while (true) {
+            runCatching { ServiceLocator.repository.vix() }.getOrNull()?.let { value = it }
+            delay(120_000)
         }
     }
     var filter by remember { mutableStateOf(Filter.ALL) }
@@ -112,6 +122,10 @@ fun WatchlistScreen(
 
                 if (showMarketStatus) {
                     item { SessionTimelineBar(marketState) }
+                }
+
+                if (showVix) {
+                    vix?.let { v -> item { FearGauge(v, onClick = onOpenVix) } }
                 }
 
                 if (!state.stocksEnabled) {

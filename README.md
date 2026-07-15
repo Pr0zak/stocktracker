@@ -11,15 +11,17 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
 
 <table>
   <tr>
-    <td align="center" width="25%"><img src="docs/screenshots/watchlist.png" width="200" alt="Watchlist"></td>
-    <td align="center" width="25%"><img src="docs/screenshots/detail.png" width="200" alt="Ticker detail"></td>
-    <td align="center" width="25%"><img src="docs/screenshots/portfolio.png" width="200" alt="Portfolio"></td>
-    <td align="center" width="25%"><img src="docs/screenshots/widgets.png" width="200" alt="Widgets"></td>
+    <td align="center" width="20%"><img src="docs/screenshots/watchlist.png" width="160" alt="Watchlist"></td>
+    <td align="center" width="20%"><img src="docs/screenshots/detail.png" width="160" alt="Ticker detail"></td>
+    <td align="center" width="20%"><img src="docs/screenshots/portfolio.png" width="160" alt="Portfolio"></td>
+    <td align="center" width="20%"><img src="docs/screenshots/vix.png" width="160" alt="VIX fear gauge"></td>
+    <td align="center" width="20%"><img src="docs/screenshots/widgets.png" width="160" alt="Widgets"></td>
   </tr>
   <tr>
     <td align="center"><sub>Watchlist — crypto accented in amber, live sparklines, market-session timeline</sub></td>
     <td align="center"><sub>Detail — chart with high/low markers, 52-week stats, 1D–3Y ranges</sub></td>
     <td align="center"><sub>Portfolio — total value reconstructed over time</sub></td>
+    <td align="center"><sub>VIX "fear gauge" — tap through to the volatility history chart</sub></td>
     <td align="center"><sub>Widgets — pick a layout, drop it on your home screen</sub></td>
   </tr>
 </table>
@@ -36,6 +38,7 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
   - **Portfolio** tab: set shares owned per ticker to track total value, reconstructed over time
   - **Price alerts**: above/below thresholds fire Android notifications
   - Market-session timeline on the dashboard (pre-market / regular / after-hours) — holiday-aware and in your phone's timezone
+  - **VIX "fear gauge"** on the dashboard with inverse coloring + risk zones; tap through to the volatility history chart (toggle in Settings → Dashboard)
   - Search + add stocks, ETFs, and crypto
   - Material You dynamic color, light/dark/system theme
   - Finnhub API key editable in **Settings → Data** (no rebuild needed)

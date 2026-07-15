@@ -80,6 +80,7 @@ fun PriceChart(
     showVolume: Boolean = false,
     showHighLow: Boolean = false,
     showReadout: Boolean = true,
+    costLine: Double? = null,
     onScrubChange: (PricePoint?) -> Unit = {},
     valueFormatter: (Double) -> String = { it.toString() },
     timeFormatter: (Long) -> String = { "" },
@@ -135,8 +136,11 @@ fun PriceChart(
                 },
         ) {
             if (points.size < 2) return@Canvas
-            val min = points.minOf { it.price }
-            val max = points.maxOf { it.price }
+            val dataMin = points.minOf { it.price }
+            val dataMax = points.maxOf { it.price }
+            // Grow the y-range to include the cost line so it's always visible in context.
+            val min = if (costLine != null) minOf(dataMin, costLine) else dataMin
+            val max = if (costLine != null) maxOf(dataMax, costLine) else dataMax
             val range = (max - min).takeIf { it > 0.0 } ?: 1.0
             val stepX = size.width / (points.size - 1)
             fun x(i: Int) = i * stepX
@@ -197,6 +201,34 @@ fun PriceChart(
                     cap = StrokeCap.Round,
                     pathEffect = if (ext) dash else null,
                 )
+            }
+
+            // Cost-basis reference line — dashed line at the user's average cost / total invested.
+            if (costLine != null) {
+                val cy = y(costLine)
+                drawLine(
+                    color = muted.copy(alpha = 0.7f),
+                    start = Offset(0f, cy),
+                    end = Offset(size.width, cy),
+                    strokeWidth = 1.2.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),
+                )
+                val costLabel = textMeasurer.measure(
+                    "Cost " + valueFormatter(costLine),
+                    TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = muted),
+                )
+                val tw = costLabel.size.width.toFloat()
+                val th = costLabel.size.height.toFloat()
+                val lx = (size.width - tw - 3f).coerceAtLeast(0f)
+                var ly = cy - th - 3f
+                if (ly < 0f) ly = cy + 3f
+                drawRoundRect(
+                    color = surface.copy(alpha = 0.78f),
+                    topLeft = Offset(lx - 3f, ly - 1f),
+                    size = Size(tw + 6f, th + 2f),
+                    cornerRadius = CornerRadius(4f, 4f),
+                )
+                drawText(costLabel, topLeft = Offset(lx, ly))
             }
 
             // High / low markers — dot + value label at the extreme points.

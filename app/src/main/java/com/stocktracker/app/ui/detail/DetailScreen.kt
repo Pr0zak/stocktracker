@@ -175,6 +175,7 @@ fun DetailScreen(
                         showVolume = showVolume,
                         showHighLow = true,
                         showReadout = false,
+                        costLine = if (percentMode) null else state.avgCost?.takeIf { it > 0.0 },
                         onScrubChange = { scrubbed = it },
                         valueFormatter = chartValueFormatter,
                         timeFormatter = chartTimeFormatter,

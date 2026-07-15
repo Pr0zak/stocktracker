@@ -7,6 +7,23 @@ manage a watchlist and view charts. Each widget is a resizable "bubble" that tra
 Built with Kotlin, Jetpack Compose (Material 3 / Material You), and Jetpack Glance. Pure on-device —
 no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not committed).
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="25%"><img src="docs/screenshots/watchlist.png" width="200" alt="Watchlist"></td>
+    <td align="center" width="25%"><img src="docs/screenshots/detail.png" width="200" alt="Ticker detail"></td>
+    <td align="center" width="25%"><img src="docs/screenshots/portfolio.png" width="200" alt="Portfolio"></td>
+    <td align="center" width="25%"><img src="docs/screenshots/widgets.png" width="200" alt="Widgets"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Watchlist — crypto accented in amber, live sparklines, market-session timeline</sub></td>
+    <td align="center"><sub>Detail — chart with high/low markers, 52-week stats, 1D–3Y ranges</sub></td>
+    <td align="center"><sub>Portfolio — total value reconstructed over time</sub></td>
+    <td align="center"><sub>Widgets — pick a layout, drop it on your home screen</sub></td>
+  </tr>
+</table>
+
 ## Features
 
 - **Home-screen widgets** (Jetpack Glance)
@@ -14,9 +31,12 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
   - *Watchlist* — all tracked tickers in one tile
   - Per-widget config: ticker, show change %, show sparkline, show name, accent color, refresh interval
 - **App**
-  - Watchlist with live prices, colored change, and sparklines (filter All / Stocks / Crypto)
-  - Ticker detail with an area chart (1D–ALL) and key stats
-  - Search + add stocks and crypto
+  - Watchlist with live prices, colored change, and sparklines (filter All / Stocks / Crypto) — crypto is accented for quick visual separation
+  - Interactive ticker detail: drag-to-scrub area chart with high/low markers, optional volume, and 1D–3Y / ALL ranges; stats include 52-week high/low
+  - **Portfolio** tab: set shares owned per ticker to track total value, reconstructed over time
+  - **Price alerts**: above/below thresholds fire Android notifications
+  - Market-session timeline on the dashboard (pre-market / regular / after-hours) — holiday-aware and in your phone's timezone
+  - Search + add stocks, ETFs, and crypto
   - Material You dynamic color, light/dark/system theme
   - Finnhub API key editable in **Settings → Data** (no rebuild needed)
   - **In-app updates**: checks GitHub Releases on launch (and on demand in Settings) and installs the new APK
@@ -99,7 +119,7 @@ In-app updates only install cleanly over builds signed with the same release key
 app/src/main/java/com/stocktracker/app/
 ├── data/
 │   ├── model/          Asset, Quote, PricePoint, ChartRange, SearchResult
-│   ├── remote/         Finnhub / CoinGecko / Stooq services (OkHttp + kotlinx.serialization)
+│   ├── remote/         Finnhub / CoinGecko / Yahoo services (OkHttp + kotlinx.serialization)
 │   ├── prefs/          DataStore: watchlist, settings, price cache (no Room/annotation processors)
 │   └── MarketRepository combines the sources
 ├── di/                 ServiceLocator (tiny manual DI)

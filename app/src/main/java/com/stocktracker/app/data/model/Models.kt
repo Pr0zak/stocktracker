@@ -13,7 +13,9 @@ data class Asset(
     val displayName: String,     // "Apple Inc.", "Bitcoin"
     val coinGeckoId: String? = null,
     val shares: Double? = null,          // user-owned quantity (for position value)
+    val avgCost: Double? = null,         // average cost per share (for total return)
     val alerts: AssetAlerts? = null,     // price / percent threshold alerts
+    val groups: List<String> = emptyList(), // named watchlists this asset belongs to
 ) {
     /**
      * Stable identity. Crypto is keyed by CoinGecko id (falling back to ticker) so distinct coins

@@ -1,5 +1,6 @@
 package com.stocktracker.app.ui.watchlist
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,9 +9,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -18,10 +22,13 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,8 +50,13 @@ import com.stocktracker.app.ui.components.SwipeToDeleteRow
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.MarketClock
 import kotlinx.coroutines.delay
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
-private enum class Filter(val label: String) { ALL("All"), STOCKS("Stocks"), CRYPTO("Crypto") }
+// Built-in tabs; user-defined watchlist names extend the row after these.
+private const val TAB_ALL = "All"
+private const val TAB_STOCKS = "Stocks"
+private const val TAB_CRYPTO = "Crypto"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +70,7 @@ fun WatchlistScreen(
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
     val showMarketStatus by ServiceLocator.settingsStore.showMarketStatus.collectAsState(initial = true)
     val showVix by ServiceLocator.settingsStore.showVix.collectAsState(initial = true)
+    val groups by ServiceLocator.settingsStore.watchlistGroups.collectAsState(initial = emptyList())
     val marketState by produceState(initialValue = MarketClock.now()) {
         while (true) {
             value = MarketClock.now()
@@ -70,7 +83,26 @@ fun WatchlistScreen(
             delay(120_000)
         }
     }
-    var filter by remember { mutableStateOf(Filter.ALL) }
+    var selected by remember { mutableStateOf(TAB_ALL) }
+    // A deleted/emptied list shouldn't leave us stranded on a missing tab.
+    LaunchedEffect(groups) {
+        if (selected !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) && selected !in groups) selected = TAB_ALL
+    }
+    var showNewListDialog by remember { mutableStateOf(false) }
+    var newListName by remember { mutableStateOf("") }
+    var confirmDeleteGroup by remember { mutableStateOf<String?>(null) }
+
+    // Reorder is only meaningful in the unfiltered "All" view, where display order == stored order.
+    val reorderEnabled = selected == TAB_ALL
+    val lazyListState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        val fromId = from.key as? String
+        val toId = to.key as? String
+        if (fromId != null && toId != null) vm.moveLocal(fromId, toId)
+    }
+    LaunchedEffect(reorderState.isAnyItemDragging) {
+        if (!reorderState.isAnyItemDragging) vm.persistOrder()
+    }
 
     Scaffold(
         topBar = {
@@ -90,11 +122,12 @@ fun WatchlistScreen(
         },
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
     ) { innerPadding ->
-        val filtered = state.items.filter {
-            when (filter) {
-                Filter.ALL -> true
-                Filter.STOCKS -> it.asset.type == AssetType.STOCK
-                Filter.CRYPTO -> it.asset.type == AssetType.CRYPTO
+        val filtered = state.items.filter { item ->
+            when (selected) {
+                TAB_ALL -> true
+                TAB_STOCKS -> item.asset.type == AssetType.STOCK
+                TAB_CRYPTO -> item.asset.type == AssetType.CRYPTO
+                else -> item.asset.groups.contains(selected)
             }
         }
 
@@ -104,34 +137,56 @@ fun WatchlistScreen(
                 .padding(innerPadding),
         ) {
             LazyColumn(
+                state = lazyListState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Filter.entries.forEach { f ->
+                item(key = "hdr:tabs") {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        (listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) + groups).forEach { tab ->
                             FilterChip(
-                                selected = filter == f,
-                                onClick = { filter = f },
-                                label = { Text(f.label) },
+                                selected = selected == tab,
+                                onClick = { selected = tab },
+                                label = { Text(tab) },
                             )
                         }
+                        FilterChip(
+                            selected = false,
+                            onClick = { showNewListDialog = true },
+                            label = { Text("＋ List") },
+                        )
                     }
                 }
 
                 if (showMarketStatus) {
-                    item { SessionTimelineBar(marketState) }
+                    item(key = "hdr:timeline") { SessionTimelineBar(marketState) }
                 }
 
                 if (showVix) {
-                    vix?.let { v -> item { FearGauge(v, onClick = onOpenVix) } }
+                    vix?.let { v -> item(key = "hdr:vix") { FearGauge(v, onClick = onOpenVix) } }
                 }
 
-                if (!state.stocksEnabled) {
-                    item {
+                // Offer to delete the currently-selected user list.
+                if (selected !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO)) {
+                    item(key = "hdr:deletelist") {
+                        TextButton(onClick = { confirmDeleteGroup = selected }) {
+                            Text("Delete “$selected” list")
+                        }
+                    }
+                }
+
+                if (filtered.isEmpty() && !state.loading) {
+                    item(key = "hdr:empty") {
                         Text(
-                            "Add a Finnhub API key to enable live stock quotes (see README). Crypto works without a key.",
+                            when (selected) {
+                                TAB_ALL -> "No tickers yet — tap + to add one."
+                                TAB_STOCKS, TAB_CRYPTO -> "Nothing here yet."
+                                else -> "No tickers in this list. Open a ticker → Lists to add it."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -139,29 +194,33 @@ fun WatchlistScreen(
                 }
 
                 items(filtered, key = { it.asset.id }) { item ->
-                    val q = item.quote
-                    val up = q?.isUp ?: true
-                    val shares = item.asset.shares
-                    val holdingsText = if (shares != null && shares > 0.0 && q != null) {
-                        "${Formatting.shares(shares)} sh · ${Formatting.price(shares * q.price, q.currency, hideZeroCents)}"
-                    } else {
-                        null
-                    }
-                    SwipeToDeleteRow(
-                        onDelete = { vm.remove(item.asset) },
-                        modifier = Modifier.animateItem(),
-                    ) {
-                        AssetRow(
-                            symbol = item.asset.symbol,
-                            name = item.asset.displayName,
-                            priceText = q?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
-                            changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents) } ?: "…",
-                            up = up,
-                            sparkline = item.sparkline,
-                            holdingsText = holdingsText,
-                            isCrypto = item.asset.type == AssetType.CRYPTO,
-                            onClick = { onOpenDetail(item.asset) },
-                        )
+                    ReorderableItem(reorderState, key = item.asset.id) { _ ->
+                        val handleMod = if (reorderEnabled) Modifier.longPressDraggableHandle() else Modifier
+                        SwipeToDeleteRow(
+                            onDelete = { vm.remove(item.asset) },
+                        ) {
+                            val q = item.quote
+                            val up = q?.isUp ?: true
+                            val shares = item.asset.shares
+                            val holdingsText = if (shares != null && shares > 0.0 && q != null) {
+                                "${Formatting.shares(shares)} sh · ${Formatting.price(shares * q.price, q.currency, hideZeroCents)}"
+                            } else {
+                                null
+                            }
+                            Box(handleMod) {
+                                AssetRow(
+                                    symbol = item.asset.symbol,
+                                    name = item.asset.displayName,
+                                    priceText = q?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
+                                    changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents) } ?: "…",
+                                    up = up,
+                                    sparkline = item.sparkline,
+                                    holdingsText = holdingsText,
+                                    isCrypto = item.asset.type == AssetType.CRYPTO,
+                                    onClick = { onOpenDetail(item.asset) },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -170,5 +229,50 @@ fun WatchlistScreen(
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
         }
+    }
+
+    if (showNewListDialog) {
+        AlertDialog(
+            onDismissRequest = { showNewListDialog = false; newListName = "" },
+            title = { Text("New list") },
+            text = {
+                OutlinedTextField(
+                    value = newListName,
+                    onValueChange = { newListName = it },
+                    label = { Text("List name") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val name = newListName.trim()
+                    if (name.isNotEmpty()) {
+                        vm.createGroup(name)
+                        selected = name
+                    }
+                    showNewListDialog = false
+                    newListName = ""
+                }) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewListDialog = false; newListName = "" }) { Text("Cancel") }
+            },
+        )
+    }
+
+    confirmDeleteGroup?.let { name ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteGroup = null },
+            title = { Text("Delete list") },
+            text = { Text("Delete the “$name” list? Your tickers stay in the app; only this grouping is removed.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteGroup(name)
+                    if (selected == name) selected = TAB_ALL
+                    confirmDeleteGroup = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteGroup = null }) { Text("Cancel") } },
+        )
     }
 }

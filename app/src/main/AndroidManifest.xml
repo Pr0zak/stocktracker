@@ -67,6 +67,19 @@
                 android:resource="@xml/watchlist_widget_info" />
         </receiver>
 
+        <!-- Portfolio (total value) widget -->
+        <receiver
+            android:name=".widget.PortfolioWidgetReceiver"
+            android:exported="true"
+            android:label="@string/portfolio_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/portfolio_widget_info" />
+        </receiver>
+
         <!-- FileProvider for self-installing APK updates -->
         <provider
             android:name="androidx.core.content.FileProvider"

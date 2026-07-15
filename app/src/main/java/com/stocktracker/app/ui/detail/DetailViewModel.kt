@@ -10,6 +10,7 @@ import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -21,7 +22,9 @@ data class DetailUiState(
     val loadingChart: Boolean = true,
     val inWatchlist: Boolean = false,
     val shares: Double? = null,
+    val avgCost: Double? = null,
     val alerts: AssetAlerts = AssetAlerts(),
+    val groups: List<String> = emptyList(),
     val fiftyTwoWeekHigh: Double? = null,
     val fiftyTwoWeekLow: Double? = null,
 )
@@ -45,7 +48,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     it.copy(
                         inWatchlist = stored != null,
                         shares = stored?.shares,
+                        avgCost = stored?.avgCost,
                         alerts = stored?.alerts ?: AssetAlerts(),
+                        groups = stored?.groups ?: emptyList(),
                     )
                 }
             }
@@ -87,14 +92,41 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
         }
     }
 
+    /** Add/remove this asset from a named watchlist, ensuring it's on the watchlist first. */
+    fun toggleGroup(name: String) {
+        viewModelScope.launch {
+            val base = store.snapshot().firstOrNull { it.id == asset.id } ?: asset
+            val newGroups = if (base.groups.contains(name)) base.groups - name else base.groups + name
+            store.update(base.copy(groups = newGroups))
+        }
+    }
+
+    /** Create a new named watchlist and add this asset to it. */
+    fun createGroupAndAdd(name: String) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        viewModelScope.launch {
+            val existing = settings.watchlistGroups.first()
+            if (!existing.contains(clean)) settings.setWatchlistGroups(existing + clean)
+            val base = store.snapshot().firstOrNull { it.id == asset.id } ?: asset
+            if (!base.groups.contains(clean)) store.update(base.copy(groups = base.groups + clean))
+        }
+    }
+
     /**
      * Persist shares + alerts in a SINGLE write. (Two separate writes raced and clobbered each
      * other's field, so shares appeared not to save.) Adds the asset to the watchlist if needed.
      */
-    fun saveHoldingsAndAlerts(shares: Double?, alerts: AssetAlerts) {
+    fun saveHoldingsAndAlerts(shares: Double?, avgCost: Double?, alerts: AssetAlerts) {
         viewModelScope.launch {
             val base = store.snapshot().firstOrNull { it.id == asset.id } ?: asset
-            store.update(base.copy(shares = shares, alerts = alerts.takeUnless { it.isEmpty }))
+            store.update(
+                base.copy(
+                    shares = shares,
+                    avgCost = avgCost.takeIf { shares != null }, // cost only meaningful with shares
+                    alerts = alerts.takeUnless { it.isEmpty },
+                ),
+            )
         }
     }
 }

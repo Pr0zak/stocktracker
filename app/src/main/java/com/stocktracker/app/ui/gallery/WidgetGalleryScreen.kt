@@ -33,7 +33,7 @@ import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.widget.WidgetPinning
 
-private enum class WidgetKind { TICKER, WATCHLIST }
+private enum class WidgetKind { TICKER, WATCHLIST, PORTFOLIO }
 
 private data class GalleryEntry(
     val title: String,
@@ -58,6 +58,9 @@ fun WidgetGalleryScreen() {
         },
         GalleryEntry("Watchlist", "All your tracked tickers in one 4×2 tile.", WidgetKind.WATCHLIST) {
             WatchlistMock()
+        },
+        GalleryEntry("Portfolio", "Your total value + today's change.", WidgetKind.PORTFOLIO) {
+            PortfolioMock()
         },
     )
 
@@ -88,6 +91,7 @@ fun WidgetGalleryScreen() {
                     val ok = when (entry.kind) {
                         WidgetKind.TICKER -> WidgetPinning.requestPinTicker(context)
                         WidgetKind.WATCHLIST -> WidgetPinning.requestPinWatchlist(context)
+                        WidgetKind.PORTFOLIO -> WidgetPinning.requestPinPortfolio(context)
                     }
                     if (!ok) {
                         Toast.makeText(
@@ -164,6 +168,15 @@ private fun WatchlistMock() {
         MockRow("NVDA", "▲ +2.97%", GainGreen)
         MockRow("MSFT", "▲ +0.24%", GainGreen)
         MockRow("TSLA", "▼ -2.58%", LossRed)
+    }
+}
+
+@Composable
+private fun PortfolioMock() {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("Portfolio", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("$48,204", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Text("▲ +$612 (1.29%)", style = MaterialTheme.typography.bodySmall, color = GainGreen)
     }
 }
 

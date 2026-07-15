@@ -23,12 +23,20 @@ data class Holding(
     val price: Double,
     val value: Double,
     val dayChange: Double,
-)
+    val costBasis: Double? = null, // shares × avg cost, when the user entered a cost
+) {
+    val gain: Double? get() = costBasis?.let { value - it }
+    val gainPercent: Double? get() = costBasis?.takeIf { it != 0.0 }?.let { (value - it) / it * 100.0 }
+}
 
 data class PortfolioUiState(
     val totalValue: Double = 0.0,
     val dayChange: Double = 0.0,
     val dayChangePercent: Double = 0.0,
+    val totalCost: Double = 0.0,
+    val totalGain: Double = 0.0,
+    val totalGainPercent: Double = 0.0,
+    val hasCostBasis: Boolean = false,
     val holdings: List<Holding> = emptyList(),
     val chart: List<PricePoint> = emptyList(),
     val range: ChartRange = ChartRange.YEAR,
@@ -95,7 +103,8 @@ class PortfolioViewModel : ViewModel() {
         val rows = quotes.mapNotNull { (asset, q) ->
             if (q == null) null else {
                 val shares = asset.shares ?: 0.0
-                Holding(asset, shares, q.price, shares * q.price, shares * q.change)
+                val costBasis = asset.avgCost?.let { it * shares }
+                Holding(asset, shares, q.price, shares * q.price, shares * q.change, costBasis)
             }
         }.sortedByDescending { it.value }
 
@@ -103,8 +112,19 @@ class PortfolioViewModel : ViewModel() {
         val dayChange = rows.sumOf { it.dayChange }
         val prev = total - dayChange
         val pct = if (prev != 0.0) dayChange / prev * 100.0 else 0.0
+
+        // Total return counts only holdings the user gave a cost for.
+        val withCost = rows.filter { it.costBasis != null }
+        val totalCost = withCost.sumOf { it.costBasis ?: 0.0 }
+        val totalGain = withCost.sumOf { it.gain ?: 0.0 }
+        val gainPct = if (totalCost != 0.0) totalGain / totalCost * 100.0 else 0.0
+
         _state.update {
-            it.copy(holdings = rows, totalValue = total, dayChange = dayChange, dayChangePercent = pct, loading = false)
+            it.copy(
+                holdings = rows, totalValue = total, dayChange = dayChange, dayChangePercent = pct,
+                totalCost = totalCost, totalGain = totalGain, totalGainPercent = gainPct,
+                hasCostBasis = withCost.isNotEmpty(), loading = false,
+            )
         }
     }
 

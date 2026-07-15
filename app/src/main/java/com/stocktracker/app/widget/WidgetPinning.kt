@@ -16,6 +16,9 @@ object WidgetPinning {
     fun requestPinWatchlist(context: Context): Boolean =
         requestPin(context, WatchlistWidgetReceiver::class.java)
 
+    fun requestPinPortfolio(context: Context): Boolean =
+        requestPin(context, PortfolioWidgetReceiver::class.java)
+
     private fun requestPin(context: Context, receiver: Class<*>): Boolean {
         val manager = context.getSystemService(AppWidgetManager::class.java) ?: return false
         if (!manager.isRequestPinAppWidgetSupported) return false

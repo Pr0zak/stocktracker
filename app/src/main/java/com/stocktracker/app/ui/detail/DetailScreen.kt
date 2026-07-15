@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -58,6 +60,8 @@ import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceLarge
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.app.util.asPercentChange
+import com.stocktracker.app.util.formatPercentChange
 import com.stocktracker.app.widget.WidgetPinning
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,10 +74,14 @@ fun DetailScreen(
     val state by vm.state.collectAsState()
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
     val showVolume by ServiceLocator.settingsStore.showVolume.collectAsState(initial = false)
+    val allGroups by ServiceLocator.settingsStore.watchlistGroups.collectAsState(initial = emptyList())
+    var showNewListDialog by remember { mutableStateOf(false) }
+    var newListName by remember { mutableStateOf("") }
     val context = LocalContext.current
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val quote = state.quote
     val up = quote?.isUp ?: true
+    var percentMode by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -131,15 +139,20 @@ fun DetailScreen(
                     .height(220.dp),
                 contentAlignment = Alignment.Center,
             ) {
+                val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
+                val chartUp = if (percentMode) (chartPoints.lastOrNull()?.price ?: 0.0) >= 0.0 else up
                 when {
                     state.loadingChart -> CircularProgressIndicator()
                     state.chart.size >= 2 -> PriceChart(
-                        points = state.chart,
-                        up = up,
+                        points = chartPoints,
+                        up = chartUp,
                         modifier = Modifier.fillMaxSize(),
                         showVolume = showVolume,
                         showHighLow = true,
-                        valueFormatter = { Formatting.price(it, quote?.currency ?: "USD", hideZeroCents) },
+                        valueFormatter = {
+                            if (percentMode) formatPercentChange(it)
+                            else Formatting.price(it, quote?.currency ?: "USD", hideZeroCents)
+                        },
                         timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, state.range) },
                     )
                     else -> Text(
@@ -153,6 +166,7 @@ fun DetailScreen(
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 ChartRange.entries.forEach { range ->
                     FilterChip(
@@ -161,6 +175,12 @@ fun DetailScreen(
                         label = { Text(range.label) },
                     )
                 }
+                // Rebase the line to % change from the range start.
+                FilterChip(
+                    selected = percentMode,
+                    onClick = { percentMode = !percentMode },
+                    label = { Text(if (percentMode) "%" else "$") },
+                )
             }
 
             Text("Statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -179,9 +199,10 @@ fun DetailScreen(
                 quote = quote,
                 hideZeroCents = hideZeroCents,
                 shares = state.shares,
+                avgCost = state.avgCost,
                 alerts = state.alerts,
-                onSave = { newShares, newAlerts ->
-                    vm.saveHoldingsAndAlerts(newShares, newAlerts)
+                onSave = { newShares, newAvgCost, newAlerts ->
+                    vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
                     if (!newAlerts.isEmpty) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -194,6 +215,30 @@ fun DetailScreen(
                     Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
                 },
             )
+
+            Text(
+                "Lists",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                allGroups.forEach { g ->
+                    FilterChip(
+                        selected = state.groups.contains(g),
+                        onClick = { vm.toggleGroup(g) },
+                        label = { Text(g) },
+                    )
+                }
+                FilterChip(
+                    selected = false,
+                    onClick = { showNewListDialog = true },
+                    label = { Text("＋ New list") },
+                )
+            }
 
             Button(
                 onClick = {
@@ -211,6 +256,33 @@ fun DetailScreen(
                     .padding(vertical = 8.dp),
             ) { Text("Add Widget to Home Screen") }
         }
+    }
+
+    if (showNewListDialog) {
+        AlertDialog(
+            onDismissRequest = { showNewListDialog = false; newListName = "" },
+            title = { Text("New list") },
+            text = {
+                OutlinedTextField(
+                    value = newListName,
+                    onValueChange = { newListName = it },
+                    label = { Text("List name") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.createGroupAndAdd(newListName)
+                        showNewListDialog = false
+                        newListName = ""
+                    },
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewListDialog = false; newListName = "" }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -241,10 +313,12 @@ private fun HoldingsAndAlertsSection(
     quote: Quote?,
     hideZeroCents: Boolean,
     shares: Double?,
+    avgCost: Double?,
     alerts: AssetAlerts,
-    onSave: (Double?, AssetAlerts) -> Unit,
+    onSave: (Double?, Double?, AssetAlerts) -> Unit,
 ) {
     var sharesText by remember(shares) { mutableStateOf(shares?.let { numText(it) } ?: "") }
+    var costText by remember(avgCost) { mutableStateOf(avgCost?.let { numText(it) } ?: "") }
     var above by remember(alerts) { mutableStateOf(alerts.priceAbove?.let { numText(it) } ?: "") }
     var below by remember(alerts) { mutableStateOf(alerts.priceBelow?.let { numText(it) } ?: "") }
     var pctUp by remember(alerts) { mutableStateOf(alerts.percentUp?.let { numText(it) } ?: "") }
@@ -253,21 +327,42 @@ private fun HoldingsAndAlertsSection(
     val decimal = KeyboardOptions(keyboardType = KeyboardType.Decimal)
 
     Text("Holdings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    OutlinedTextField(
-        value = sharesText,
-        onValueChange = { sharesText = it },
-        label = { Text("Shares owned") },
-        singleLine = true,
-        keyboardOptions = decimal,
-        modifier = Modifier.fillMaxWidth(),
-    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = sharesText,
+            onValueChange = { sharesText = it },
+            label = { Text("Shares owned") },
+            singleLine = true,
+            keyboardOptions = decimal,
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = costText,
+            onValueChange = { costText = it },
+            label = { Text("Avg cost / sh") },
+            singleLine = true,
+            keyboardOptions = decimal,
+            modifier = Modifier.weight(1f),
+        )
+    }
     val sh = sharesText.toDoubleOrNull()
+    val cost = costText.toDoubleOrNull()
     if (sh != null && sh > 0.0 && quote != null) {
         Text(
             "Position value: ${Formatting.price(sh * quote.price, quote.currency, hideZeroCents)}",
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.primary,
         )
+        if (cost != null && cost > 0.0) {
+            val gain = sh * (quote.price - cost)
+            val gainPct = if (cost != 0.0) (quote.price - cost) / cost * 100.0 else 0.0
+            val gUp = gain >= 0.0
+            Text(
+                "Total return: ${Formatting.changeLine(gain, gainPct, gUp, hideZeroCents)}",
+                fontWeight = FontWeight.Medium,
+                color = if (gUp) GainGreen else LossRed,
+            )
+        }
     }
 
     Text(
@@ -294,6 +389,7 @@ private fun HoldingsAndAlertsSection(
         onClick = {
             onSave(
                 sharesText.toDoubleOrNull()?.takeIf { it > 0.0 },
+                costText.toDoubleOrNull()?.takeIf { it > 0.0 },
                 AssetAlerts(
                     priceAbove = above.toDoubleOrNull(),
                     priceBelow = below.toDoubleOrNull(),

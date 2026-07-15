@@ -1,5 +1,8 @@
 package com.stocktracker.app.ui.settings
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +21,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -41,6 +45,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.BuildConfig
+import com.stocktracker.app.data.BackupManager
 import com.stocktracker.app.data.prefs.ThemeMode
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.update.UpdateDialog
@@ -64,11 +69,27 @@ fun SettingsScreen() {
     val showMarketStatus by settings.showMarketStatus.collectAsState(initial = true)
     val showVix by settings.showVix.collectAsState(initial = true)
     val showVolume by settings.showVolume.collectAsState(initial = false)
-    val stocksEnabled = savedKey.ifBlank { BuildConfig.FINNHUB_API_KEY }.isNotBlank()
 
     var keyField by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedKey) { if (keyField == null) keyField = savedKey }
     var showKey by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val n = runCatching { BackupManager.exportTo(context, uri) }.getOrElse { -1 }
+            Toast.makeText(context, if (n >= 0) "Exported $n tickers" else "Export failed", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val n = runCatching { BackupManager.importFrom(context, uri) }.getOrElse { -1 }
+            Toast.makeText(context, if (n >= 0) "Imported $n tickers" else "Import failed", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Settings") }) },
@@ -188,7 +209,7 @@ fun SettingsScreen() {
             )
 
             Header("Data")
-            Text("Finnhub API key (for stock quotes)", style = MaterialTheme.typography.bodyMedium)
+            Text("Finnhub API key (optional)", style = MaterialTheme.typography.bodyMedium)
             OutlinedTextField(
                 value = keyField ?: "",
                 onValueChange = { keyField = it },
@@ -218,15 +239,24 @@ fun SettingsScreen() {
                 }
             }
             Text(
-                if (stocksEnabled) "✓ Stock quotes enabled" else "Stock quotes disabled — add a key above",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (stocksEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-            )
-            Text(
-                "Get a free key at finnhub.io/register. Stored on-device only. Crypto works without a key.",
+                "✓ Stocks & crypto work with no key (Yahoo + CoinGecko). A Finnhub key just adds an " +
+                    "extra search source. Stored on-device only.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            Header("Backup")
+            Text(
+                "Save your watchlist, holdings, cost, alerts, and lists to a file — or restore from one.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { exportLauncher.launch("stocktracker-backup.json") }) { Text("Export") }
+                OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) }) {
+                    Text("Import")
+                }
+            }
 
             Header("Updates")
             val updater = rememberUpdateController()
@@ -254,7 +284,7 @@ fun SettingsScreen() {
             Header("About")
             Text("StockTracker v${BuildConfig.VERSION_NAME}")
             Text(
-                "Stocks: Finnhub · Crypto: CoinGecko · Stock charts: Yahoo",
+                "Stocks: Yahoo · Crypto: CoinGecko · Search extra: Finnhub",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

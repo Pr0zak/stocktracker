@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -86,6 +87,51 @@ class WatchlistViewModel : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch { loadQuotes(currentAssets) }
+    }
+
+    // Set by a real drag; guards persistOrder() from firing on initial composition (which would
+    // otherwise write the still-empty list and wipe the watchlist).
+    private var pendingReorder = false
+
+    /** Drag-to-reorder (live): reorder the in-memory list only; [persistOrder] saves on drop. */
+    fun moveLocal(fromId: String, toId: String) {
+        val cur = _state.value.items
+        val fromIdx = cur.indexOfFirst { it.asset.id == fromId }
+        val toIdx = cur.indexOfFirst { it.asset.id == toId }
+        if (fromIdx < 0 || toIdx < 0 || fromIdx == toIdx) return
+        val newItems = cur.toMutableList().apply { add(toIdx, removeAt(fromIdx)) }
+        loadGeneration++ // don't let an in-flight fetch clobber the new order
+        _state.update { it.copy(items = newItems) }
+        currentAssets = newItems.map { it.asset }
+        pendingReorder = true
+    }
+
+    /** Persist the current row order — no-op unless a drag actually reordered the list. */
+    fun persistOrder() {
+        if (!pendingReorder) return
+        pendingReorder = false
+        val ordered = _state.value.items.map { it.asset }
+        if (ordered.isEmpty()) return
+        viewModelScope.launch { store.setAll(ordered) }
+    }
+
+    /** Create a new named watchlist. */
+    fun createGroup(name: String) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        viewModelScope.launch {
+            val cur = settings.watchlistGroups.first()
+            if (!cur.contains(clean)) settings.setWatchlistGroups(cur + clean)
+        }
+    }
+
+    /** Delete a named watchlist and strip it from every asset's membership. */
+    fun deleteGroup(name: String) {
+        viewModelScope.launch {
+            val cur = store.snapshot()
+            store.setAll(cur.map { if (it.groups.contains(name)) it.copy(groups = it.groups - name) else it })
+            settings.setWatchlistGroups(settings.watchlistGroups.first() - name)
+        }
     }
 
     fun remove(asset: Asset) {

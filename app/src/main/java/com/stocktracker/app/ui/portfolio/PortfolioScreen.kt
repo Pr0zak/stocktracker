@@ -21,6 +21,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +35,7 @@ import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceLarge
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.app.util.asPercentChange
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +43,7 @@ fun PortfolioScreen() {
     val vm: PortfolioViewModel = viewModel()
     val state by vm.state.collectAsState()
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
+    var percentMode by remember { mutableStateOf(false) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Portfolio") }) }) { padding ->
         Column(
@@ -76,9 +81,18 @@ fun PortfolioScreen() {
                 color = if (up) GainGreen else LossRed,
                 fontWeight = FontWeight.Medium,
             )
+            if (state.hasCostBasis) {
+                val gUp = state.totalGain >= 0
+                Text(
+                    text = "${Formatting.changeLine(state.totalGain, state.totalGainPercent, gUp, hideZeroCents)} total return",
+                    color = if (gUp) GainGreen else LossRed,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
 
             // Reconstructed value-over-time chart
-            val chartUp = state.chart.size >= 2 && state.chart.last().price >= state.chart.first().price
+            val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
+            val chartUp = chartPoints.size >= 2 && chartPoints.last().price >= chartPoints.first().price
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -88,11 +102,14 @@ fun PortfolioScreen() {
                 when {
                     state.loadingChart -> CircularProgressIndicator()
                     state.chart.size >= 2 -> PriceChart(
-                        points = state.chart,
+                        points = chartPoints,
                         up = chartUp,
                         modifier = Modifier.fillMaxSize(),
                         showHighLow = true,
-                        valueFormatter = { Formatting.price(it, hideZeroCents = hideZeroCents) },
+                        valueFormatter = {
+                            if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
+                            else Formatting.price(it, hideZeroCents = hideZeroCents)
+                        },
                         timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL) },
                     )
                     else -> Text(
@@ -106,6 +123,7 @@ fun PortfolioScreen() {
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 PORTFOLIO_RANGES.forEach { range ->
                     FilterChip(
@@ -114,6 +132,11 @@ fun PortfolioScreen() {
                         label = { Text(range.label) },
                     )
                 }
+                FilterChip(
+                    selected = percentMode,
+                    onClick = { percentMode = !percentMode },
+                    label = { Text(if (percentMode) "%" else "$") },
+                )
             }
             Text(
                 "History reflects your current share counts across the whole period.",
@@ -149,6 +172,14 @@ fun PortfolioScreen() {
                             style = MaterialTheme.typography.bodySmall,
                             color = if (hUp) GainGreen else LossRed,
                         )
+                        h.gainPercent?.let { gp ->
+                            val gUp = (h.gain ?: 0.0) >= 0
+                            Text(
+                                "${if (gUp) "▲" else "▼"} ${String.format(java.util.Locale.US, "%.1f", kotlin.math.abs(gp))}% total",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (gUp) GainGreen else LossRed,
+                            )
+                        }
                     }
                 }
             }

@@ -9,8 +9,10 @@
     <!-- Widgets -->
     <string name="ticker_widget_label">Ticker</string>
     <string name="watchlist_widget_label">Watchlist</string>
+    <string name="portfolio_widget_label">Portfolio</string>
     <string name="ticker_widget_description">A single stock or crypto price bubble.</string>
     <string name="watchlist_widget_description">A list of your tracked tickers.</string>
+    <string name="portfolio_widget_description">Your total portfolio value and today\'s change.</string>
     <string name="configure_widget">Configure Widget</string>
     <string name="add_to_home_screen">Add to Home Screen</string>
 

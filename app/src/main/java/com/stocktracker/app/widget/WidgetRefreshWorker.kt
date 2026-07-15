@@ -20,6 +20,7 @@ class WidgetRefreshWorker(
     override suspend fun doWork(): Result = try {
         WidgetRefresh.refreshAllTickers(applicationContext)
         WidgetRefresh.refreshWatchlist(applicationContext)
+        WidgetRefresh.refreshPortfolio(applicationContext)
         com.stocktracker.app.notify.AlertChecker.check(applicationContext)
         Result.success()
     } catch (e: Exception) {

@@ -1,8 +1,12 @@
 package com.stocktracker.app.data.remote
 
+import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
+import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.model.SearchResult
 import com.stocktracker.app.data.model.VixQuote
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import java.time.Instant
@@ -86,6 +90,55 @@ class YahooFinanceService {
         return if (hi != null && lo != null) hi to lo else null
     }
 
+    /**
+     * Live stock/ETF quote straight from Yahoo's chart meta — no API key, so this is the app's
+     * primary quote source (Finnhub is an optional fallback). Returns null if the symbol is unknown.
+     */
+    suspend fun quote(symbol: String): Quote? {
+        val enc = symbol.uppercase().replace("^", "%5E")
+        val path = "v8/finance/chart/$enc?range=1d&interval=1d"
+        val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
+            .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
+        val result = Http.json.decodeFromString<YahooChartResponse>(body).chart.result?.firstOrNull() ?: return null
+        val meta = result.meta ?: return null
+        val price = meta.regularMarketPrice ?: return null
+        val prev = meta.chartPreviousClose ?: meta.previousClose
+        val q0 = result.indicators?.quote?.firstOrNull()
+        val change = if (prev != null) price - prev else 0.0
+        val pct = if (prev != null && prev != 0.0) change / prev * 100.0 else 0.0
+        return Quote(
+            symbol = symbol.uppercase(),
+            price = price,
+            change = change,
+            changePercent = pct,
+            open = q0?.open?.firstOrNull(),
+            high = meta.regularMarketDayHigh ?: q0?.high?.firstOrNull(),
+            low = meta.regularMarketDayLow ?: q0?.low?.firstOrNull(),
+            prevClose = prev,
+            currency = meta.currency ?: "USD",
+            asOfEpochMs = System.currentTimeMillis(),
+        )
+    }
+
+    /** Symbol search (stocks + ETFs) — no API key. US listings only, foreign suffixes filtered out. */
+    suspend fun search(query: String): List<SearchResult> {
+        val url = "https://query1.finance.yahoo.com/v1/finance/search?q=${query.urlEncode()}&quotesCount=15&newsCount=0"
+        val body = runCatching { Http.getString(url) }
+            .getOrElse { Http.getString(url.replace("query1", "query2")) }
+        val dto = runCatching { Http.json.decodeFromString<YahooSearchResponse>(body) }.getOrNull() ?: return emptyList()
+        return dto.quotes.asSequence()
+            .filter { it.quoteType == "EQUITY" || it.quoteType == "ETF" }
+            .filter { it.symbol.isNotBlank() && '.' !in it.symbol } // '.' = foreign suffix (.F/.SW/.T)
+            .map {
+                SearchResult(
+                    symbol = it.symbol.uppercase(),
+                    name = it.longname ?: it.shortname ?: it.symbol,
+                    type = AssetType.STOCK,
+                )
+            }
+            .toList()
+    }
+
     /** Current CBOE Volatility Index (^VIX) with its change vs the prior close. */
     suspend fun vix(): VixQuote? {
         val path = "v8/finance/chart/%5EVIX?range=1d&interval=1d"
@@ -127,6 +180,9 @@ data class YahooMeta(
     val regularMarketPrice: Double? = null,
     val previousClose: Double? = null,
     val chartPreviousClose: Double? = null,
+    val regularMarketDayHigh: Double? = null,
+    val regularMarketDayLow: Double? = null,
+    val currency: String? = null,
 )
 
 @Serializable
@@ -136,4 +192,18 @@ data class YahooIndicators(val quote: List<YahooQuote>? = null)
 data class YahooQuote(
     val close: List<Double?>? = null,
     val volume: List<Long?>? = null,
+    val open: List<Double?>? = null,
+    val high: List<Double?>? = null,
+    val low: List<Double?>? = null,
+)
+
+@Serializable
+data class YahooSearchResponse(val quotes: List<YahooSearchQuote> = emptyList())
+
+@Serializable
+data class YahooSearchQuote(
+    val symbol: String = "",
+    val shortname: String? = null,
+    val longname: String? = null,
+    @SerialName("quoteType") val quoteType: String? = null,
 )

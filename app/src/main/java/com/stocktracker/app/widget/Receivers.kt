@@ -37,3 +37,18 @@ class WatchlistWidgetReceiver : GlanceAppWidgetReceiver() {
         WidgetRefreshScheduler.refreshNow(context)
     }
 }
+
+class PortfolioWidgetReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = PortfolioWidget()
+
+    override fun onEnabled(context: Context) {
+        super.onEnabled(context)
+        WidgetRefreshScheduler.ensureScheduled(context)
+        WidgetRefreshScheduler.refreshNow(context)
+    }
+
+    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+        super.onUpdate(context, appWidgetManager, appWidgetIds)
+        WidgetRefreshScheduler.refreshNow(context)
+    }
+}

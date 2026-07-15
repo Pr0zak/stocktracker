@@ -19,7 +19,8 @@ class MarketRepository(
     private val coinGecko: CoinGeckoService,
     private val yahoo: YahooFinanceService,
 ) {
-    val stocksEnabled: Boolean get() = finnhub.hasKey
+    // Stocks now work with no key (quotes + search come from Yahoo); Finnhub is an optional extra.
+    val stocksEnabled: Boolean get() = true
 
     // Short in-memory TTL cache: coalesces the watchlist + portfolio + widget calls that would
     // otherwise hammer the APIs (and hit 429 rate limits) when switching tabs / refreshing.
@@ -36,7 +37,10 @@ class MarketRepository(
 
     suspend fun quote(asset: Asset): Quote = cached("q:${asset.id}", QUOTE_TTL) {
         when (asset.type) {
-            AssetType.STOCK -> finnhub.quote(asset.symbol)
+            // Yahoo (no key) is primary; fall back to Finnhub only if a key is set and Yahoo missed.
+            AssetType.STOCK -> yahoo.quote(asset.symbol)
+                ?: if (finnhub.hasKey) finnhub.quote(asset.symbol)
+                else throw java.io.IOException("No quote for ${asset.symbol}")
             AssetType.CRYPTO -> coinGecko.quote(asset.coinGeckoId ?: asset.symbol.lowercase(), asset.symbol)
         }
     }
@@ -84,8 +88,13 @@ class MarketRepository(
 
     suspend fun search(query: String): List<SearchResult> {
         if (query.isBlank()) return emptyList()
-        val stocks = runCatching { if (finnhub.hasKey) finnhub.search(query) else emptyList() }
-            .getOrDefault(emptyList()).take(15)
+        // Yahoo needs no key; supplement with Finnhub (warrants/odd tickers) when a key is present.
+        val yahooHits = runCatching { yahoo.search(query) }.getOrDefault(emptyList())
+        val finnhubHits = runCatching { if (finnhub.hasKey) finnhub.search(query) else emptyList() }
+            .getOrDefault(emptyList())
+        val stocks = (yahooHits + finnhubHits)
+            .distinctBy { it.symbol.uppercase() }
+            .take(15)
         val crypto = runCatching { coinGecko.search(query) }.getOrDefault(emptyList()).take(15)
         return interleave(stocks, crypto)
     }

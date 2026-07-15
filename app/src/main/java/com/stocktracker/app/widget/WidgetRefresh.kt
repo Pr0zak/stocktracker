@@ -97,6 +97,48 @@ object WidgetRefresh {
         WatchlistWidget().updateAll(context)
     }
 
+    suspend fun refreshPortfolio(context: Context) {
+        val ids = GlanceAppWidgetManager(context).getGlanceIds(PortfolioWidget::class.java)
+        if (ids.isEmpty()) return
+        val held = ServiceLocator.watchlistStore.snapshot().filter { (it.shares ?: 0.0) > 0.0 }
+        val hideZeroCents = ServiceLocator.settingsStore.hideZeroCents.first()
+        try {
+            var total = 0.0
+            var day = 0.0
+            if (held.isNotEmpty()) {
+                val markets = runCatching { ServiceLocator.repository.cryptoMarkets(held) }.getOrDefault(emptyMap())
+                for (asset in held) {
+                    val shares = asset.shares ?: continue
+                    val (price, change) = when (asset.type) {
+                        AssetType.CRYPTO -> markets[asset.coinGeckoId]?.let { it.price to it.change } ?: continue
+                        AssetType.STOCK -> runCatching { ServiceLocator.repository.quote(asset) }
+                            .getOrNull()?.let { it.price to it.change } ?: continue
+                    }
+                    total += shares * price
+                    day += shares * change
+                }
+            }
+            val prev = total - day
+            val pct = if (prev != 0.0) day / prev * 100.0 else 0.0
+            val summary = PortfolioSummary(total, day, pct, held.size)
+            val json = Http.json.encodeToString(summary)
+            ids.forEach { id ->
+                updateAppWidgetState(context, id) { mutable ->
+                    mutable[PortfolioWidgetState.SUMMARY] = json
+                    mutable[PortfolioWidgetState.HIDE_ZERO_CENTS] = hideZeroCents
+                    mutable.remove(PortfolioWidgetState.ERROR)
+                }
+            }
+        } catch (e: Exception) {
+            ids.forEach { id ->
+                updateAppWidgetState(context, id) { mutable ->
+                    mutable[PortfolioWidgetState.ERROR] = "Couldn't load portfolio"
+                }
+            }
+        }
+        PortfolioWidget().updateAll(context)
+    }
+
     private suspend fun computeTickerSparkline(config: TickerWidgetConfig): List<Double> {
         val asset = config.toAsset()
         val raw = runCatching { ServiceLocator.repository.history(asset, ChartRange.DAY).map { it.price } }

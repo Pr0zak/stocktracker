@@ -37,7 +37,6 @@ data class PortfolioUiState(
     val totalGain: Double = 0.0,
     val totalGainPercent: Double = 0.0,
     val hasCostBasis: Boolean = false,
-    val costBasisComplete: Boolean = false,
     val holdings: List<Holding> = emptyList(),
     val chart: List<PricePoint> = emptyList(),
     val range: ChartRange = ChartRange.YEAR,
@@ -125,7 +124,6 @@ class PortfolioViewModel : ViewModel() {
                 holdings = rows, totalValue = total, dayChange = dayChange, dayChangePercent = pct,
                 totalCost = totalCost, totalGain = totalGain, totalGainPercent = gainPct,
                 hasCostBasis = withCost.isNotEmpty(),
-                costBasisComplete = rows.isNotEmpty() && withCost.size == rows.size,
                 loading = false,
             )
         }

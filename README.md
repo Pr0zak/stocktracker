@@ -11,37 +11,45 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
 
 <table>
   <tr>
-    <td align="center" width="20%"><img src="docs/screenshots/watchlist.png" width="160" alt="Watchlist"></td>
-    <td align="center" width="20%"><img src="docs/screenshots/detail.png" width="160" alt="Ticker detail"></td>
-    <td align="center" width="20%"><img src="docs/screenshots/portfolio.png" width="160" alt="Portfolio"></td>
-    <td align="center" width="20%"><img src="docs/screenshots/vix.png" width="160" alt="VIX fear gauge"></td>
-    <td align="center" width="20%"><img src="docs/screenshots/widgets.png" width="160" alt="Widgets"></td>
+    <td align="center" width="33%"><img src="docs/screenshots/watchlist.png" width="200" alt="Watchlist"></td>
+    <td align="center" width="33%"><img src="docs/screenshots/detail.png" width="200" alt="Ticker detail"></td>
+    <td align="center" width="33%"><img src="docs/screenshots/portfolio.png" width="200" alt="Portfolio"></td>
   </tr>
   <tr>
-    <td align="center"><sub>Watchlist — crypto accented in amber, live sparklines, market-session timeline</sub></td>
-    <td align="center"><sub>Detail — chart with high/low markers, 52-week stats, 1D–3Y ranges</sub></td>
-    <td align="center"><sub>Portfolio — total value reconstructed over time</sub></td>
+    <td align="center"><sub>Watchlist — live stock &amp; crypto prices (no key), named lists, market-session timeline + VIX gauge</sub></td>
+    <td align="center"><sub>Detail — shares &amp; average cost → total return, %/$ chart, high/low markers, 52-week stats</sub></td>
+    <td align="center"><sub>Portfolio — total value, day change, and total return; reconstructed over time</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/backup.png" width="200" alt="Backup"></td>
+    <td align="center"><img src="docs/screenshots/vix.png" width="200" alt="VIX fear gauge"></td>
+    <td align="center"><img src="docs/screenshots/widgets.png" width="200" alt="Widgets"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Backup — export/import your watchlist, holdings &amp; lists; no API key required</sub></td>
     <td align="center"><sub>VIX "fear gauge" — tap through to the volatility history chart</sub></td>
-    <td align="center"><sub>Widgets — pick a layout, drop it on your home screen</sub></td>
+    <td align="center"><sub>Widgets — single ticker, watchlist, or total-portfolio tile</sub></td>
   </tr>
 </table>
 
 ## Features
 
+- **No API key required** — stock quotes, search, and charts all come from Yahoo (crypto from CoinGecko). A Finnhub key is optional and only adds an extra search source.
 - **Home-screen widgets** (Jetpack Glance)
   - *Single ticker* — one stock or crypto, resizable 2×1 → 2×2 (shows a sparkline when larger)
   - *Watchlist* — all tracked tickers in one tile
+  - *Portfolio* — your total value + today's change in one tile
   - Per-widget config: ticker, show change %, show sparkline, show name, accent color, refresh interval
 - **App**
-  - Watchlist with live prices, colored change, and sparklines (filter All / Stocks / Crypto) — crypto is accented for quick visual separation
-  - Interactive ticker detail: drag-to-scrub area chart with high/low markers, optional volume, and 1D–3Y / ALL ranges; stats include 52-week high/low
-  - **Portfolio** tab: set shares owned per ticker to track total value, reconstructed over time
+  - Watchlist with live prices, colored change, and sparklines — crypto accented in amber; **create multiple named lists** and **drag to reorder**
+  - Interactive ticker detail: drag-to-scrub area chart with a **%/$ toggle** (rebase to percent change), high/low markers, optional volume, and 1D–3Y / ALL ranges; stats include 52-week high/low
+  - **Portfolio** tab: set **shares owned + average cost** per ticker to track total value and **total return** ($ and %), reconstructed over time
+  - **Backup & restore**: export your watchlist, holdings, cost, alerts, and lists to a JSON file and import it back (Settings → Backup)
   - **Price alerts**: above/below thresholds fire Android notifications
   - Market-session timeline on the dashboard (pre-market / regular / after-hours) — holiday-aware and in your phone's timezone
   - **VIX "fear gauge"** on the dashboard with inverse coloring + risk zones; tap through to the volatility history chart (toggle in Settings → Dashboard)
   - Search + add stocks, ETFs, and crypto
   - Material You dynamic color, light/dark/system theme
-  - Finnhub API key editable in **Settings → Data** (no rebuild needed)
   - **In-app updates**: checks GitHub Releases on launch (and on demand in Settings) and installs the new APK
 - Background refresh via WorkManager; last-known prices cached for offline display.
 - Ticker widgets are **reconfigurable** (long-press → reconfigure on Android 12+).
@@ -50,23 +58,26 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
 
 | Data | Source | Key needed |
 |------|--------|-----------|
-| Stock quotes + symbol search | [Finnhub](https://finnhub.io) | Free API key |
-| Crypto price, 24h change, 7d sparkline, charts | [CoinGecko](https://www.coingecko.com/en/api) | No |
-| Stock history + intraday charts | Yahoo Finance chart endpoint | No |
+| Stock quotes, history, intraday charts, symbol search, VIX | Yahoo Finance chart endpoint | No |
+| Crypto price, 24h change, 7d sparkline, charts, search | [CoinGecko](https://www.coingecko.com/en/api) | No |
+| Extra stock symbol search (warrants/odd tickers) | [Finnhub](https://finnhub.io) | Optional free key |
 
-> **Why Yahoo for stock charts?** Finnhub's free tier no longer serves historical candles. Stock
-> detail charts (and widget/watchlist stock sparklines) use Yahoo Finance's public `chart` endpoint,
-> which also provides intraday data (so 1D works). It is an **unofficial** endpoint and can change
-> without notice; failures degrade gracefully to an empty chart. Crypto charts/sparklines come from
-> CoinGecko. (Stooq was the original choice but now blocks non-browser clients behind a JS wall.)
+> **No key needed.** Stock quotes/charts/search come from Yahoo Finance's public `chart` and `search`
+> endpoints (which also provide intraday data, so 1D works, plus the `^VIX` index). They're
+> **unofficial** and can change without notice; failures degrade gracefully to an empty chart. Crypto
+> comes from CoinGecko. A [Finnhub](https://finnhub.io) key is entirely optional — it only supplements
+> symbol search for hard-to-find tickers (warrants, some class shares).
 
 ## Setup
 
-Get a free Finnhub key at <https://finnhub.io/register>. There are two ways to provide it:
+**None required** — install the APK and it works: stocks and crypto both load with no API key.
 
-1. **In the app (recommended, no rebuild):** open **Settings → Data → Finnhub API key**, paste it, and
-   tap **Save key**. It's stored on-device (DataStore) and used immediately by the app and widgets.
-2. **At build time (optional fallback):** copy `local.properties.example` → `local.properties` and set
+A [Finnhub](https://finnhub.io/register) key is entirely optional (it only adds an extra symbol-search
+source). If you want one, either:
+
+1. **In the app:** **Settings → Data → Finnhub API key**, paste it, tap **Save key**. Stored on-device
+   (DataStore).
+2. **At build time:** copy `local.properties.example` → `local.properties` and set
    ```properties
    sdk.dir=/path/to/Android/Sdk
    FINNHUB_API_KEY=your_finnhub_key_here

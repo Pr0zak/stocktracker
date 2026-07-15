@@ -17,7 +17,7 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
   </tr>
   <tr>
     <td align="center"><sub>Watchlist — live stock &amp; crypto prices (no key), named lists, market-session timeline + VIX gauge</sub></td>
-    <td align="center"><sub>Detail — shares &amp; average cost → total return, %/$ chart, high/low markers, 52-week stats</sub></td>
+    <td align="center"><sub>Detail — stat strip that morphs into the scrub reading, 52-week range bar, %/$ chart, high/low markers</sub></td>
     <td align="center"><sub>Portfolio — total value, day change, and total return; reconstructed over time</sub></td>
   </tr>
   <tr>
@@ -42,7 +42,7 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
   - Per-widget config: ticker, show change %, show sparkline, show name, accent color, refresh interval
 - **App**
   - Watchlist with live prices, colored change, and sparklines — crypto accented in amber; **create multiple named lists** and **drag to reorder**
-  - Interactive ticker detail: drag-to-scrub area chart with a **%/$ toggle** (rebase to percent change), high/low markers, optional volume, and 1D–3Y / ALL ranges; stats include 52-week high/low
+  - Interactive ticker detail: drag-to-scrub area chart with a **%/$ toggle** (rebase to percent change), high/low markers, optional volume, and 1D–3Y / ALL ranges. Stats read at a glance — a header strip (Open / High / Low / Volume) that **morphs into the scrub reading** as you drag, plus a **52-week range bar** showing where today sits in its year
   - **Portfolio** tab: set **shares owned + average cost** per ticker to track total value and **total return** ($ and %), reconstructed over time
   - **Backup & restore**: export your watchlist, holdings, cost, alerts, and lists to a JSON file and import it back (Settings → Backup)
   - **Price alerts**: above/below thresholds fire Android notifications

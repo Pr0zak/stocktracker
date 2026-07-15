@@ -145,6 +145,7 @@ fun WatchlistScreen(
                             up = up,
                             sparkline = item.sparkline,
                             holdingsText = holdingsText,
+                            isCrypto = item.asset.type == AssetType.CRYPTO,
                             onClick = { onOpenDetail(item.asset) },
                         )
                     }

@@ -65,7 +65,7 @@ data class PricePoint(
 
 /** Chart time ranges shown on the detail screen. */
 enum class ChartRange(val label: String) {
-    DAY("1D"), WEEK("1W"), MONTH("1M"), QUARTER("3M"), YEAR("1Y"), ALL("ALL")
+    DAY("1D"), WEEK("1W"), MONTH("1M"), QUARTER("3M"), YEAR("1Y"), THREE_YEAR("3Y"), ALL("ALL")
 }
 
 /** A symbol-search hit from Finnhub (stocks) or CoinGecko (crypto). */

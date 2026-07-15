@@ -38,7 +38,7 @@ data class PortfolioUiState(
 )
 
 /** Ranges offered for the portfolio value graph (daily data). */
-val PORTFOLIO_RANGES = listOf(ChartRange.MONTH, ChartRange.QUARTER, ChartRange.YEAR, ChartRange.ALL)
+val PORTFOLIO_RANGES = listOf(ChartRange.MONTH, ChartRange.QUARTER, ChartRange.YEAR, ChartRange.THREE_YEAR, ChartRange.ALL)
 
 class PortfolioViewModel : ViewModel() {
 

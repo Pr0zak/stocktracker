@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -137,6 +138,7 @@ fun DetailScreen(
                         up = up,
                         modifier = Modifier.fillMaxSize(),
                         showVolume = showVolume,
+                        showHighLow = true,
                         valueFormatter = { Formatting.price(it, quote?.currency ?: "USD", hideZeroCents) },
                         timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, state.range) },
                     )
@@ -148,7 +150,10 @@ fun DetailScreen(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 ChartRange.entries.forEach { range ->
                     FilterChip(
                         selected = state.range == range,
@@ -165,6 +170,8 @@ fun DetailScreen(
                     "High" to fmt(quote?.high, hideZeroCents),
                     "Low" to fmt(quote?.low, hideZeroCents),
                     "Prev Close" to fmt(quote?.prevClose, hideZeroCents),
+                    "52W High" to fmt(state.fiftyTwoWeekHigh, hideZeroCents),
+                    "52W Low" to fmt(state.fiftyTwoWeekLow, hideZeroCents),
                 ),
             )
 

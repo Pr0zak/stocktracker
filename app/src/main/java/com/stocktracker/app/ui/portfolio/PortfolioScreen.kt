@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -90,6 +91,7 @@ fun PortfolioScreen() {
                         points = state.chart,
                         up = chartUp,
                         modifier = Modifier.fillMaxSize(),
+                        showHighLow = true,
                         valueFormatter = { Formatting.price(it, hideZeroCents = hideZeroCents) },
                         timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL) },
                     )
@@ -101,7 +103,10 @@ fun PortfolioScreen() {
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 PORTFOLIO_RANGES.forEach { range ->
                     FilterChip(
                         selected = state.range == range,

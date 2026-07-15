@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -25,8 +26,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
@@ -72,14 +77,18 @@ fun PriceChart(
     up: Boolean,
     modifier: Modifier = Modifier,
     showVolume: Boolean = false,
+    showHighLow: Boolean = false,
     valueFormatter: (Double) -> String = { it.toString() },
     timeFormatter: (Long) -> String = { "" },
 ) {
     val color = if (up) GainGreen else LossRed
     val onSurface = MaterialTheme.colorScheme.onSurface
+    val surface = MaterialTheme.colorScheme.surface
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val bandColor = muted.copy(alpha = 0.12f)
     val volColor = muted.copy(alpha = 0.28f)
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = onSurface)
 
     var selected by remember(points) { mutableStateOf<Int?>(null) }
 
@@ -180,6 +189,38 @@ fun PriceChart(
                     cap = StrokeCap.Round,
                     pathEffect = if (ext) dash else null,
                 )
+            }
+
+            // High / low markers — dot + value label at the extreme points.
+            if (showHighLow && range > 0.0 && points.size >= 2) {
+                val maxIdx = points.indices.maxByOrNull { points[it].price } ?: 0
+                val minIdx = points.indices.minByOrNull { points[it].price } ?: 0
+                val pad = 5.dp.toPx()
+
+                fun marker(idx: Int, dotColor: Color, above: Boolean) {
+                    val cx = x(idx)
+                    val cy = y(points[idx].price)
+                    val layout = textMeasurer.measure(valueFormatter(points[idx].price), labelStyle)
+                    val tw = layout.size.width.toFloat()
+                    val th = layout.size.height.toFloat()
+                    val lx = (cx - tw / 2f).coerceIn(0f, (size.width - tw).coerceAtLeast(0f))
+                    // Preferred side, flipped if it would clip the top/bottom edge.
+                    var ly = if (above) cy - th - pad else cy + pad
+                    if (ly < 0f) ly = cy + pad
+                    if (ly > size.height - th) ly = cy - th - pad
+                    drawRoundRect(
+                        color = surface.copy(alpha = 0.78f),
+                        topLeft = Offset(lx - 3f, ly - 1f),
+                        size = Size(tw + 6f, th + 2f),
+                        cornerRadius = CornerRadius(4f, 4f),
+                    )
+                    drawText(layout, topLeft = Offset(lx, ly))
+                    drawCircle(dotColor, radius = 3.dp.toPx(), center = Offset(cx, cy))
+                    drawCircle(surface, radius = 3.dp.toPx(), center = Offset(cx, cy), style = Stroke(1.2.dp.toPx()))
+                }
+
+                marker(maxIdx, GainGreen, above = true)
+                marker(minIdx, LossRed, above = false)
             }
 
             // Scrub crosshair + dot.

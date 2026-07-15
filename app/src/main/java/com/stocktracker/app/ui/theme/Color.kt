@@ -11,6 +11,9 @@ val OnIndigo = Color(0xFF341E77)
 val GainGreen = Color(0xFF4ADE80)
 val LossRed = Color(0xFFF87171)
 
+// Crypto accent — visually separates crypto rows/charts from equities (amber, à la Bitcoin)
+val CryptoAccent = Color(0xFFF7A928)
+
 // Dark scheme (design DNA)
 val SurfaceDark = Color(0xFF141318)
 val SurfaceContainerDark = Color(0xFF1C1B21)

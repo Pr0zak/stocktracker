@@ -65,6 +65,19 @@ class MarketRepository(
         }
     }
 
+    /** 52-week high/low. Stocks use Yahoo's meta; crypto derives from 1Y history. */
+    suspend fun fiftyTwoWeek(asset: Asset): Pair<Double, Double>? = cached("52:${asset.id}", HISTORY_TTL) {
+        when (asset.type) {
+            AssetType.STOCK -> yahoo.fiftyTwoWeek(asset.symbol)
+            AssetType.CRYPTO -> {
+                val year = history(asset, ChartRange.YEAR)
+                val hi = year.maxOfOrNull { it.price }
+                val lo = year.minOfOrNull { it.price }
+                if (hi != null && lo != null) hi to lo else null
+            }
+        }
+    }
+
     suspend fun search(query: String): List<SearchResult> {
         if (query.isBlank()) return emptyList()
         val stocks = runCatching { if (finnhub.hasKey) finnhub.search(query) else emptyList() }
@@ -96,5 +109,6 @@ private fun ChartRange.toCoinGeckoDays(): String = when (this) {
     ChartRange.MONTH -> "30"
     ChartRange.QUARTER -> "90"
     ChartRange.YEAR -> "365"
+    ChartRange.THREE_YEAR -> "1095"
     ChartRange.ALL -> "max"
 }

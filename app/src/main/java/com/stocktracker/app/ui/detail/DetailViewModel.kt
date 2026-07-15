@@ -22,6 +22,8 @@ data class DetailUiState(
     val inWatchlist: Boolean = false,
     val shares: Double? = null,
     val alerts: AssetAlerts = AssetAlerts(),
+    val fiftyTwoWeekHigh: Double? = null,
+    val fiftyTwoWeekLow: Double? = null,
 )
 
 class DetailViewModel(private val asset: Asset) : ViewModel() {
@@ -56,6 +58,10 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             }
         }
         loadQuote()
+        viewModelScope.launch {
+            val hl = runCatching { repo.fiftyTwoWeek(asset) }.getOrNull()
+            if (hl != null) _state.update { it.copy(fiftyTwoWeekHigh = hl.first, fiftyTwoWeekLow = hl.second) }
+        }
     }
 
     private fun loadQuote() {

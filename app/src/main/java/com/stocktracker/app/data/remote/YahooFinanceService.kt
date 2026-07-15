@@ -22,10 +22,9 @@ class YahooFinanceService {
         range: ChartRange,
         includeExtended: Boolean = false,
     ): List<PricePoint> {
-        val (r, interval) = params(range)
         // Pre/post-market is only meaningful (and returned) for the intraday views.
         val prePost = includeExtended && (range == ChartRange.DAY || range == ChartRange.WEEK)
-        val path = "v8/finance/chart/${symbol.uppercase()}?range=$r&interval=$interval&includePrePost=$prePost"
+        val path = "v8/finance/chart/${symbol.uppercase()}?${rangeParams(range)}&includePrePost=$prePost"
         val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
             .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
 
@@ -58,13 +57,30 @@ class YahooFinanceService {
         return out
     }
 
-    private fun params(range: ChartRange): Pair<String, String> = when (range) {
-        ChartRange.DAY -> "1d" to "1m"
-        ChartRange.WEEK -> "5d" to "5m"
-        ChartRange.MONTH -> "1mo" to "30m"   // intraday detail (was daily)
-        ChartRange.QUARTER -> "3mo" to "1h"  // hourly detail (was daily)
-        ChartRange.YEAR -> "1y" to "1d"
-        ChartRange.ALL -> "max" to "1wk"
+    /** Returns the Yahoo query fragment (range+interval, or an explicit period for 3Y). */
+    private fun rangeParams(range: ChartRange): String = when (range) {
+        ChartRange.DAY -> "range=1d&interval=1m"
+        ChartRange.WEEK -> "range=5d&interval=5m"
+        ChartRange.MONTH -> "range=1mo&interval=30m"   // intraday detail
+        ChartRange.QUARTER -> "range=3mo&interval=1h"  // hourly detail
+        ChartRange.YEAR -> "range=1y&interval=1d"
+        ChartRange.THREE_YEAR -> {
+            // Yahoo has no "3y" range literal, so request an explicit 3-year window.
+            val now = System.currentTimeMillis() / 1000
+            "period1=${now - 3L * 365 * 86_400}&period2=$now&interval=1d"
+        }
+        ChartRange.ALL -> "range=max&interval=1wk"
+    }
+
+    /** 52-week high/low straight from Yahoo's chart meta (a tiny range=1d request suffices). */
+    suspend fun fiftyTwoWeek(symbol: String): Pair<Double, Double>? {
+        val path = "v8/finance/chart/${symbol.uppercase()}?range=1d&interval=1d"
+        val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
+            .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
+        val meta = Http.json.decodeFromString<YahooChartResponse>(body).chart.result?.firstOrNull()?.meta
+        val hi = meta?.fiftyTwoWeekHigh
+        val lo = meta?.fiftyTwoWeekLow
+        return if (hi != null && lo != null) hi to lo else null
     }
 
     private companion object {
@@ -88,7 +104,11 @@ data class YahooResult(
 )
 
 @Serializable
-data class YahooMeta(val exchangeTimezoneName: String? = null)
+data class YahooMeta(
+    val exchangeTimezoneName: String? = null,
+    val fiftyTwoWeekHigh: Double? = null,
+    val fiftyTwoWeekLow: Double? = null,
+)
 
 @Serializable
 data class YahooIndicators(val quote: List<YahooQuote>? = null)

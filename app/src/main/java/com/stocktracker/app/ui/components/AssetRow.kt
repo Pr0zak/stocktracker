@@ -1,5 +1,7 @@
 package com.stocktracker.app.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.stocktracker.app.ui.theme.CryptoAccent
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceMedium
@@ -30,6 +33,7 @@ fun AssetRow(
     sparkline: List<Double>,
     onClick: () -> Unit,
     holdingsText: String? = null,
+    isCrypto: Boolean = false,
 ) {
     Card(
         onClick = onClick,
@@ -43,8 +47,23 @@ fun AssetRow(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Leading accent stripe marks crypto rows for quick visual separation from equities.
+            if (isCrypto) {
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .height(36.dp)
+                        .background(CryptoAccent, RoundedCornerShape(2.dp)),
+                )
+                Spacer12()
+            }
             Column(modifier = Modifier.weight(1f)) {
-                Text(symbol, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    symbol,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isCrypto) CryptoAccent else MaterialTheme.colorScheme.onSurface,
+                )
                 Text(
                     name,
                     style = MaterialTheme.typography.bodySmall,

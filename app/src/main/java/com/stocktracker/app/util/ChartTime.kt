@@ -15,6 +15,6 @@ fun formatChartTimestamp(epochMs: Long, range: ChartRange, zone: ZoneId = ZoneId
     return when (range) {
         ChartRange.DAY -> zdt.format(TIME_ONLY)
         ChartRange.WEEK, ChartRange.MONTH, ChartRange.QUARTER -> zdt.format(DATE_TIME)
-        ChartRange.YEAR, ChartRange.ALL -> zdt.format(DATE_ONLY)
+        ChartRange.YEAR, ChartRange.THREE_YEAR, ChartRange.ALL -> zdt.format(DATE_ONLY)
     }
 }

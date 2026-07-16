@@ -32,6 +32,23 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
   </tr>
 </table>
 
+### Advanced charting
+
+Pinch-to-zoom, a date/time axis, and a full indicator suite — moving averages, Bollinger Bands, VWAP,
+RSI, MACD, Stochastic, ex-dividend markers, and an S&P 500 comparison line — all toggled from the chart's
+**Indicators** menu.
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="docs/screenshots/indicators.png" width="230" alt="Indicators"></td>
+    <td align="center" width="50%"><img src="docs/screenshots/benchmark.png" width="230" alt="S&P 500 comparison"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Indicators — VWAP on the price, RSI / MACD / Stochastic in stacked panes, and ex-dividend markers</sub></td>
+    <td align="center"><sub>Benchmark — the ticker vs. the S&amp;P 500 in % mode (here MSFT trailing the market)</sub></td>
+  </tr>
+</table>
+
 ## Features
 
 - **No API key required** — stock quotes, search, and charts all come from Yahoo (crypto from CoinGecko). A Finnhub key is optional and only adds an extra search source.
@@ -42,7 +59,8 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
   - Per-widget config: ticker, show change %, show sparkline, show name, accent color, refresh interval
 - **App**
   - Watchlist with live prices, colored change, and sparklines — crypto accented in amber; **create multiple named lists** and **drag to reorder**
-  - Interactive ticker detail: drag-to-scrub area chart with a **%/$ toggle** (rebase to percent change), high/low markers, optional volume, and 1D–3Y / ALL ranges. Stats read at a glance — a header strip (Open / High / Low / Volume) that **morphs into the scrub reading** as you drag, plus a **52-week range bar** showing where today sits in its year
+  - Interactive ticker detail: **pinch-to-zoom** area chart with a **date/time axis**, **%/$ toggle** (rebase to percent change), high/low markers, optional volume, drag-to-scrub, and 1D–3Y / ALL ranges. Stats read at a glance — a header strip (Open / High / Low / Volume) that **morphs into the scrub reading** as you drag, plus a **52-week range bar** showing where today sits in its year
+  - **Technical indicators** (chart → Indicators): SMA / EMA / Bollinger Bands / VWAP overlays, RSI / MACD / Stochastic sub-panes, **ex-dividend markers**, and an **S&P 500 comparison** line in % mode
   - **Portfolio** tab: set **shares owned + average cost** per ticker to track total value and **total return** ($ and %), reconstructed over time, with a **cost-basis line** drawn on the detail and portfolio charts
   - **Backup & restore**: export your watchlist, holdings, cost, alerts, and lists to a JSON file and import it back (Settings → Backup)
   - **Price alerts**: above/below thresholds fire Android notifications
@@ -58,9 +76,12 @@ no backend to run. Design mockups in `.stitch-mockups/` (Google Stitch, not comm
 
 | Data | Source | Key needed |
 |------|--------|-----------|
-| Stock quotes, history, intraday charts, symbol search, VIX | Yahoo Finance chart endpoint | No |
+| Stock quotes, history, intraday charts, symbol search, VIX, dividends, S&P 500 | Yahoo Finance chart endpoint | No |
 | Crypto price, 24h change, 7d sparkline, charts, search | [CoinGecko](https://www.coingecko.com/en/api) | No |
 | Extra stock symbol search (warrants/odd tickers) | [Finnhub](https://finnhub.io) | Optional free key |
+
+> **Not built in:** earnings-date and news markers need a keyed feed (Yahoo's earnings endpoint now
+> requires auth), so they're not included — a Finnhub key could power them later.
 
 > **No key needed.** Stock quotes/charts/search come from Yahoo Finance's public `chart` and `search`
 > endpoints (which also provide intraday data, so 1D works, plus the `^VIX` index). They're

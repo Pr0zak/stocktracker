@@ -25,6 +25,7 @@ class SettingsStore(private val context: Context) {
     private val marketStatusKey = booleanPreferencesKey("show_market_status")
     private val showVolumeKey = booleanPreferencesKey("show_volume")
     private val showVixKey = booleanPreferencesKey("show_vix")
+    private val chartIndicatorsKey = stringPreferencesKey("chart_indicators")
     private val watchlistGroupsKey = stringPreferencesKey("watchlist_groups")
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
@@ -41,6 +42,12 @@ class SettingsStore(private val context: Context) {
 
     /** When true, the detail chart overlays volume bars. */
     val showVolume: Flow<Boolean> = context.dataStore.data.map { it[showVolumeKey] ?: false }
+
+    /** Enabled chart indicators (keys like "sma20", "ema21", "bb", "vwap", "rsi", "macd"). */
+    val chartIndicators: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        prefs[chartIndicatorsKey]?.let { runCatching { Http.json.decodeFromString<List<String>>(it) }.getOrNull() }
+            ?.toSet() ?: emptySet()
+    }
 
     /** When true, the dashboard shows the VIX "market fear" gauge. */
     val showVix: Flow<Boolean> = context.dataStore.data.map { it[showVixKey] ?: true }
@@ -67,6 +74,9 @@ class SettingsStore(private val context: Context) {
     suspend fun setShowExtendedHours(enabled: Boolean) = context.dataStore.edit { it[extendedHoursKey] = enabled }
     suspend fun setShowMarketStatus(enabled: Boolean) = context.dataStore.edit { it[marketStatusKey] = enabled }
     suspend fun setShowVolume(enabled: Boolean) = context.dataStore.edit { it[showVolumeKey] = enabled }
+    suspend fun setChartIndicators(keys: Set<String>) = context.dataStore.edit {
+        it[chartIndicatorsKey] = Http.json.encodeToString(keys.toList())
+    }
     suspend fun setShowVix(enabled: Boolean) = context.dataStore.edit { it[showVixKey] = enabled }
     suspend fun setWatchlistGroups(groups: List<String>) = context.dataStore.edit {
         it[watchlistGroupsKey] = Http.json.encodeToString(groups)

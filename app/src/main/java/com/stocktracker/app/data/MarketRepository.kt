@@ -86,6 +86,15 @@ class MarketRepository(
     /** Current market-volatility index (^VIX), for the dashboard fear gauge. Yahoo-only. */
     suspend fun vix(): VixQuote? = cached("vix", QUOTE_TTL) { yahoo.vix() }
 
+    /** Ex-dividend dates (epochMs → amount) within [range] for a stock; empty for crypto. */
+    suspend fun dividends(asset: Asset, range: ChartRange): List<Pair<Long, Double>> =
+        if (asset.type != AssetType.STOCK) emptyList()
+        else cached("div:${asset.id}:$range", HISTORY_TTL) { runCatching { yahoo.dividends(asset.symbol, range) }.getOrDefault(emptyList()) }
+
+    /** S&P 500 (^GSPC) price history for the benchmark comparison overlay. */
+    suspend fun benchmark(range: ChartRange): List<PricePoint> =
+        cached("bench:$range", HISTORY_TTL) { runCatching { yahoo.history("^GSPC", range) }.getOrDefault(emptyList()) }
+
     suspend fun search(query: String): List<SearchResult> {
         if (query.isBlank()) return emptyList()
         // Yahoo needs no key; supplement with Finnhub (warrants/odd tickers) when a key is present.

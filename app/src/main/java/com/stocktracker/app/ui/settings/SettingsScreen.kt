@@ -186,6 +186,11 @@ fun SettingsScreen() {
                 )
             }
             Text(
+                "Tap “Indicators” on any chart to add moving averages, Bollinger Bands, VWAP, RSI, and MACD.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
                 "Adds pre-market and after-hours to the 1D stock chart, drawn dashed in a shaded band.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

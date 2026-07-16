@@ -79,6 +79,18 @@ class YahooFinanceService {
         ChartRange.ALL -> "range=max&interval=1wk"
     }
 
+    /** Ex-dividend dates + amounts within [range], from the chart endpoint's dividend events. */
+    suspend fun dividends(symbol: String, range: ChartRange): List<Pair<Long, Double>> {
+        val enc = symbol.uppercase().replace("^", "%5E")
+        val path = "v8/finance/chart/$enc?${rangeParams(range)}&events=div"
+        val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
+            .getOrElse { return emptyList() }
+        val result = runCatching { Http.json.decodeFromString<YahooChartResponse>(body) }.getOrNull()
+            ?.chart?.result?.firstOrNull() ?: return emptyList()
+        val divs = result.events?.dividends ?: return emptyList()
+        return divs.values.map { it.date * 1000L to it.amount }.sortedBy { it.first }
+    }
+
     /** 52-week high/low straight from Yahoo's chart meta (a tiny range=1d request suffices). */
     suspend fun fiftyTwoWeek(symbol: String): Pair<Double, Double>? {
         val path = "v8/finance/chart/${symbol.uppercase()}?range=1d&interval=1d"
@@ -171,7 +183,14 @@ data class YahooResult(
     val meta: YahooMeta? = null,
     val timestamp: List<Long>? = null,
     val indicators: YahooIndicators? = null,
+    val events: YahooEvents? = null,
 )
+
+@Serializable
+data class YahooEvents(val dividends: Map<String, YahooDividend>? = null)
+
+@Serializable
+data class YahooDividend(val amount: Double = 0.0, val date: Long = 0L)
 
 @Serializable
 data class YahooMeta(

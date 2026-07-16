@@ -106,6 +106,7 @@ fun PortfolioScreen() {
                         up = chartUp,
                         modifier = Modifier.fillMaxSize(),
                         showHighLow = true,
+                        showAxis = true,
                         costLine = if (percentMode) null else state.totalCost.takeIf { state.hasCostBasis && it > 0.0 },
                         valueFormatter = {
                             if (percentMode) com.stocktracker.app.util.formatPercentChange(it)

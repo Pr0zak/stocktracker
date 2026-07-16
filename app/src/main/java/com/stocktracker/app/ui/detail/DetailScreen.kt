@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
@@ -33,8 +34,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -42,10 +45,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -59,6 +65,9 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.components.ChartLineOverlay
+import com.stocktracker.app.ui.components.ChartMarker
+import com.stocktracker.app.ui.components.ChartSubPane
 import com.stocktracker.app.ui.components.FiftyTwoWeekRangeBar
 import com.stocktracker.app.ui.components.PriceChart
 import com.stocktracker.app.widget.WidgetRefreshScheduler
@@ -67,7 +76,15 @@ import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceLarge
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.asPercentChange
+import com.stocktracker.app.util.bollingerBands
+import com.stocktracker.app.util.exponentialMovingAverage
 import com.stocktracker.app.util.formatPercentChange
+import com.stocktracker.app.util.macd
+import com.stocktracker.app.util.rsi
+import com.stocktracker.app.util.simpleMovingAverage
+import com.stocktracker.app.util.stochastic
+import com.stocktracker.app.util.vwap
+import kotlinx.coroutines.launch
 import com.stocktracker.app.widget.WidgetPinning
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,7 +97,10 @@ fun DetailScreen(
     val state by vm.state.collectAsState()
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
     val showVolume by ServiceLocator.settingsStore.showVolume.collectAsState(initial = false)
+    val indicators by ServiceLocator.settingsStore.chartIndicators.collectAsState(initial = emptySet())
     val allGroups by ServiceLocator.settingsStore.watchlistGroups.collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+    var showIndicatorSheet by remember { mutableStateOf(false) }
     var showNewListDialog by remember { mutableStateOf(false) }
     var newListName by remember { mutableStateOf("") }
     val context = LocalContext.current
@@ -91,6 +111,16 @@ fun DetailScreen(
     val isCrypto = asset.type == AssetType.CRYPTO
     // The chart point currently under the scrub crosshair (null at rest); drives the header.
     var scrubbed by remember(state.chart, percentMode) { mutableStateOf<PricePoint?>(null) }
+
+    // Event/benchmark data (only fetched when the matching indicator is enabled).
+    val divEnabled = indicators.contains(Indicator.DIVIDENDS.key)
+    val benchEnabled = indicators.contains(Indicator.BENCHMARK.key)
+    val dividends by produceState(emptyList<Pair<Long, Double>>(), asset.id, state.range, divEnabled) {
+        value = if (divEnabled) runCatching { ServiceLocator.repository.dividends(asset, state.range) }.getOrDefault(emptyList()) else emptyList()
+    }
+    val benchPoints by produceState(emptyList<PricePoint>(), state.range, benchEnabled) {
+        value = if (benchEnabled) runCatching { ServiceLocator.repository.benchmark(state.range) }.getOrDefault(emptyList()) else emptyList()
+    }
 
     Scaffold(
         topBar = {
@@ -111,6 +141,13 @@ fun DetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showIndicatorSheet = true }) {
+                        Icon(
+                            Icons.Filled.Insights,
+                            contentDescription = "Indicators",
+                            tint = if (indicators.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     IconButton(onClick = { vm.toggleWatchlist() }) {
                         Icon(
                             imageVector = if (state.inWatchlist) Icons.Filled.Star else Icons.Outlined.StarBorder,
@@ -158,14 +195,29 @@ fun DetailScreen(
                 timeFormatter = chartTimeFormatter,
             )
 
+            val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
+            val chartUp = if (percentMode) (chartPoints.lastOrNull()?.price ?: 0.0) >= 0.0 else up
+            // Technical indicators are price-based, so only compute them in $ mode.
+            val indicatorResult = if (!percentMode) buildIndicators(chartPoints, indicators)
+            else IndicatorResult(emptyList(), emptyList())
+            val chartHeight = 200.dp + 18.dp + 64.dp * indicatorResult.subPanes.size
+
+            // Ex-dividend markers (any mode) + S&P 500 comparison line (% mode only).
+            val divMarkers = if (divEnabled) dividends.map { ChartMarker(it.first, Color(0xFF6366F1), "Div") } else emptyList()
+            val benchOverlay = if (percentMode && benchEnabled) {
+                benchmarkPercent(chartPoints, benchPoints).takeIf { s -> s.any { it != null } }
+                    ?.let { ChartLineOverlay("S&P 500", Color(0xFFEC4899), it) }
+            } else {
+                null
+            }
+            val allOverlays = indicatorResult.overlays + listOfNotNull(benchOverlay)
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(210.dp),
+                    .height(chartHeight),
                 contentAlignment = Alignment.Center,
             ) {
-                val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
-                val chartUp = if (percentMode) (chartPoints.lastOrNull()?.price ?: 0.0) >= 0.0 else up
                 when {
                     state.loadingChart -> CircularProgressIndicator()
                     state.chart.size >= 2 -> PriceChart(
@@ -175,7 +227,12 @@ fun DetailScreen(
                         showVolume = showVolume,
                         showHighLow = true,
                         showReadout = false,
+                        showAxis = true,
+                        zoomable = true,
                         costLine = if (percentMode) null else state.avgCost?.takeIf { it > 0.0 },
+                        overlays = allOverlays,
+                        subPanes = indicatorResult.subPanes,
+                        markers = divMarkers,
                         onScrubChange = { scrubbed = it },
                         valueFormatter = chartValueFormatter,
                         timeFormatter = chartTimeFormatter,
@@ -310,6 +367,127 @@ fun DetailScreen(
             },
         )
     }
+
+    if (showIndicatorSheet) {
+        ModalBottomSheet(onDismissRequest = { showIndicatorSheet = false }) {
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 4.dp)
+                    .padding(bottom = 28.dp),
+            ) {
+                Text("Indicators", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "Overlays draw on the price; RSI and MACD add a pane below the chart.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                Indicator.entries.forEach { ind ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(ind.label, modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = indicators.contains(ind.key),
+                            onCheckedChange = { checked ->
+                                val next = if (checked) indicators + ind.key else indicators - ind.key
+                                scope.launch { ServiceLocator.settingsStore.setChartIndicators(next) }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private enum class Indicator(val key: String, val label: String) {
+    SMA20("sma20", "SMA 20"),
+    SMA50("sma50", "SMA 50"),
+    EMA21("ema21", "EMA 21"),
+    BOLLINGER("bb", "Bollinger Bands (20, 2)"),
+    VWAP("vwap", "VWAP"),
+    RSI("rsi", "RSI (14)"),
+    MACD("macd", "MACD (12, 26, 9)"),
+    STOCH("stoch", "Stochastic (14, 3)"),
+    DIVIDENDS("div", "Ex-dividend markers"),
+    BENCHMARK("bench", "S&P 500 (in % mode)"),
+}
+
+private data class IndicatorResult(val overlays: List<ChartLineOverlay>, val subPanes: List<ChartSubPane>)
+
+/** Builds the enabled overlay lines + oscillator sub-panes for the chart from a set of indicator keys. */
+private fun buildIndicators(points: List<com.stocktracker.app.data.model.PricePoint>, enabled: Set<String>): IndicatorResult {
+    if (enabled.isEmpty() || points.size < 2) return IndicatorResult(emptyList(), emptyList())
+    val prices = points.map { it.price }
+    val volumes = points.map { it.volume }
+    val overlays = mutableListOf<ChartLineOverlay>()
+    val subPanes = mutableListOf<ChartSubPane>()
+    fun nonEmpty(v: List<Double?>) = v.any { it != null }
+
+    if (Indicator.SMA20.key in enabled) simpleMovingAverage(prices, 20).let { if (nonEmpty(it)) overlays += ChartLineOverlay("SMA20", Color(0xFF60A5FA), it) }
+    if (Indicator.SMA50.key in enabled) simpleMovingAverage(prices, 50).let { if (nonEmpty(it)) overlays += ChartLineOverlay("SMA50", Color(0xFFF59E0B), it) }
+    if (Indicator.EMA21.key in enabled) exponentialMovingAverage(prices, 21).let { if (nonEmpty(it)) overlays += ChartLineOverlay("EMA21", Color(0xFFA855F7), it) }
+    if (Indicator.BOLLINGER.key in enabled) {
+        val b = bollingerBands(prices, 20, 2.0)
+        if (nonEmpty(b.mid)) {
+            val g = Color(0xFF94A3B8)
+            overlays += ChartLineOverlay("BB", g, b.mid)
+            overlays += ChartLineOverlay("", g.copy(alpha = 0.7f), b.upper)
+            overlays += ChartLineOverlay("", g.copy(alpha = 0.7f), b.lower)
+        }
+    }
+    if (Indicator.VWAP.key in enabled) vwap(prices, volumes).let { if (nonEmpty(it)) overlays += ChartLineOverlay("VWAP", Color(0xFF14B8A6), it) }
+    if (Indicator.RSI.key in enabled) {
+        val r = rsi(prices, 14)
+        if (nonEmpty(r)) subPanes += ChartSubPane(
+            label = "RSI 14",
+            lines = listOf(ChartLineOverlay("", Color(0xFF60A5FA), r)),
+            guides = listOf(30.0, 70.0),
+            fixedRange = 0.0..100.0,
+        )
+    }
+    if (Indicator.MACD.key in enabled) {
+        val m = macd(prices)
+        if (nonEmpty(m.macd)) subPanes += ChartSubPane(
+            label = "MACD",
+            lines = listOf(
+                ChartLineOverlay("", Color(0xFF60A5FA), m.macd),
+                ChartLineOverlay("", Color(0xFFF59E0B), m.signal),
+            ),
+            histogram = m.histogram,
+            guides = listOf(0.0),
+        )
+    }
+    if (Indicator.STOCH.key in enabled) {
+        val (kLine, dLine) = stochastic(prices, 14, 3)
+        if (nonEmpty(kLine)) subPanes += ChartSubPane(
+            label = "Stoch 14",
+            lines = listOf(
+                ChartLineOverlay("", Color(0xFF60A5FA), kLine),
+                ChartLineOverlay("", Color(0xFFF59E0B), dLine),
+            ),
+            guides = listOf(20.0, 80.0),
+            fixedRange = 0.0..100.0,
+        )
+    }
+    return IndicatorResult(overlays, subPanes)
+}
+
+/** Benchmark % series (S&P 500) aligned by calendar day to the ticker's points, rebased to 0% at the start. */
+private fun benchmarkPercent(
+    tickerPoints: List<com.stocktracker.app.data.model.PricePoint>,
+    benchPoints: List<com.stocktracker.app.data.model.PricePoint>,
+): List<Double?> {
+    if (tickerPoints.isEmpty() || benchPoints.size < 2) return List(tickerPoints.size) { null }
+    val dayMs = 86_400_000L
+    val byDay = HashMap<Long, Double>()
+    benchPoints.forEach { byDay[it.epochMs / dayMs] = it.price }
+    val aligned = tickerPoints.map { byDay[it.epochMs / dayMs] }
+    val base = aligned.firstOrNull { it != null } ?: return List(tickerPoints.size) { null }
+    return aligned.map { if (it != null) (it / base - 1.0) * 100.0 else null }
 }
 
 @Composable

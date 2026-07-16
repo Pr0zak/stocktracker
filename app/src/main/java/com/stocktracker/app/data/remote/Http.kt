@@ -4,10 +4,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /** Shared OkHttp client + JSON parser. */
@@ -16,10 +20,28 @@ object Http {
     // Browser-like UA: Yahoo's chart endpoint (and some others) reject unknown clients.
     private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) StockTracker/1.0"
 
+    // Yahoo's chart endpoint hands out a session/consent cookie on the first hit and expects it
+    // echoed back; without a jar every request looks brand-new and is likelier to draw a 401/429.
+    // In-memory only (dies with the process), keyed by name@domain, and we defer to OkHttp's own
+    // domain/path matching on the way out.
+    private val cookieJar = object : CookieJar {
+        private val store = ConcurrentHashMap<String, Cookie>()
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+            cookies.forEach { store["${it.name}@${it.domain}"] = it }
+        }
+        override fun loadForRequest(url: HttpUrl): List<Cookie> {
+            val now = System.currentTimeMillis()
+            // Drop expired cookies (session cookies have expiresAt = Long.MAX_VALUE, so they stay) —
+            // re-sending a stale consent cookie is itself a way to draw the 401 this jar prevents.
+            return store.values.filter { it.matches(url) && it.expiresAt > now }
+        }
+    }
+
     val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
         .callTimeout(20, TimeUnit.SECONDS) // hard ceiling so a stuck call fails fast to cached data
+        .cookieJar(cookieJar)
         .build()
 
     val json = Json {
@@ -44,7 +66,7 @@ object Http {
                 } else {
                     val body = response.body?.string()
                     if (!response.isSuccessful) {
-                        throw IOException("HTTP ${response.code} for $url: ${body?.take(200)}")
+                        throw HttpStatusException(response.code, url, body)
                     }
                     return@withContext body ?: throw IOException("Empty body for $url")
                 }
@@ -56,3 +78,10 @@ object Http {
 }
 
 fun String.urlEncode(): String = URLEncoder.encode(this, "UTF-8")
+
+/**
+ * A non-2xx HTTP response. Carries the status [code] so callers can tell a genuine 404 ("no data /
+ * delisted") apart from a transient 429/5xx that's worth retrying.
+ */
+class HttpStatusException(val code: Int, url: String, body: String?) :
+    IOException("HTTP $code for $url: ${body?.take(200)}")

@@ -6,9 +6,12 @@ import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.model.SearchResult
 import com.stocktracker.app.data.model.VixQuote
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
+import java.io.IOException
 import java.time.Instant
 import java.time.ZoneId
 
@@ -32,11 +35,7 @@ class YahooFinanceService {
         // Index tickers carry a caret (^VIX); pre-encode it so it survives URL construction.
         val enc = symbol.uppercase().replace("^", "%5E")
         val path = "v8/finance/chart/$enc?${rangeParams(range)}&includePrePost=$prePost"
-        val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
-            .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
-
-        val dto = Http.json.decodeFromString<YahooChartResponse>(body)
-        val result = dto.chart.result?.firstOrNull() ?: return emptyList()
+        val result = fetchChart(path).chart.result?.firstOrNull() ?: return emptyList()
         val timestamps = result.timestamp ?: return emptyList()
         val quote0 = result.indicators?.quote?.firstOrNull()
         val closes = quote0?.close ?: return emptyList()
@@ -64,6 +63,44 @@ class YahooFinanceService {
         return out
     }
 
+    /**
+     * GET a chart-endpoint [path] and parse it, failing over query1 → query2. The failover also
+     * triggers when query1 returns a 200 whose body isn't the JSON we expect (Yahoo serves HTML
+     * consent / rate-limit pages that way), because the parse happens *inside* the failover. A
+     * Yahoo `error` object is likewise treated as a failure, so a rate-limited response fails over
+     * (and, if both hosts fail, throws) instead of being mistaken for "no data". Serialized through
+     * [gate] so one detail-screen open can't fan five simultaneous requests into a 429.
+     */
+    private suspend fun fetchChart(path: String): YahooChartResponse = gate.withPermit {
+        try {
+            parseChart(Http.getString("https://query1.finance.yahoo.com/$path"))
+        } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+            throw ce
+        } catch (_: Throwable) {
+            // query1 failed (transport error, garbled/HTML body, or a Yahoo error object) — fail over.
+            try {
+                parseChart(Http.getString("https://query2.finance.yahoo.com/$path"))
+            } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+                throw ce
+            } catch (e: HttpStatusException) {
+                // A definitive 404 = delisted/unknown symbol = genuine no-data, not a transient
+                // failure. Return empty so the UI shows "no data" instead of a Retry that can't
+                // succeed; everything else (429/5xx/timeout) propagates so stale-while-error/retry
+                // can kick in.
+                if (e.code == 404) YahooChartResponse() else throw e
+            }
+        }
+    }
+
+    private fun parseChart(body: String): YahooChartResponse {
+        val dto = Http.json.decodeFromString<YahooChartResponse>(body)
+        // "Not Found" / delisted is genuine no-data — let it through as an empty (result=null)
+        // response. Any other error (rate limit, auth, server) is transient, so throw to fail over.
+        dto.chart.error?.takeUnless { it.isNoData }
+            ?.let { throw IOException("Yahoo chart error ${it.code}: ${it.description}") }
+        return dto
+    }
+
     /** Returns the Yahoo query fragment (range+interval, or an explicit period for 3Y). */
     private fun rangeParams(range: ChartRange): String = when (range) {
         ChartRange.DAY -> "range=1d&interval=1m"
@@ -83,20 +120,18 @@ class YahooFinanceService {
     suspend fun dividends(symbol: String, range: ChartRange): List<Pair<Long, Double>> {
         val enc = symbol.uppercase().replace("^", "%5E")
         val path = "v8/finance/chart/$enc?${rangeParams(range)}&events=div"
-        val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
-            .getOrElse { return emptyList() }
-        val result = runCatching { Http.json.decodeFromString<YahooChartResponse>(body) }.getOrNull()
-            ?.chart?.result?.firstOrNull() ?: return emptyList()
+        // Decorative overlay — a failure here should quietly yield no markers, not surface an error.
+        val result = runCatching { fetchChart(path) }.getOrNull()?.chart?.result?.firstOrNull()
+            ?: return emptyList()
         val divs = result.events?.dividends ?: return emptyList()
         return divs.values.map { it.date * 1000L to it.amount }.sortedBy { it.first }
     }
 
     /** 52-week high/low straight from Yahoo's chart meta (a tiny range=1d request suffices). */
     suspend fun fiftyTwoWeek(symbol: String): Pair<Double, Double>? {
-        val path = "v8/finance/chart/${symbol.uppercase()}?range=1d&interval=1d"
-        val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
-            .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
-        val meta = Http.json.decodeFromString<YahooChartResponse>(body).chart.result?.firstOrNull()?.meta
+        val enc = symbol.uppercase().replace("^", "%5E")
+        val path = "v8/finance/chart/$enc?range=1d&interval=1d"
+        val meta = fetchChart(path).chart.result?.firstOrNull()?.meta
         val hi = meta?.fiftyTwoWeekHigh
         val lo = meta?.fiftyTwoWeekLow
         return if (hi != null && lo != null) hi to lo else null
@@ -109,9 +144,9 @@ class YahooFinanceService {
     suspend fun quote(symbol: String): Quote? {
         val enc = symbol.uppercase().replace("^", "%5E")
         val path = "v8/finance/chart/$enc?range=1d&interval=1d"
-        val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
-            .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
-        val result = Http.json.decodeFromString<YahooChartResponse>(body).chart.result?.firstOrNull() ?: return null
+        // fetchChart throws on a transient failure (so the repo can serve a stale quote) and returns
+        // a null result only when Yahoo genuinely has no data for the symbol.
+        val result = fetchChart(path).chart.result?.firstOrNull() ?: return null
         val meta = result.meta ?: return null
         val price = meta.regularMarketPrice ?: return null
         val prev = meta.chartPreviousClose ?: meta.previousClose
@@ -155,9 +190,7 @@ class YahooFinanceService {
     /** Current CBOE Volatility Index (^VIX) with its change vs the prior close. */
     suspend fun vix(): VixQuote? {
         val path = "v8/finance/chart/%5EVIX?range=1d&interval=1d"
-        val body = runCatching { Http.getString("https://query1.finance.yahoo.com/$path") }
-            .getOrElse { Http.getString("https://query2.finance.yahoo.com/$path") }
-        val meta = Http.json.decodeFromString<YahooChartResponse>(body).chart.result?.firstOrNull()?.meta
+        val meta = fetchChart(path).chart.result?.firstOrNull()?.meta
         val value = meta?.regularMarketPrice ?: return null
         val prev = meta.chartPreviousClose ?: meta.previousClose ?: value
         val change = value - prev
@@ -169,6 +202,10 @@ class YahooFinanceService {
         const val REG_START_SEC = 9L * 3600 + 30 * 60 // 09:30
         const val REG_END_SEC = 16L * 3600            // 16:00
         val EXCHANGE_ZONE: ZoneId = ZoneId.of("America/New_York")
+
+        // Yahoo throttles by IP; cap concurrent chart requests so one detail-screen open (quote +
+        // history + 52-week + dividends + benchmark) doesn't fan five simultaneous calls into a 429.
+        val gate = Semaphore(2)
     }
 }
 
@@ -176,7 +213,19 @@ class YahooFinanceService {
 data class YahooChartResponse(val chart: YahooChart = YahooChart())
 
 @Serializable
-data class YahooChart(val result: List<YahooResult>? = null)
+data class YahooChart(
+    val result: List<YahooResult>? = null,
+    val error: YahooError? = null,
+)
+
+@Serializable
+data class YahooError(val code: String? = null, val description: String? = null) {
+    /** Yahoo's way of saying the symbol simply has no data (delisted/unknown) vs. a transient fault. */
+    val isNoData: Boolean
+        get() = code.equals("Not Found", ignoreCase = true) ||
+            description?.contains("delisted", ignoreCase = true) == true ||
+            description?.contains("No data", ignoreCase = true) == true
+}
 
 @Serializable
 data class YahooResult(

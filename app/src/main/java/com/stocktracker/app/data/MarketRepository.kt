@@ -24,15 +24,43 @@ class MarketRepository(
 
     // Short in-memory TTL cache: coalesces the watchlist + portfolio + widget calls that would
     // otherwise hammer the APIs (and hit 429 rate limits) when switching tabs / refreshing.
-    private class Entry(val at: Long, val value: Any?)
+    private class Entry(val at: Long, val value: Any?, val empty: Boolean)
     private val cache = ConcurrentHashMap<String, Entry>()
 
+    /**
+     * Memoize [compute] under [key], but keep a transient failure from turning into a persistent
+     * "no data":
+     *  - a successful, non-empty result is cached for the full [ttlMs];
+     *  - an *empty* result is cached for only [NEGATIVE_TTL], so one bad fetch can't pin a blank
+     *    chart on screen for minutes (the default chart range's TTL is 5 min);
+     *  - a *thrown* fetch serves the last good value if we have one (stale-while-error) rather than
+     *    surfacing the failure — this is what carries the UI through a one-off Yahoo/CoinGecko 429.
+     */
     private suspend fun <T> cached(key: String, ttlMs: Long, compute: suspend () -> T): T {
         val now = System.currentTimeMillis()
-        cache[key]?.let { if (now - it.at < ttlMs) { @Suppress("UNCHECKED_CAST") return it.value as T } }
-        val value = compute()
-        cache[key] = Entry(System.currentTimeMillis(), value)
+        cache[key]?.let { e ->
+            val ttl = if (e.empty) NEGATIVE_TTL else ttlMs
+            if (now - e.at < ttl) { @Suppress("UNCHECKED_CAST") return e.value as T }
+        }
+        val value = try {
+            compute()
+        } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+            throw ce // never swallow cancellation — that would break structured concurrency
+        } catch (t: Throwable) {
+            val stale = cache[key]
+            if (stale != null && !stale.empty) { @Suppress("UNCHECKED_CAST") return stale.value as T }
+            throw t
+        }
+        cache[key] = Entry(System.currentTimeMillis(), value, isEmptyResult(value))
         return value
+    }
+
+    /** Treats null / empty collection / empty map as "empty" so those get only the negative TTL. */
+    private fun isEmptyResult(value: Any?): Boolean = when (value) {
+        null -> true
+        is Collection<*> -> value.isEmpty()
+        is Map<*, *> -> value.isEmpty()
+        else -> false
     }
 
     suspend fun quote(asset: Asset): Quote = cached("q:${asset.id}", QUOTE_TTL) {
@@ -122,6 +150,7 @@ class MarketRepository(
         const val QUOTE_TTL = 15_000L
         const val INTRADAY_HISTORY_TTL = 60_000L
         const val HISTORY_TTL = 5 * 60_000L
+        const val NEGATIVE_TTL = 10_000L // empty/failed lookups expire fast so a retry actually retries
     }
 }
 

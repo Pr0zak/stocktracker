@@ -237,6 +237,18 @@ fun DetailScreen(
                         valueFormatter = chartValueFormatter,
                         timeFormatter = chartTimeFormatter,
                     )
+                    // A failed fetch is offered a retry; a successful-but-empty range just says so.
+                    state.chartError -> Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            "Couldn't load chart",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { vm.selectRange(state.range) }) { Text("Retry") }
+                    }
                     else -> Text(
                         "No chart data for this range",
                         style = MaterialTheme.typography.bodySmall,

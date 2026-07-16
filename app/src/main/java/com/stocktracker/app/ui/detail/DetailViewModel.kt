@@ -8,6 +8,8 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.di.ServiceLocator
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -20,6 +22,8 @@ data class DetailUiState(
     val chart: List<PricePoint> = emptyList(),
     val range: ChartRange = ChartRange.MONTH,
     val loadingChart: Boolean = true,
+    /** True when the last fetch *failed* (vs. succeeding with genuinely no data) — drives retry UI. */
+    val chartError: Boolean = false,
     val inWatchlist: Boolean = false,
     val shares: Double? = null,
     val avgCost: Double? = null,
@@ -39,6 +43,10 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     val state = _state.asStateFlow()
 
     @Volatile private var showExtended = false
+
+    // Tracks the in-flight chart fetch so a superseded range's (possibly slow, possibly failed)
+    // result can't land after — and clobber — a newer range's chart.
+    private var chartJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -78,11 +86,20 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     }
 
     fun selectRange(range: ChartRange) {
-        _state.update { it.copy(range = range, loadingChart = true) }
-        viewModelScope.launch {
-            val points = runCatching { repo.history(asset, range, includeExtended = showExtended) }
-                .getOrDefault(emptyList())
-            _state.update { it.copy(chart = points, loadingChart = false) }
+        _state.update { it.copy(range = range, loadingChart = true, chartError = false) }
+        chartJob?.cancel() // supersede any in-flight load for a previous range
+        chartJob = viewModelScope.launch {
+            val result = runCatching { repo.history(asset, range, includeExtended = showExtended) }
+            // runCatching also swallows CancellationException, so a cancelled (superseded) load would
+            // otherwise fall through and write stale state; ensureActive() bails it out first.
+            ensureActive()
+            _state.update {
+                it.copy(
+                    chart = result.getOrDefault(emptyList()),
+                    loadingChart = false,
+                    chartError = result.isFailure, // failed fetch → retry UI; empty success → "no data"
+                )
+            }
         }
     }
 

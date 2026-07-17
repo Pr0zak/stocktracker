@@ -65,7 +65,6 @@ import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
-import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.signals.SignalLabel
@@ -301,8 +300,6 @@ fun DetailScreen(
                 AiAnalystCard(
                     verdict = state.aiVerdict,
                     model = state.aiModel,
-                    usage = state.aiUsage,
-                    cached = state.aiCached,
                     loading = state.aiLoading,
                     error = state.aiError,
                     onRetry = { vm.requestAiVerdict(deep = false) },
@@ -652,8 +649,6 @@ private fun SignalCard(signal: SignalResult) {
 private fun AiAnalystCard(
     verdict: AiVerdict?,
     model: String,
-    usage: AiUsage?,
-    cached: Boolean,
     loading: Boolean,
     error: String?,
     onRetry: () -> Unit,
@@ -772,18 +767,13 @@ private fun AiAnalystCard(
                 TextButton(onClick = onRetry) { Text("Retry") }
             }
         }
-        // Footer: model + token/cost of this call, then the standing disclaimer.
-        usage?.let { u ->
-            val cost = if (u.costUsd < 0.01) "%.4f".format(u.costUsd) else "%.2f".format(u.costUsd)
-            val cachedTag = if (cached) " · cached" else ""
-            val modelTag = if (model.isNotBlank()) "$model · " else ""
-            Text(
-                "$modelTag%,d in · %,d out · $%s%s".format(u.inputTokens, u.outputTokens, cost, cachedTag),
-                style = MaterialTheme.typography.labelSmall,
-                color = neutral,
-            )
-        }
-        Text("Claude analyst · decision support, not advice", style = MaterialTheme.typography.labelSmall, color = neutral)
+        // Footer: which model produced the verdict + the standing disclaimer. (Token/cost usage now
+        // lives on the signals service's usage page, so it's no longer repeated per-card here.)
+        Text(
+            (if (model.isNotBlank()) "$model · " else "Claude analyst · ") + "decision support, not advice",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
     }
 }
 

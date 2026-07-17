@@ -61,6 +61,13 @@ class SignalsApiService {
         return Http.json.decodeFromString<ShortPressureResponse>(body)
     }
 
+    /** Watchlist-wide catalyst calendar (SI dates, OPEX, earnings, speculative T+35 echoes). Free. */
+    suspend fun calendar(baseUrl: String): CalendarResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = Http.getString("${baseUrl.trimEnd('/')}/calendar", slow = true)
+        return Http.json.decodeFromString<CalendarResponse>(body)
+    }
+
     /**
      * Scenario: "if I deployed [cash] into this symbol" — one asset's entry plan. Optional
      * shares+avgCost tell the analyst the asset is already held (concentration awareness).
@@ -116,9 +123,28 @@ data class ShortPressureResponse(
     @SerialName("si_date") val siDate: String? = null,
     @SerialName("short_vol_ratio_5d") val shortVolRatio5d: Double? = null,
     @SerialName("ftd_trend") val ftdTrend: String? = null,
+    @SerialName("ftd_series") val ftdSeries: List<FtdPoint> = emptyList(),
+    @SerialName("si_history") val siHistory: List<SiPoint> = emptyList(),
     @SerialName("event_study") val eventStudy: FtdEventStudy? = null,
     val upcoming: List<UpcomingDate> = emptyList(),
     val reasons: List<String> = emptyList(),
+)
+
+@Serializable
+data class FtdPoint(val date: String, val qty: Long)
+
+@Serializable
+data class SiPoint(val date: String, val dtc: Double? = null)
+
+@Serializable
+data class CalendarResponse(val events: List<CalendarEvent> = emptyList())
+
+@Serializable
+data class CalendarEvent(
+    val date: String,
+    val symbol: String? = null, // null = market-wide (SI dates, OPEX)
+    val label: String = "",
+    val kind: String = "",
 )
 
 /** What this symbol's own price history did after past FTD spikes. */
@@ -203,6 +229,8 @@ data class ScanLatest(
     @SerialName("generated_at") val generatedAt: Double? = null,
     val results: List<ScanResult> = emptyList(),
     val flips: List<String> = emptyList(),
+    /** Today/tomorrow key-date warnings (SI publication, OPEX, earnings, speculative T+35). */
+    @SerialName("date_alerts") val dateAlerts: List<String> = emptyList(),
 )
 
 @Serializable

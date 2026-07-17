@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,6 +65,7 @@ fun WatchlistScreen(
     onOpenDetail: (Asset) -> Unit,
     onAdd: () -> Unit,
     onOpenVix: () -> Unit = {},
+    onOpenCalendar: () -> Unit = {},
 ) {
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsState()
@@ -109,6 +111,9 @@ fun WatchlistScreen(
             TopAppBar(
                 title = { Text("StockTracker") },
                 actions = {
+                    IconButton(onClick = onOpenCalendar) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = "Catalyst calendar")
+                    }
                     IconButton(onClick = { vm.refresh() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }

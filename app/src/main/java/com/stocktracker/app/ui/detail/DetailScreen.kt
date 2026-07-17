@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,7 +57,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -856,6 +861,9 @@ private fun SignalsCard(
     }
 }
 
+/** "20260611" → "06-11" for compact chart axis labels. */
+private fun fmtYmd(d: String): String = if (d.length == 8) "${d.substring(4, 6)}-${d.substring(6)}" else d
+
 /**
  * Short-pressure card (stocks): official FINRA short interest + daily short volume + SEC FTDs,
  * a quiet/fuel/ignition state, this symbol's own after-FTD-spike track record, and upcoming key
@@ -949,6 +957,61 @@ private fun ShortPressureCard(sp: ShortPressureResponse) {
                     style = MaterialTheme.typography.bodySmall,
                     color = if ((es.fwd10MedianPct ?: 0.0) > 0) buy else neutral,
                 )
+            }
+            // FTD history as bars — spike-vs-baseline is visible at a glance.
+            if (sp.ftdSeries.size >= 3) {
+                Text(
+                    "Fails-to-deliver, last ${sp.ftdSeries.size} settlement days",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = neutral,
+                )
+                val bars = sp.ftdSeries
+                Canvas(modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                    val maxQ = bars.maxOf { it.qty }.coerceAtLeast(1L).toFloat()
+                    val bw = size.width / bars.size
+                    bars.forEachIndexed { i, b ->
+                        val h = (b.qty / maxQ) * size.height
+                        drawRect(
+                            color = amber,
+                            topLeft = Offset(i * bw + bw * 0.15f, size.height - h),
+                            size = Size(bw * 0.7f, h.coerceAtLeast(1f)),
+                        )
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(fmtYmd(bars.first().date), style = MaterialTheme.typography.labelSmall, color = neutral)
+                    Text(
+                        "peak %,d".format(bars.maxOf { it.qty }),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = neutral,
+                    )
+                    Text(fmtYmd(bars.last().date), style = MaterialTheme.typography.labelSmall, color = neutral)
+                }
+            }
+            // Days-to-cover trend — is the covering fuel building or draining across SI reports?
+            val dtcPts = sp.siHistory.mapNotNull { it.dtc }
+            if (dtcPts.size >= 3) {
+                Text("Days-to-cover trend", style = MaterialTheme.typography.labelMedium, color = neutral)
+                Canvas(modifier = Modifier.fillMaxWidth().height(36.dp)) {
+                    val minV = dtcPts.min().toFloat()
+                    val maxV = dtcPts.max().toFloat().coerceAtLeast(minV + 0.1f)
+                    val stepX = size.width / (dtcPts.size - 1)
+                    val path = Path()
+                    dtcPts.forEachIndexed { i, v ->
+                        val y = size.height - ((v.toFloat() - minV) / (maxV - minV)) * size.height
+                        if (i == 0) path.moveTo(0f, y) else path.lineTo(i * stepX, y)
+                    }
+                    drawPath(path, color = amber, style = Stroke(width = 4f))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(sp.siHistory.first().date, style = MaterialTheme.typography.labelSmall, color = neutral)
+                    Text(
+                        "%.1f → %.1f".format(dtcPts.first(), dtcPts.last()),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = neutral,
+                    )
+                    Text(sp.siHistory.last().date, style = MaterialTheme.typography.labelSmall, color = neutral)
+                }
             }
             if (sp.upcoming.isNotEmpty()) {
                 Text("Upcoming dates", style = MaterialTheme.typography.labelMedium, color = neutral)

@@ -40,6 +40,15 @@ object SignalScanNotifier {
             val title = if (n == 1) "1 signal changed overnight" else "$n signals changed overnight"
             AlertNotifier.notify(context, "signal_scan".hashCode(), title, parts.joinToString(", "))
         }
+        // Key-date warnings get their own notification so they don't drown in signal noise.
+        if (scan.dateAlerts.isNotEmpty()) {
+            AlertNotifier.notify(
+                context,
+                "date_alerts".hashCode(),
+                "Market dates to watch",
+                scan.dateAlerts.joinToString("\n"),
+            )
+        }
         ServiceLocator.settingsStore.setLastScanNotifiedAt(generated)
     }
 

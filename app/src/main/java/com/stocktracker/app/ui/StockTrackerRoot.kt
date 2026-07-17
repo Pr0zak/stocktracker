@@ -27,6 +27,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
+import com.stocktracker.app.ui.calendar.CalendarScreen
 import com.stocktracker.app.ui.detail.DetailScreen
 import com.stocktracker.app.ui.detail.VixDetailScreen
 import com.stocktracker.app.ui.gallery.WidgetGalleryScreen
@@ -100,9 +101,11 @@ fun StockTrackerRoot() {
                     onOpenDetail = { nav.navigate(detailRoute(it)) },
                     onAdd = { nav.navigate("add") },
                     onOpenVix = { nav.navigate("vix") },
+                    onOpenCalendar = { nav.navigate("calendar") },
                 )
             }
             composable("vix") { VixDetailScreen(onBack = { nav.popBackStack() }) }
+            composable("calendar") { CalendarScreen(onBack = { nav.popBackStack() }) }
             composable(TopDest.Portfolio.route) { PortfolioScreen() }
             composable(TopDest.Ideas.route) {
                 IdeasScreen(onOpenDetail = { nav.navigate(detailRoute(it)) })

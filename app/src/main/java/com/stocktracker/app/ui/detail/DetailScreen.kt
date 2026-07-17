@@ -80,6 +80,7 @@ import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.signals.BacktestResult
 import com.stocktracker.app.signals.SignalLabel
 import com.stocktracker.app.signals.SignalResult
 import com.stocktracker.app.ui.components.ChartLineOverlay
@@ -343,6 +344,7 @@ fun DetailScreen(
             if (state.signal != null || state.aiEnabled) {
                 SignalsCard(
                     signal = state.signal,
+                    backtest = state.backtest,
                     verdict = state.aiVerdict,
                     model = state.aiModel,
                     loading = state.aiLoading,
@@ -672,6 +674,7 @@ private fun aiBucket(signal: String): Int = when {
 @Composable
 private fun SignalsCard(
     signal: SignalResult?,
+    backtest: BacktestResult?,
     verdict: AiVerdict?,
     model: String,
     loading: Boolean,
@@ -803,6 +806,25 @@ private fun SignalsCard(
                 }
                 s.regimeNote?.let {
                     Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+                }
+                // Backtest = the honesty check: did this rule signal beat buy-and-hold, after costs?
+                backtest?.let { bt ->
+                    val edge = bt.edgeVsBuyHoldPct
+                    val edgeColor = if (edge >= 0) buy else sell
+                    Text(
+                        "Backtest (${bt.bars} bars): signal ${"%+.0f%%".format(bt.strategyReturnPct)} vs " +
+                            "buy-hold ${"%+.0f%%".format(bt.buyHoldReturnPct)} = " +
+                            "${"%+.0f%%".format(edge)} edge",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = edgeColor,
+                    )
+                    Text(
+                        "${bt.trades} trades · ${"%.0f".format(bt.winRatePct)}% win · " +
+                            "${"%.0f".format(bt.maxDrawdownPct)}% max drawdown · " +
+                            "${"%.0f".format(bt.exposurePct)}% in market",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = neutral,
+                    )
                 }
             }
 

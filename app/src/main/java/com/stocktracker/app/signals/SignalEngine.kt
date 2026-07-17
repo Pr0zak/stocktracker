@@ -102,14 +102,38 @@ class SignalEngine(val weights: SignalWeights = SignalWeights()) {
         return SignalResult(score, labelFor(score), sorted, net, regimeNote)
     }
 
-    /** Evaluate the latest bar of a [points] series (daily bars recommended for swing signals). */
-    fun evaluate(points: List<PricePoint>, benchmark: List<PricePoint>? = null, vix: Double? = null): SignalResult? {
+    /** Evaluate the latest bar of a [points] series (daily bars recommended for swing signals).
+     *  [daysToCover] applies a research-backed bearish tilt — live path only; the backtest calls
+     *  [evaluateAt] directly and stays pure TA. */
+    fun evaluate(
+        points: List<PricePoint>,
+        benchmark: List<PricePoint>? = null,
+        vix: Double? = null,
+        daysToCover: Double? = null,
+    ): SignalResult? {
         if (points.size < weights.rsiPeriod + 2) return null
         val prices = points.map { it.price }
         val volumes = points.map { it.volume }
         val bench = benchmark?.let { alignByDay(points, it) }
         val ctx = prepare(prices, volumes, bench)
-        return evaluateAt(ctx, points.lastIndex, vix)
+        return applyShortPressure(evaluateAt(ctx, points.lastIndex, vix), daysToCover)
+    }
+
+    /** Fold a high days-to-cover reading into the score as a bounded bearish tilt (see SignalWeights).
+     *  No-op below the threshold or when DTC is unknown. */
+    private fun applyShortPressure(base: SignalResult, dtc: Double?): SignalResult {
+        if (dtc == null || dtc < weights.highDaysToCover) return base
+        val tilt = ((dtc - weights.highDaysToCover) / 10.0).coerceIn(0.0, 1.0) * weights.daysToCoverTilt
+        if (tilt <= 0.0) return base
+        val net = (base.net - tilt).clampUnit()
+        val score = (50.0 + 50.0 * net).roundToInt().coerceIn(0, 100)
+        val note = "Days-to-cover ${"%.1f".format(dtc)} — bearish tilt (high short interest underperforms)"
+        return base.copy(
+            score = score,
+            label = labelFor(score),
+            net = net,
+            regimeNote = listOfNotNull(base.regimeNote, note).joinToString(" · "),
+        )
     }
 
     private fun labelFor(score: Int): SignalLabel = when {

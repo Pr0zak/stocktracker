@@ -49,6 +49,7 @@ object SignalScanNotifier {
                 scan.dateAlerts.joinToString("\n"),
             )
         }
+        maybeWeeklyDigest(context, scan)
         ServiceLocator.settingsStore.setLastScanNotifiedAt(generated)
     }
 
@@ -61,6 +62,28 @@ object SignalScanNotifier {
         val base = ServiceLocator.settingsStore.signalsApiUrl.first()
         require(base.isNotBlank()) { "Set the Signals service URL first" }
         return pushWatchlist(base)
+    }
+
+    /** Once every 7 days, post a roundup of the watchlist's current signals + short-pressure — a
+     *  pulse even in weeks with no flips. Deduped by a stored timestamp. */
+    private suspend fun maybeWeeklyDigest(context: Context, scan: com.stocktracker.app.data.remote.ScanLatest) {
+        if (scan.results.isEmpty()) return
+        val store = ServiceLocator.settingsStore
+        val last = store.lastDigestAt.first()
+        val now = System.currentTimeMillis()
+        if (now - last < 7L * 24 * 3600 * 1000) return
+
+        val buys = scan.results.filter { it.signal.contains("buy") }.sortedByDescending { it.conviction }
+        val sells = scan.results.filter { it.signal.contains("sell") }.sortedByDescending { it.conviction }
+        val hot = scan.results.filter { it.squeeze == "ignition" || it.squeeze == "fuel" }
+        val lines = buildList {
+            add("${scan.results.size} tracked · ${buys.size} buy · ${sells.size} sell")
+            if (buys.isNotEmpty()) add("Buy: " + buys.take(3).joinToString(", ") { "${it.symbol} ${it.conviction}" })
+            if (sells.isNotEmpty()) add("Sell: " + sells.take(3).joinToString(", ") { "${it.symbol} ${it.conviction}" })
+            if (hot.isNotEmpty()) add("Short pressure: " + hot.joinToString(", ") { "${it.symbol} ${it.squeeze?.uppercase()}" })
+        }
+        AlertNotifier.notify(context, "weekly_digest".hashCode(), "Weekly watchlist digest", lines.joinToString("\n"))
+        store.setLastDigestAt(now)
     }
 
     private suspend fun pushWatchlist(base: String): Int {

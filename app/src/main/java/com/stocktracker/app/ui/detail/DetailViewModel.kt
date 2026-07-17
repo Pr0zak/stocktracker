@@ -16,6 +16,8 @@ import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.data.remote.analystErrorDetail
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.signals.Backtest
+import com.stocktracker.app.signals.BacktestResult
 import com.stocktracker.app.signals.SignalEngine
 import com.stocktracker.app.signals.SignalResult
 import kotlinx.coroutines.Job
@@ -43,6 +45,8 @@ data class DetailUiState(
     val fiftyTwoWeekLow: Double? = null,
     /** Tier-1 rule-based buy/sell signal, computed from daily bars (null until loaded / if too new). */
     val signal: SignalResult? = null,
+    /** Walk-forward backtest of the rule signal on this symbol — the honesty check (vs buy & hold). */
+    val backtest: BacktestResult? = null,
     /** Tier-2 Claude analyst verdict (only when a Signals API URL is configured in Settings). */
     val aiVerdict: AiVerdict? = null,
     val aiModel: String = "",
@@ -124,7 +128,10 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 val base = settings.signalsApiUrl.first()
                 if (base.isBlank()) return@launch
                 val sp = runCatching { signalsApi.shortPressure(base, asset.symbol) }.getOrNull()
-                if (sp != null) _state.update { it.copy(shortPressure = sp) }
+                if (sp != null) {
+                    _state.update { it.copy(shortPressure = sp) }
+                    applyDtcTilt(sp.daysToCover) // fold high days-to-cover into the rule score
+                }
             }
         }
         // Crypto gets the halving-cycle / long-term-trend context instead (also free).
@@ -217,6 +224,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
      * range the user is viewing — swing signals only make sense on daily data. Relative strength
      * uses the S&P benchmark for stocks only (crypto trades a different calendar). Best-effort.
      */
+    // Cached rule-signal inputs so short-pressure can re-tilt the signal without re-fetching.
+    private var signalInputs: Triple<List<PricePoint>, List<PricePoint>?, Double?>? = null
+
     private suspend fun loadSignal() {
         val daily = runCatching { repo.history(asset, ChartRange.YEAR) }.getOrDefault(emptyList())
         if (daily.size < 30) return
@@ -228,7 +238,19 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             null
         }
         val vix = if (asset.type == AssetType.STOCK) runCatching { repo.vix() }.getOrNull()?.value else null
-        val sig = SignalEngine().evaluate(daily, benchmark = bench, vix = vix)
+        signalInputs = Triple(daily, bench, vix)
+        val dtc = _state.value.shortPressure?.daysToCover // may already be loaded
+        val sig = SignalEngine().evaluate(daily, benchmark = bench, vix = vix, daysToCover = dtc)
+        // Walk-forward backtest is pure TA (no DTC) — the honesty check on the mechanical signal.
+        val bt = runCatching { Backtest.run(daily, benchmark = bench) }.getOrNull()
+        _state.update { it.copy(signal = sig ?: it.signal, backtest = bt ?: it.backtest) }
+    }
+
+    /** Re-run the rule signal with a days-to-cover tilt once short-pressure has loaded. */
+    private fun applyDtcTilt(dtc: Double?) {
+        val (daily, bench, vix) = signalInputs ?: return
+        if (dtc == null || dtc < SignalEngine().weights.highDaysToCover) return
+        val sig = SignalEngine().evaluate(daily, benchmark = bench, vix = vix, daysToCover = dtc)
         if (sig != null) _state.update { it.copy(signal = sig) }
     }
 

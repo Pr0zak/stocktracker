@@ -33,6 +33,7 @@ class SettingsStore(private val context: Context) {
     private val lastScanNotifiedKey = longPreferencesKey("last_scan_notified_at")
     private val investableCashKey = doublePreferencesKey("investable_cash")
     private val aiAnalystEnabledKey = booleanPreferencesKey("ai_analyst_enabled")
+    private val lastDigestKey = longPreferencesKey("last_weekly_digest_at")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
@@ -51,6 +52,10 @@ class SettingsStore(private val context: Context) {
      *  without losing the configured service URL. The server's nightly scan is unaffected. */
     val aiAnalystEnabled: Flow<Boolean> = context.dataStore.data.map { it[aiAnalystEnabledKey] ?: true }
     suspend fun setAiAnalystEnabled(enabled: Boolean) = context.dataStore.edit { it[aiAnalystEnabledKey] = enabled }
+
+    /** epoch-ms of the last weekly watchlist digest we posted (0 = never). */
+    val lastDigestAt: Flow<Long> = context.dataStore.data.map { it[lastDigestKey] ?: 0L }
+    suspend fun setLastDigestAt(value: Long) = context.dataStore.edit { it[lastDigestKey] = value }
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }

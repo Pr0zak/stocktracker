@@ -77,6 +77,13 @@ data class SignalWeights(
     val highVixDampen: Double = 0.6,        // high VIX, market not trending down
     val highVixDownDampen: Double = 0.4,    // high VIX AND a down market — the crash regime
     val regimeTrendLookback: Int = 50,      // bars used to classify the market as up/down
+    // Short-pressure tilt (live detail screen only; the backtest path stays pure TA). Peer-reviewed
+    // evidence (Boehmer 2008, Asquith 2005, NBER w21166) — validated by this project's own research
+    // pass — is that high days-to-cover predicts UNDERperformance. Gating at DTC>=5 self-selects the
+    // illiquid names where the effect is real (liquid large-caps sit well under 2), so it never
+    // touches VOO/SCHD-type holdings.
+    val highDaysToCover: Double = 5.0,
+    val daysToCoverTilt: Double = 0.25,     // max bearish net shift (≈12 score points) at very high DTC
     val minComponents: Int = 2,
 )
 

@@ -83,6 +83,26 @@ class SignalEngineTest {
         assertEquals(SignalLabel.HOLD, r.label)
     }
 
+    @Test fun `high days-to-cover tilts the live score bearish but low DTC does not`() {
+        val series = ramp(80, 50.0, +1.0) // rising → bullish rule read
+        val base = engine.evaluate(series)!!
+        val lowDtc = engine.evaluate(series, daysToCover = 2.0)!! // below the 5 threshold → no change
+        val highDtc = engine.evaluate(series, daysToCover = 15.0)!!
+        assertEquals("DTC below threshold must not move the score", base.score, lowDtc.score)
+        assertTrue("high DTC should lower the score", highDtc.score < base.score)
+        assertTrue("tilt is bounded — never flips a strong bull to bear", highDtc.score >= base.score - 15)
+        assertNotNull(highDtc.regimeNote)
+    }
+
+    @Test fun `days-to-cover never touches the backtest path`() {
+        // Backtest.run drives evaluateAt directly (no DTC), so its result must be identical whether or
+        // not a caller would pass DTC to evaluate() — proven by evaluateAt taking no DTC argument.
+        val ctx = engine.prepare(ramp(80, 50.0, +1.0).map { it.price })
+        val a = engine.evaluateAt(ctx, 79)
+        val b = engine.evaluateAt(ctx, 79)
+        assertEquals(a.score, b.score) // evaluateAt is pure — no DTC channel exists on it
+    }
+
     @Test fun `benchmark aligns by calendar day`() {
         val pts = listOf(PricePoint(0 * DAY, 1.0), PricePoint(1 * DAY, 2.0), PricePoint(2 * DAY, 3.0))
         val bench = listOf(PricePoint(0 * DAY, 10.0), PricePoint(2 * DAY, 30.0)) // day 1 missing

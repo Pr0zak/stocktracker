@@ -12,6 +12,7 @@ import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.SignalsApiService
+import com.stocktracker.app.data.remote.analystErrorDetail
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.signals.SignalEngine
 import com.stocktracker.app.signals.SignalResult
@@ -129,7 +130,11 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     aiUsage = resp?.usage ?: it.aiUsage,
                     aiCached = resp?.cached ?: it.aiCached,
                     aiLoading = false,
-                    aiError = if (resp == null) "Couldn't reach the analyst service" else null,
+                    aiError = if (resp == null) {
+                        analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't reach the analyst service"
+                    } else {
+                        null
+                    },
                 )
             }
         }
@@ -163,7 +168,11 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 it.copy(
                     plan = resp?.plan ?: it.plan, // keep the prior plan on a failed refresh
                     planLoading = false,
-                    planError = if (resp == null) "Couldn't reach the analyst service" else null,
+                    planError = if (resp == null) {
+                        analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't reach the analyst service"
+                    } else {
+                        null
+                    },
                 )
             }
         }

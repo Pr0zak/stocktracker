@@ -108,7 +108,22 @@ fun String.urlEncode(): String = URLEncoder.encode(this, "UTF-8")
 
 /**
  * A non-2xx HTTP response. Carries the status [code] so callers can tell a genuine 404 ("no data /
- * delisted") apart from a transient 429/5xx that's worth retrying.
+ * delisted") apart from a transient 429/5xx that's worth retrying, and the [body] so callers can
+ * surface a server-provided error message.
  */
-class HttpStatusException(val code: Int, url: String, body: String?) :
+class HttpStatusException(val code: Int, url: String, val body: String?) :
     IOException("HTTP $code for $url: ${body?.take(200)}")
+
+/**
+ * A user-showable message for a failed signals-service call: FastAPI's {"detail": "..."} body when
+ * present (e.g. "watchlist is empty — open the app to sync it"), else null for a generic fallback.
+ */
+fun analystErrorDetail(e: Throwable?): String? = (e as? HttpStatusException)?.body?.let { body ->
+    runCatching {
+        kotlinx.serialization.json.Json.parseToJsonElement(body)
+            .let { it as? kotlinx.serialization.json.JsonObject }
+            ?.get("detail")
+            ?.let { it as? kotlinx.serialization.json.JsonPrimitive }
+            ?.content
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+}

@@ -6,6 +6,7 @@ import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.remote.HoldingSync
 import com.stocktracker.app.data.remote.RecommendationsResponse
 import com.stocktracker.app.data.remote.SignalsApiService
+import com.stocktracker.app.data.remote.analystErrorDetail
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,15 +38,16 @@ class IdeasViewModel : ViewModel() {
     val state = _state.asStateFlow()
 
     init {
+        // Reactive: the tab's ViewModel outlives tab switches, so a URL configured in Settings
+        // after first visit must still enable this screen.
         viewModelScope.launch {
-            val url = settings.signalsApiUrl.first()
-            val cash = settings.investableCash.first()
-            _state.update {
-                it.copy(
-                    enabled = url.isNotBlank(),
-                    cashText = if (cash > 0) formatCash(cash) else "",
-                )
+            settings.signalsApiUrl.collect { url ->
+                _state.update { it.copy(enabled = url.isNotBlank()) }
             }
+        }
+        viewModelScope.launch {
+            val cash = settings.investableCash.first()
+            if (cash > 0) _state.update { it.copy(cashText = formatCash(cash)) }
         }
     }
 
@@ -79,12 +81,20 @@ class IdeasViewModel : ViewModel() {
                 it.copy(
                     loading = false,
                     result = resp ?: it.result, // keep the previous ideas on a failed refresh
-                    error = if (resp == null) "Couldn't reach the analyst service" else null,
+                    error = if (resp == null) {
+                        analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't reach the analyst service"
+                    } else {
+                        null
+                    },
                 )
             }
         }
     }
 
-    private fun formatCash(v: Double): String =
-        if (v % 1.0 == 0.0) "%,d".format(v.toLong()) else "%,.2f".format(v)
+    private fun formatCash(v: Double): String = formatCashPlain(v)
 }
+
+/** Locale-proof cash text: no grouping, '.' decimal — always round-trips through toDoubleOrNull().
+ *  (Locale-aware "%,d" grouping can turn 5000 into "5.000", which re-parses as 5.0.) */
+internal fun formatCashPlain(v: Double): String =
+    if (v % 1.0 == 0.0) v.toLong().toString() else String.format(java.util.Locale.US, "%.2f", v)

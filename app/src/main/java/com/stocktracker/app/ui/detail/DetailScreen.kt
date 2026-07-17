@@ -76,6 +76,7 @@ import com.stocktracker.app.ui.components.ChartMarker
 import com.stocktracker.app.ui.components.ChartSubPane
 import com.stocktracker.app.ui.components.FiftyTwoWeekRangeBar
 import com.stocktracker.app.ui.components.PriceChart
+import com.stocktracker.app.ui.ideas.formatCashPlain
 import com.stocktracker.app.ui.ideas.planActionColor
 import com.stocktracker.app.ui.ideas.planActionLabel
 import com.stocktracker.app.ui.ideas.sharesText
@@ -801,9 +802,7 @@ private fun EntryPlanCard(
     val savedCash by ServiceLocator.settingsStore.investableCash.collectAsState(initial = 0.0)
     var cashText by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedCash) {
-        if (cashText == null && savedCash > 0) {
-            cashText = if (savedCash % 1.0 == 0.0) "%,d".format(savedCash.toLong()) else "%,.2f".format(savedCash)
-        }
+        if (cashText == null && savedCash > 0) cashText = formatCashPlain(savedCash)
     }
 
     Column(

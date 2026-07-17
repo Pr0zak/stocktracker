@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Insights
@@ -113,6 +114,7 @@ import kotlin.math.roundToInt
 fun DetailScreen(
     asset: Asset,
     onBack: () -> Unit,
+    onOpenCalendar: () -> Unit = {},
 ) {
     val vm: DetailViewModel = viewModel(key = asset.id) { DetailViewModel(asset) }
     val state by vm.state.collectAsState()
@@ -162,6 +164,11 @@ fun DetailScreen(
                     }
                 },
                 actions = {
+                    if (!isCrypto) {
+                        IconButton(onClick = onOpenCalendar) {
+                            Icon(Icons.Filled.CalendarMonth, contentDescription = "This stock's calendar")
+                        }
+                    }
                     IconButton(onClick = { showIndicatorSheet = true }) {
                         Icon(
                             Icons.Filled.Insights,
@@ -225,6 +232,18 @@ fun DetailScreen(
 
             // Ex-dividend markers (any mode) + S&P 500 comparison line (% mode only).
             val divMarkers = if (divEnabled) dividends.map { ChartMarker(it.first, Color(0xFF6366F1), "Div") } else emptyList()
+            // Past FTD spike settlement days (amber) — the "did fails line up with big moves?" visual.
+            val ftdMarkers = if (indicators.contains(Indicator.FTD_SPIKES.key)) {
+                (state.shortPressure?.ftdSpikeDates ?: emptyList()).mapNotNull { d ->
+                    runCatching {
+                        java.time.LocalDate.parse(d, java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+                            .atStartOfDay(java.time.ZoneOffset.UTC).plusHours(12).toInstant().toEpochMilli()
+                    }.getOrNull()?.let { ChartMarker(it, Color(0xFFD97706), "FTD") }
+                }
+            } else {
+                emptyList()
+            }
+            val allMarkers = divMarkers + ftdMarkers
             val benchOverlay = if (percentMode && benchEnabled) {
                 benchmarkPercent(chartPoints, benchPoints).takeIf { s -> s.any { it != null } }
                     ?.let { ChartLineOverlay("S&P 500", Color(0xFFEC4899), it) }
@@ -253,7 +272,7 @@ fun DetailScreen(
                         costLine = if (percentMode) null else state.avgCost?.takeIf { it > 0.0 },
                         overlays = allOverlays,
                         subPanes = indicatorResult.subPanes,
-                        markers = divMarkers,
+                        markers = allMarkers,
                         onScrubChange = { scrubbed = it },
                         valueFormatter = chartValueFormatter,
                         timeFormatter = chartTimeFormatter,
@@ -469,6 +488,7 @@ private enum class Indicator(val key: String, val label: String) {
     MACD("macd", "MACD (12, 26, 9)"),
     STOCH("stoch", "Stochastic (14, 3)"),
     DIVIDENDS("div", "Ex-dividend markers"),
+    FTD_SPIKES("ftd", "FTD spike markers"),
     BENCHMARK("bench", "S&P 500 (in % mode)"),
 }
 

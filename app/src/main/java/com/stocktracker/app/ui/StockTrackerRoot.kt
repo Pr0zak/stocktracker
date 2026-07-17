@@ -105,7 +105,13 @@ fun StockTrackerRoot() {
                 )
             }
             composable("vix") { VixDetailScreen(onBack = { nav.popBackStack() }) }
-            composable("calendar") { CalendarScreen(onBack = { nav.popBackStack() }) }
+            composable(
+                route = "calendar?symbol={symbol}",
+                arguments = listOf(navArgument("symbol") { type = NavType.StringType; defaultValue = "" }),
+            ) { entry ->
+                val sym = entry.arguments?.getString("symbol").orEmpty().ifBlank { null }
+                CalendarScreen(onBack = { nav.popBackStack() }, symbol = sym)
+            }
             composable(TopDest.Portfolio.route) { PortfolioScreen() }
             composable(TopDest.Ideas.route) {
                 IdeasScreen(onOpenDetail = { nav.navigate(detailRoute(it)) })
@@ -129,7 +135,11 @@ fun StockTrackerRoot() {
                 val name = entry.arguments?.getString("name").orEmpty()
                 val cg = entry.arguments?.getString("cg").orEmpty().ifBlank { null }
                 val asset = Asset(symbol, type, name.ifBlank { symbol }, cg)
-                DetailScreen(asset = asset, onBack = { nav.popBackStack() })
+                DetailScreen(
+                    asset = asset,
+                    onBack = { nav.popBackStack() },
+                    onOpenCalendar = { nav.navigate("calendar?symbol=${Uri.encode(asset.symbol)}") },
+                )
             }
         }
     }

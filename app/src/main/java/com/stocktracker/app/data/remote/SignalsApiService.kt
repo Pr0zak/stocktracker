@@ -61,10 +61,12 @@ class SignalsApiService {
         return Http.json.decodeFromString<ShortPressureResponse>(body)
     }
 
-    /** Watchlist-wide catalyst calendar (SI dates, OPEX, earnings, speculative T+35 echoes). Free. */
-    suspend fun calendar(baseUrl: String): CalendarResponse? {
+    /** Catalyst calendar (SI dates, OPEX, earnings, speculative T+35 echoes). Whole watchlist by
+     *  default; pass [symbol] for a single stock's calendar. Free. */
+    suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
         if (baseUrl.isBlank()) return null
-        val body = Http.getString("${baseUrl.trimEnd('/')}/calendar", slow = true)
+        val q = symbol?.let { "?symbol=${it.uppercase()}" } ?: ""
+        val body = Http.getString("${baseUrl.trimEnd('/')}/calendar$q", slow = true)
         return Http.json.decodeFromString<CalendarResponse>(body)
     }
 
@@ -124,6 +126,7 @@ data class ShortPressureResponse(
     @SerialName("short_vol_ratio_5d") val shortVolRatio5d: Double? = null,
     @SerialName("ftd_trend") val ftdTrend: String? = null,
     @SerialName("ftd_series") val ftdSeries: List<FtdPoint> = emptyList(),
+    @SerialName("ftd_spike_dates") val ftdSpikeDates: List<String> = emptyList(),
     @SerialName("si_history") val siHistory: List<SiPoint> = emptyList(),
     @SerialName("event_study") val eventStudy: FtdEventStudy? = null,
     val upcoming: List<UpcomingDate> = emptyList(),

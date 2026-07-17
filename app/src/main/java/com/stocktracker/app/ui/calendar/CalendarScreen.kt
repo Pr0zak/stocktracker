@@ -49,13 +49,13 @@ private sealed interface CalState {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarScreen(onBack: () -> Unit) {
-    val state by produceState<CalState>(CalState.Loading) {
+fun CalendarScreen(onBack: () -> Unit, symbol: String? = null) {
+    val state by produceState<CalState>(CalState.Loading, symbol) {
         val base = ServiceLocator.settingsStore.signalsApiUrl.first()
         value = if (base.isBlank()) {
             CalState.Error("Set your Signals service URL in Settings → AI analyst to see the calendar.")
         } else {
-            runCatching { SignalsApiService().calendar(base) }.getOrNull()
+            runCatching { SignalsApiService().calendar(base, symbol) }.getOrNull()
                 ?.let { CalState.Ready(it.events) }
                 ?: CalState.Error("Couldn't load the calendar from the signals service.")
         }
@@ -64,7 +64,7 @@ fun CalendarScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Catalyst calendar") },
+                title = { Text(if (symbol != null) "$symbol calendar" else "Catalyst calendar") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

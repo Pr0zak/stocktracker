@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.stocktracker.app.data.remote.Http
 import kotlinx.coroutines.flow.Flow
@@ -28,9 +29,14 @@ class SettingsStore(private val context: Context) {
     private val chartIndicatorsKey = stringPreferencesKey("chart_indicators")
     private val watchlistGroupsKey = stringPreferencesKey("watchlist_groups")
     private val signalsApiUrlKey = stringPreferencesKey("signals_api_url")
+    private val lastScanNotifiedKey = longPreferencesKey("last_scan_notified_at")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
+
+    /** epoch-seconds of the last nightly scan we already notified about (dedup across worker runs). */
+    val lastScanNotifiedAt: Flow<Long> = context.dataStore.data.map { it[lastScanNotifiedKey] ?: 0L }
+    suspend fun setLastScanNotifiedAt(value: Long) = context.dataStore.edit { it[lastScanNotifiedKey] = value }
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }

@@ -28,7 +28,30 @@ class SignalsApiService {
         val body = Http.getString(url)
         return Http.json.decodeFromString<AiSignalResponse>(body)
     }
+
+    /** The latest nightly-scan result (for the flip-notification check). */
+    suspend fun latestScan(baseUrl: String): ScanLatest? {
+        if (baseUrl.isBlank()) return null
+        val body = Http.getString("${baseUrl.trimEnd('/')}/scan/latest")
+        return Http.json.decodeFromString<ScanLatest>(body)
+    }
 }
+
+@Serializable
+data class ScanLatest(
+    @SerialName("generated_at") val generatedAt: Double? = null,
+    val results: List<ScanResult> = emptyList(),
+    val flips: List<String> = emptyList(),
+)
+
+@Serializable
+data class ScanResult(
+    val symbol: String,
+    val signal: String = "",
+    val conviction: Int = 0,
+    val flipped: Boolean = false,
+    @SerialName("prev_signal") val prevSignal: String? = null,
+)
 
 @Serializable
 data class AiSignalResponse(

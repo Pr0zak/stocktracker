@@ -72,6 +72,11 @@ data class SignalWeights(
     // the 3–12mo band, and shorter windows sit in the noisier short-horizon-reversal zone.
     val rsPeriod: Int = 63,
     val highVix: Double = 25.0,
+    // Momentum crashes concentrate in high-VIX *down* markets (research), so cut conviction harder
+    // there than in a merely-choppy high-VIX up market.
+    val highVixDampen: Double = 0.6,        // high VIX, market not trending down
+    val highVixDownDampen: Double = 0.4,    // high VIX AND a down market — the crash regime
+    val regimeTrendLookback: Int = 50,      // bars used to classify the market as up/down
     val minComponents: Int = 2,
 )
 

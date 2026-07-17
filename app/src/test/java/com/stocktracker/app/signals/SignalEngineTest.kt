@@ -45,6 +45,13 @@ class SignalEngineTest {
         assertTrue("high-VIX net should be no larger than calm net", abs(stormy.net) <= abs(calm.net) + 1e-9)
     }
 
+    @Test fun `high VIX in a down market is flagged distinctly from an up market`() {
+        val down = engine.evaluate(ramp(80, 300.0, -1.0), vix = 40.0)!! // falling → down market
+        val up = engine.evaluate(ramp(80, 50.0, +1.0), vix = 40.0)!!     // rising → not a down market
+        assertTrue("down regime should be labelled", down.regimeNote!!.contains("down market"))
+        assertTrue("up regime should not be labelled down", !up.regimeNote!!.contains("down market"))
+    }
+
     /** With only RSI weighted, a deep-oversold series must resolve to the max bullish label, and a
      *  deep-overbought series to the max bearish — proves the component → net → score → label chain. */
     @Test fun `single-indicator extremes drive the label ends`() {

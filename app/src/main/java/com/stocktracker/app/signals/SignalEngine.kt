@@ -91,8 +91,10 @@ class SignalEngine(val weights: SignalWeights = SignalWeights()) {
 
         var regimeNote: String? = null
         if (vix != null && vix >= weights.highVix) {
-            net *= HIGH_VIX_DAMPEN
-            regimeNote = "High-volatility regime (VIX ${vix.roundToInt()}) — conviction dampened"
+            val down = isDownMarket(ctx, i)
+            net *= if (down) weights.highVixDownDampen else weights.highVixDampen
+            regimeNote = "High volatility (VIX ${vix.roundToInt()})" +
+                if (down) " + down market — conviction cut hard" else " — conviction dampened"
         }
         net = net.clampUnit()
 
@@ -222,7 +224,20 @@ class SignalEngine(val weights: SignalWeights = SignalWeights()) {
         return (slope / 0.05) to "$dir benchmark"
     }
 
-    private companion object {
-        const val HIGH_VIX_DAMPEN = 0.6
+    /**
+     * Down-market regime for VIX dampening: the benchmark below its level [regimeTrendLookback] bars
+     * ago (a real market downtrend), or — with no benchmark — the ticker's own fast MA below its slow.
+     */
+    private fun isDownMarket(ctx: SignalContext, i: Int): Boolean {
+        val bench = ctx.benchmark
+        if (bench != null) {
+            val prev = i - weights.regimeTrendLookback
+            val now = bench.getOrNull(i)
+            val past = if (prev >= 0) bench.getOrNull(prev) else null
+            if (now != null && past != null) return now < past
+        }
+        val fast = ctx.smaFast.getOrNull(i)
+        val slow = ctx.smaSlow.getOrNull(i)
+        return fast != null && slow != null && fast < slow
     }
 }

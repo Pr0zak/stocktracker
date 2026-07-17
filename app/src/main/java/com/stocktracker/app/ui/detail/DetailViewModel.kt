@@ -108,8 +108,12 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             _state.update { it.copy(aiEnabled = base.isNotBlank()) }
             if (base.isBlank()) return@launch
             _state.update { it.copy(aiLoading = true, aiError = null) }
+            val s = _state.value // include the current holding so the verdict is add/hold/trim-aware
             val res = runCatching {
-                signalsApi.verdict(base, asset.symbol, crypto = asset.type == AssetType.CRYPTO, deep = deep)
+                signalsApi.verdict(
+                    base, asset.symbol, crypto = asset.type == AssetType.CRYPTO, deep = deep,
+                    shares = s.shares, avgCost = s.avgCost,
+                )
             }
             ensureActive() // runCatching swallows cancellation; don't apply a superseded result
             val resp = res.getOrNull()

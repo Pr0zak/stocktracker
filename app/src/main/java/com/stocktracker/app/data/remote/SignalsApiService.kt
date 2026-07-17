@@ -21,11 +21,19 @@ class SignalsApiService {
         symbol: String,
         crypto: Boolean,
         deep: Boolean = false,
+        shares: Double? = null,
+        avgCost: Double? = null,
     ): AiSignalResponse? {
         if (baseUrl.isBlank()) return null
         // The backend fetches via Yahoo, whose crypto symbols take a -USD suffix.
         val sym = if (crypto) "${symbol.uppercase()}-USD" else symbol.uppercase()
-        val url = "${baseUrl.trimEnd('/')}/signal/$sym?crypto=$crypto&deep=$deep"
+        // When the user holds this asset, pass the position so the verdict is framed add/hold/trim.
+        val pos = if (shares != null && avgCost != null && shares > 0 && avgCost > 0) {
+            "&shares=$shares&avg_cost=$avgCost"
+        } else {
+            ""
+        }
+        val url = "${baseUrl.trimEnd('/')}/signal/$sym?crypto=$crypto&deep=$deep$pos"
         val body = Http.getString(url)
         return Http.json.decodeFromString<AiSignalResponse>(body)
     }

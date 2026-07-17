@@ -48,6 +48,7 @@ import com.stocktracker.app.BuildConfig
 import com.stocktracker.app.data.BackupManager
 import com.stocktracker.app.data.prefs.ThemeMode
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.notify.SignalScanNotifier
 import com.stocktracker.app.update.UpdateDialog
 import com.stocktracker.app.update.UpdateUiState
 import com.stocktracker.app.update.rememberUpdateController
@@ -268,6 +269,15 @@ fun SettingsScreen() {
                     Text("Save URL")
                 }
                 if (savedSignalsUrl.isNotBlank()) {
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            val msg = runCatching { SignalScanNotifier.syncNow() }.fold(
+                                { "Watchlist synced ($it symbols)" },
+                                { "Sync failed: ${it.message ?: "network error"}" },
+                            )
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    }) { Text("Sync now") }
                     TextButton(onClick = {
                         signalsUrlField = ""
                         scope.launch { settings.setSignalsApiUrl("") }
@@ -276,7 +286,8 @@ fun SettingsScreen() {
             }
             Text(
                 "Set this to your self-hosted signals service to show a Claude analyst verdict on the " +
-                    "detail screen. Leave blank to keep it off. Decision support only — not advice.",
+                    "detail screen. Your watchlist auto-syncs there about every 15 min — tap “Sync now” " +
+                    "to push it immediately. Leave blank to keep it off. Decision support only — not advice.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

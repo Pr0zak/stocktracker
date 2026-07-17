@@ -22,7 +22,7 @@ object SignalScanNotifier {
 
         // Keep the backend's nightly-scan watchlist in sync with the app's — so there's no separate
         // list to maintain on the server; the app is the source of truth.
-        runCatching { syncWatchlist(base) }
+        runCatching { pushWatchlist(base) }
 
         val scan = runCatching { api.latestScan(base) }.getOrNull() ?: return
         val generated = scan.generatedAt?.toLong() ?: return
@@ -38,10 +38,22 @@ object SignalScanNotifier {
         ServiceLocator.settingsStore.setLastScanNotifiedAt(generated)
     }
 
-    private suspend fun syncWatchlist(base: String) {
+    /**
+     * Force an immediate watchlist push to the configured service (the "Sync now" button). Returns
+     * the number of symbols pushed; throws on a missing URL or a network/HTTP failure so the caller
+     * can surface it. Unlike the periodic [check], errors here are not swallowed.
+     */
+    suspend fun syncNow(): Int {
+        val base = ServiceLocator.settingsStore.signalsApiUrl.first()
+        require(base.isNotBlank()) { "Set the Signals service URL first" }
+        return pushWatchlist(base)
+    }
+
+    private suspend fun pushWatchlist(base: String): Int {
         val assets = ServiceLocator.watchlistStore.snapshot()
         val stocks = assets.filter { it.type == AssetType.STOCK }.map { it.symbol.uppercase() }
         val cryptos = assets.filter { it.type == AssetType.CRYPTO }.map { "${it.symbol.uppercase()}-USD" }
         api.syncWatchlist(base, stocks, cryptos)
+        return stocks.size + cryptos.size
     }
 }

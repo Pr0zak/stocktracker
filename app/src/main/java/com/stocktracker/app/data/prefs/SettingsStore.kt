@@ -27,6 +27,10 @@ class SettingsStore(private val context: Context) {
     private val showVixKey = booleanPreferencesKey("show_vix")
     private val chartIndicatorsKey = stringPreferencesKey("chart_indicators")
     private val watchlistGroupsKey = stringPreferencesKey("watchlist_groups")
+    private val signalsApiUrlKey = stringPreferencesKey("signals_api_url")
+
+    /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
+    val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }
@@ -81,4 +85,5 @@ class SettingsStore(private val context: Context) {
     suspend fun setWatchlistGroups(groups: List<String>) = context.dataStore.edit {
         it[watchlistGroupsKey] = Http.json.encodeToString(groups)
     }
+    suspend fun setSignalsApiUrl(url: String) = context.dataStore.edit { it[signalsApiUrlKey] = url.trim().trimEnd('/') }
 }

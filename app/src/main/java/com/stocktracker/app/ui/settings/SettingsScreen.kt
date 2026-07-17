@@ -69,10 +69,13 @@ fun SettingsScreen() {
     val showMarketStatus by settings.showMarketStatus.collectAsState(initial = true)
     val showVix by settings.showVix.collectAsState(initial = true)
     val showVolume by settings.showVolume.collectAsState(initial = false)
+    val savedSignalsUrl by settings.signalsApiUrl.collectAsState(initial = "")
 
     var keyField by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedKey) { if (keyField == null) keyField = savedKey }
     var showKey by remember { mutableStateOf(false) }
+    var signalsUrlField by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(savedSignalsUrl) { if (signalsUrlField == null) signalsUrlField = savedSignalsUrl }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -246,6 +249,34 @@ fun SettingsScreen() {
             Text(
                 "✓ Stocks & crypto work with no key (Yahoo + CoinGecko). A Finnhub key just adds an " +
                     "extra search source. Stored on-device only.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Header("AI analyst (optional)")
+            Text("Signals service URL", style = MaterialTheme.typography.bodyMedium)
+            OutlinedTextField(
+                value = signalsUrlField ?: "",
+                onValueChange = { signalsUrlField = it },
+                label = { Text("http://host:8000") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { scope.launch { settings.setSignalsApiUrl(signalsUrlField.orEmpty()) } }) {
+                    Text("Save URL")
+                }
+                if (savedSignalsUrl.isNotBlank()) {
+                    TextButton(onClick = {
+                        signalsUrlField = ""
+                        scope.launch { settings.setSignalsApiUrl("") }
+                    }) { Text("Clear") }
+                }
+            }
+            Text(
+                "Set this to your self-hosted signals service to show a Claude analyst verdict on the " +
+                    "detail screen. Leave blank to keep it off. Decision support only — not advice.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

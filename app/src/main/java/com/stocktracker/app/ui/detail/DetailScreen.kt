@@ -64,6 +64,8 @@ import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.remote.AiUsage
+import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.signals.SignalLabel
 import com.stocktracker.app.signals.SignalResult
@@ -293,6 +295,19 @@ fun DetailScreen(
             }
 
             state.signal?.let { SignalCard(it) }
+
+            if (state.aiEnabled) {
+                AiAnalystCard(
+                    verdict = state.aiVerdict,
+                    model = state.aiModel,
+                    usage = state.aiUsage,
+                    cached = state.aiCached,
+                    loading = state.aiLoading,
+                    error = state.aiError,
+                    onRetry = { vm.requestAiVerdict(deep = false) },
+                    onDeepDive = { vm.requestAiVerdict(deep = true) },
+                )
+            }
 
             HoldingsAndAlertsSection(
                 quote = quote,
@@ -628,6 +643,103 @@ private fun SignalCard(signal: SignalResult) {
             color = neutral,
         )
     }
+}
+
+/** Tier-2 Claude analyst verdict: signal + conviction, thesis, expandable reasoning, deep-dive. */
+@Composable
+private fun AiAnalystCard(
+    verdict: AiVerdict?,
+    model: String,
+    usage: AiUsage?,
+    cached: Boolean,
+    loading: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
+    onDeepDive: () -> Unit,
+) {
+    val buy = Color(0xFF16A34A)
+    val sell = Color(0xFFDC2626)
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    fun sigColor(s: String) = when {
+        s.contains("buy") -> buy
+        s.contains("sell") -> sell
+        else -> neutral
+    }
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("AI Analyst", style = MaterialTheme.typography.labelLarge, color = neutral)
+            if (verdict != null) {
+                val label = verdict.signal.replace('_', ' ').replaceFirstChar { it.uppercase() }
+                Text(
+                    "$label · ${verdict.conviction}/100",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = sigColor(verdict.signal),
+                )
+            }
+        }
+        when {
+            verdict != null -> {
+                if (verdict.thesis.isNotBlank()) {
+                    Text(verdict.thesis, style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "Hide detail" else "Why?")
+                }
+                if (expanded) {
+                    ReasonBlock("Rationale", verdict.rationale)
+                    ReasonBlock("Risks", verdict.keyRisks)
+                    if (verdict.invalidation.isNotBlank()) {
+                        Text("Invalidation", style = MaterialTheme.typography.labelMedium, color = neutral)
+                        Text(verdict.invalidation, style = MaterialTheme.typography.bodySmall)
+                    }
+                    ReasonBlock("Catalysts", verdict.catalysts)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onDeepDive, enabled = !loading) {
+                        Text(if (loading) "Analyzing…" else "Deep dive")
+                    }
+                    if (model.isNotBlank()) {
+                        Text(model, style = MaterialTheme.typography.labelSmall, color = neutral)
+                    }
+                }
+            }
+            loading -> Text("Analyzing…", style = MaterialTheme.typography.bodySmall, color = neutral)
+            error != null -> {
+                Text(error, style = MaterialTheme.typography.bodySmall, color = neutral)
+                TextButton(onClick = onRetry) { Text("Retry") }
+            }
+        }
+        usage?.let { u ->
+            val cost = if (u.costUsd < 0.01) "%.4f".format(u.costUsd) else "%.2f".format(u.costUsd)
+            val cachedTag = if (cached) " · cached (no new call)" else ""
+            Text(
+                "%,d in · %,d out · $%s%s".format(u.inputTokens, u.outputTokens, cost, cachedTag),
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+        Text("Claude analyst · not advice", style = MaterialTheme.typography.labelSmall, color = neutral)
+    }
+}
+
+@Composable
+private fun ReasonBlock(title: String, items: List<String>) {
+    if (items.isEmpty()) return
+    Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    items.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
 }
 
 private fun numText(v: Double): String = if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()

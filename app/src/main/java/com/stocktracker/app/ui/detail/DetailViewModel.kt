@@ -8,6 +8,9 @@ import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.remote.AiUsage
+import com.stocktracker.app.data.remote.AiVerdict
+import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.signals.SignalEngine
 import com.stocktracker.app.signals.SignalResult
@@ -36,6 +39,14 @@ data class DetailUiState(
     val fiftyTwoWeekLow: Double? = null,
     /** Tier-1 rule-based buy/sell signal, computed from daily bars (null until loaded / if too new). */
     val signal: SignalResult? = null,
+    /** Tier-2 Claude analyst verdict (only when a Signals API URL is configured in Settings). */
+    val aiVerdict: AiVerdict? = null,
+    val aiModel: String = "",
+    val aiUsage: AiUsage? = null,
+    val aiCached: Boolean = false,
+    val aiEnabled: Boolean = false,
+    val aiLoading: Boolean = false,
+    val aiError: String? = null,
 )
 
 class DetailViewModel(private val asset: Asset) : ViewModel() {
@@ -52,6 +63,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     // Tracks the in-flight chart fetch so a superseded range's (possibly slow, possibly failed)
     // result can't land after — and clobber — a newer range's chart.
     private var chartJob: Job? = null
+
+    private val signalsApi = SignalsApiService()
+    private var aiJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -82,6 +96,33 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             val hl = runCatching { repo.fiftyTwoWeek(asset) }.getOrNull()
             if (hl != null) _state.update { it.copy(fiftyTwoWeekHigh = hl.first, fiftyTwoWeekLow = hl.second) }
             loadSignal()
+        }
+        requestAiVerdict(deep = false)
+    }
+
+    /** Fetch the Tier-2 Claude analyst verdict, if a Signals API URL is configured in Settings. */
+    fun requestAiVerdict(deep: Boolean) {
+        aiJob?.cancel()
+        aiJob = viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            _state.update { it.copy(aiEnabled = base.isNotBlank()) }
+            if (base.isBlank()) return@launch
+            _state.update { it.copy(aiLoading = true, aiError = null) }
+            val res = runCatching {
+                signalsApi.verdict(base, asset.symbol, crypto = asset.type == AssetType.CRYPTO, deep = deep)
+            }
+            ensureActive() // runCatching swallows cancellation; don't apply a superseded result
+            val resp = res.getOrNull()
+            _state.update {
+                it.copy(
+                    aiVerdict = resp?.verdict ?: it.aiVerdict, // keep the prior verdict on a failed refresh
+                    aiModel = resp?.model ?: it.aiModel,
+                    aiUsage = resp?.usage ?: it.aiUsage,
+                    aiCached = resp?.cached ?: it.aiCached,
+                    aiLoading = false,
+                    aiError = if (resp == null) "Couldn't reach the analyst service" else null,
+                )
+            }
         }
     }
 

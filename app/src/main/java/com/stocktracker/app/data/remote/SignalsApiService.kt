@@ -61,6 +61,14 @@ class SignalsApiService {
         return Http.json.decodeFromString<ShortPressureResponse>(body)
     }
 
+    /** Crypto long-term context: halving-cycle position (BTC), multi-year trend, halving dates. */
+    suspend fun cycleInfo(baseUrl: String, symbol: String): CycleResponse? {
+        if (baseUrl.isBlank()) return null
+        val sym = "${symbol.uppercase()}-USD"
+        val body = Http.getString("${baseUrl.trimEnd('/')}/cycle/$sym", slow = true)
+        return Http.json.decodeFromString<CycleResponse>(body)
+    }
+
     /** Catalyst calendar (SI dates, OPEX, earnings, speculative T+35 echoes). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
@@ -138,6 +146,43 @@ data class FtdPoint(val date: String, val qty: Long)
 
 @Serializable
 data class SiPoint(val date: String, val dtc: Double? = null)
+
+@Serializable
+data class CycleResponse(
+    val symbol: String = "",
+    @SerialName("long_term_trend") val longTermTrend: LongTermTrend? = null,
+    @SerialName("btc_halving_cycle") val halvingCycle: HalvingCycle? = null,
+    @SerialName("halving_dates") val halvingDates: List<String> = emptyList(),
+    @SerialName("next_halving_est") val nextHalvingEst: String? = null,
+)
+
+@Serializable
+data class LongTermTrend(
+    @SerialName("history_years") val historyYears: Double? = null,
+    @SerialName("price_vs_200w_sma_pct") val priceVs200wSmaPct: Double? = null,
+    @SerialName("pct_off_all_time_high") val pctOffAllTimeHigh: Double? = null,
+    @SerialName("cagr_3y_pct") val cagr3yPct: Double? = null,
+    @SerialName("mayer_multiple") val mayerMultiple: Double? = null,
+)
+
+@Serializable
+data class HalvingCycle(
+    @SerialName("last_halving") val lastHalving: String = "",
+    @SerialName("next_halving_est") val nextHalvingEst: String = "",
+    @SerialName("days_since_halving") val daysSinceHalving: Int = 0,
+    @SerialName("days_to_next_est") val daysToNextEst: Int = 0,
+    @SerialName("cycle_pct") val cyclePct: Double? = null,
+    val phase: String = "",
+    @SerialName("past_cycle_analog") val pastCycleAnalog: PastCycleAnalog? = null,
+)
+
+@Serializable
+data class PastCycleAnalog(
+    @SerialName("prior_cycles_measured") val priorCyclesMeasured: Int = 0,
+    @SerialName("median_fwd_12mo_pct") val medianFwd12moPct: Double? = null,
+    @SerialName("worst_fwd_12mo_pct") val worstFwd12moPct: Double? = null,
+    @SerialName("best_fwd_12mo_pct") val bestFwd12moPct: Double? = null,
+)
 
 @Serializable
 data class CalendarResponse(val events: List<CalendarEvent> = emptyList())

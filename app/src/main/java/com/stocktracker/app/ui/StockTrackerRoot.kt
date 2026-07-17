@@ -138,7 +138,11 @@ fun StockTrackerRoot() {
                 DetailScreen(
                     asset = asset,
                     onBack = { nav.popBackStack() },
-                    onOpenCalendar = { nav.navigate("calendar?symbol=${Uri.encode(asset.symbol)}") },
+                    onOpenCalendar = {
+                        // Crypto calendars use the backend's Yahoo-form symbol (BTC → BTC-USD).
+                        val calSym = if (asset.type == AssetType.CRYPTO) "${asset.symbol}-USD" else asset.symbol
+                        nav.navigate("calendar?symbol=${Uri.encode(calSym)}")
+                    },
                 )
             }
         }

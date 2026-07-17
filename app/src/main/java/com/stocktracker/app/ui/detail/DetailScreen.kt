@@ -76,6 +76,7 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiVerdict
+import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.di.ServiceLocator
@@ -164,10 +165,8 @@ fun DetailScreen(
                     }
                 },
                 actions = {
-                    if (!isCrypto) {
-                        IconButton(onClick = onOpenCalendar) {
-                            Icon(Icons.Filled.CalendarMonth, contentDescription = "This stock's calendar")
-                        }
+                    IconButton(onClick = onOpenCalendar) {
+                        Icon(Icons.Filled.CalendarMonth, contentDescription = "This asset's calendar")
                     }
                     IconButton(onClick = { showIndicatorSheet = true }) {
                         Icon(
@@ -243,7 +242,18 @@ fun DetailScreen(
             } else {
                 emptyList()
             }
-            val allMarkers = divMarkers + ftdMarkers
+            // Past BTC halving dates (visible on 3Y/ALL ranges) — the cycle anchor points.
+            val halvingMarkers = if (indicators.contains(Indicator.HALVING.key)) {
+                (state.cycleInfo?.halvingDates ?: emptyList()).mapNotNull { d ->
+                    runCatching {
+                        java.time.LocalDate.parse(d)
+                            .atStartOfDay(java.time.ZoneOffset.UTC).plusHours(12).toInstant().toEpochMilli()
+                    }.getOrNull()?.let { ChartMarker(it, Color(0xFF8B5CF6), "Halving") }
+                }
+            } else {
+                emptyList()
+            }
+            val allMarkers = divMarkers + ftdMarkers + halvingMarkers
             val benchOverlay = if (percentMode && benchEnabled) {
                 benchmarkPercent(chartPoints, benchPoints).takeIf { s -> s.any { it != null } }
                     ?.let { ChartLineOverlay("S&P 500", Color(0xFFEC4899), it) }
@@ -343,6 +353,7 @@ fun DetailScreen(
                 )
             }
             state.shortPressure?.let { ShortPressureCard(it) }
+            state.cycleInfo?.let { HalvingCycleCard(it) }
 
             if (state.aiEnabled) {
                 EntryPlanCard(
@@ -489,6 +500,7 @@ private enum class Indicator(val key: String, val label: String) {
     STOCH("stoch", "Stochastic (14, 3)"),
     DIVIDENDS("div", "Ex-dividend markers"),
     FTD_SPIKES("ftd", "FTD spike markers"),
+    HALVING("halv", "Halving markers (BTC)"),
     BENCHMARK("bench", "S&P 500 (in % mode)"),
 }
 
@@ -874,6 +886,142 @@ private fun SignalsCard(
             val modelTag = if (verdict != null && model.isNotBlank()) "$model · " else ""
             Text(
                 "${modelTag}daily bars · decision support, not advice",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+    }
+}
+
+/**
+ * Halving cycle + multi-year trend card (crypto): where we are in the ~4-year cycle, what prior
+ * cycles did from this position, and the long-term structural metrics. Honest about the sample
+ * size — four halvings is anecdote, not statistics. Collapsed by default.
+ */
+@Composable
+private fun HalvingCycleCard(ci: CycleResponse) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val purple = Color(0xFF8B5CF6)
+    var open by remember { mutableStateOf(false) }
+    val hc = ci.halvingCycle
+    val lt = ci.longTermTrend
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (hc != null) "Halving cycle" else "Long-term trend",
+                style = MaterialTheme.typography.labelLarge,
+                color = neutral,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                hc?.cyclePct?.let { pct ->
+                    Box(
+                        modifier = Modifier
+                            .background(purple.copy(alpha = 0.16f), RoundedCornerShape(50))
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            "%.0f%%".format(pct),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = purple,
+                        )
+                    }
+                }
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse cycle" else "Expand cycle",
+                    tint = neutral,
+                )
+            }
+        }
+        if (!open) {
+            val parts = listOfNotNull(
+                hc?.let { "${it.daysToNextEst}d to next halving (est.)" },
+                lt?.priceVs200wSmaPct?.let { "%+.1f%% vs 200w SMA".format(it) },
+                lt?.mayerMultiple?.let { "Mayer %.2f".format(it) },
+            )
+            Text(
+                (parts.joinToString(" · ").ifBlank { "long-term data" }) + " · tap for detail",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+        if (open) {
+            hc?.let { h ->
+                // Cycle progress: last halving ──────●────── next (est.)
+                h.cyclePct?.let { pct ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .background(neutral.copy(alpha = 0.18f), RoundedCornerShape(3.dp)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth((pct / 100f).toFloat().coerceIn(0.02f, 1f))
+                                .height(6.dp)
+                                .background(purple, RoundedCornerShape(3.dp)),
+                        )
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(h.lastHalving, style = MaterialTheme.typography.labelSmall, color = neutral)
+                    Text(
+                        "${h.daysSinceHalving}d in · ${h.daysToNextEst}d left",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = neutral,
+                    )
+                    Text("${h.nextHalvingEst} (est.)", style = MaterialTheme.typography.labelSmall, color = neutral)
+                }
+                if (h.phase.isNotBlank()) {
+                    Text(h.phase.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall)
+                }
+                h.pastCycleAnalog?.let { a ->
+                    Text(
+                        "From this cycle position, the ${a.priorCyclesMeasured} prior cycles returned a median " +
+                            "${a.medianFwd12moPct?.let { "%+.0f%%".format(it) } ?: "—"} over the next 12 months " +
+                            "(worst ${a.worstFwd12moPct?.let { "%+.0f%%".format(it) } ?: "—"}, best " +
+                            "${a.bestFwd12moPct?.let { "%+.0f%%".format(it) } ?: "—"}). Four halvings ever — " +
+                            "weak-sample history, not a law.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            lt?.let { t ->
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    t.priceVs200wSmaPct?.let {
+                        StatCell("vs 200w SMA", "%+.1f%%".format(it), modifier = Modifier.weight(1f))
+                    }
+                    t.mayerMultiple?.let {
+                        StatCell("Mayer multiple", "%.2f".format(it), modifier = Modifier.weight(1f))
+                    }
+                    t.pctOffAllTimeHigh?.let {
+                        StatCell("Off ATH", "%.1f%%".format(it), modifier = Modifier.weight(1f))
+                    }
+                }
+                t.cagr3yPct?.let {
+                    Text(
+                        "3-year CAGR %+.1f%% over %.0f years of history".format(it, t.historyYears ?: 0.0),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = neutral,
+                    )
+                }
+            }
+            Text(
+                "Cycle context, not timing — enable “Halving markers” in Indicators to see past " +
+                    "halvings on the 3Y/ALL chart · not advice",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )

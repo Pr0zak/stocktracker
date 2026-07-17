@@ -10,6 +10,7 @@ import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
+import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.SignalsApiService
@@ -56,6 +57,8 @@ data class DetailUiState(
     val planError: String? = null,
     /** Short-pressure read (SI/short-volume/FTDs) — free data, auto-fetched for stocks. */
     val shortPressure: ShortPressureResponse? = null,
+    /** Halving-cycle + multi-year trend — free data, auto-fetched for crypto. */
+    val cycleInfo: CycleResponse? = null,
 )
 
 class DetailViewModel(private val asset: Asset) : ViewModel() {
@@ -122,6 +125,15 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 if (base.isBlank()) return@launch
                 val sp = runCatching { signalsApi.shortPressure(base, asset.symbol) }.getOrNull()
                 if (sp != null) _state.update { it.copy(shortPressure = sp) }
+            }
+        }
+        // Crypto gets the halving-cycle / long-term-trend context instead (also free).
+        if (asset.type == AssetType.CRYPTO) {
+            viewModelScope.launch {
+                val base = settings.signalsApiUrl.first()
+                if (base.isBlank()) return@launch
+                val ci = runCatching { signalsApi.cycleInfo(base, asset.symbol) }.getOrNull()
+                if (ci != null) _state.update { it.copy(cycleInfo = ci) }
             }
         }
     }

@@ -103,7 +103,14 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             if (hl != null) _state.update { it.copy(fiftyTwoWeekHigh = hl.first, fiftyTwoWeekLow = hl.second) }
             loadSignal()
         }
-        requestAiVerdict(deep = false)
+        // Deliberately NO auto-fetch of the AI verdict — analysis is user-triggered from the card
+        // (one tap = one model call), so idly browsing symbols burns no tokens. Just compute
+        // whether the card should show at all.
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            val on = settings.aiAnalystEnabled.first()
+            _state.update { it.copy(aiEnabled = base.isNotBlank() && on) }
+        }
     }
 
     /** Fetch the Tier-2 Claude analyst verdict, if a Signals API URL is configured in Settings. */

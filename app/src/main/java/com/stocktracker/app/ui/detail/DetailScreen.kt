@@ -802,6 +802,15 @@ private fun AiAnalystCard(
                 Text(error, style = MaterialTheme.typography.bodySmall, color = neutral)
                 TextButton(onClick = onRetry) { Text("Retry") }
             }
+            else -> {
+                // Idle: nothing fetched yet — analysis runs only when the user asks (saves tokens).
+                Text(
+                    "Get a Claude read on this chart — runs one model call, only when you tap.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = neutral,
+                )
+                TextButton(onClick = { open = true; onRetry() }) { Text("Analyze") }
+            }
         }
         // Footer: which model produced the verdict + the standing disclaimer. (Token/cost usage now
         // lives on the signals service's usage page, so it's no longer repeated per-card here.)

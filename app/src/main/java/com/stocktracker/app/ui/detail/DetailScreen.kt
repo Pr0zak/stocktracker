@@ -22,8 +22,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
@@ -675,12 +678,15 @@ private fun AiAnalystCard(
         s.contains("sell") -> sell
         else -> neutral
     }
+    // Collapsed by default — the full analysis runs long; header + pill + one line is the summary.
+    var open by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { open = !open }
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -691,24 +697,41 @@ private fun AiAnalystCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("AI Analyst", style = MaterialTheme.typography.labelLarge, color = neutral)
-            if (verdict != null) {
-                val c = sigColor(verdict.signal)
-                Box(
-                    modifier = Modifier
-                        .background(c.copy(alpha = 0.16f), RoundedCornerShape(50))
-                        .padding(horizontal = 10.dp, vertical = 3.dp),
-                ) {
-                    Text(
-                        verdict.signal.replace('_', ' ').uppercase(),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = c,
-                    )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (verdict != null) {
+                    val c = sigColor(verdict.signal)
+                    Box(
+                        modifier = Modifier
+                            .background(c.copy(alpha = 0.16f), RoundedCornerShape(50))
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            verdict.signal.replace('_', ' ').uppercase(),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = c,
+                        )
+                    }
                 }
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse analysis" else "Expand analysis",
+                    tint = neutral,
+                )
             }
         }
+        if (verdict != null && !open) {
+            // One-line summary while collapsed — tap the card for the full analysis.
+            Text(
+                "Conviction ${verdict.conviction}/100" +
+                    (if (verdict.horizon.isNotBlank()) " · ${verdict.horizon}" else "") +
+                    " · tap for the full analysis",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
         when {
-            verdict != null -> {
+            verdict != null && open -> {
                 val c = sigColor(verdict.signal)
                 // Conviction (with horizon) + a meter bar, matching SignalCard.
                 Row(
@@ -782,11 +805,13 @@ private fun AiAnalystCard(
         }
         // Footer: which model produced the verdict + the standing disclaimer. (Token/cost usage now
         // lives on the signals service's usage page, so it's no longer repeated per-card here.)
-        Text(
-            (if (model.isNotBlank()) "$model · " else "Claude analyst · ") + "decision support, not advice",
-            style = MaterialTheme.typography.labelSmall,
-            color = neutral,
-        )
+        if (open || verdict == null) {
+            Text(
+                (if (model.isNotBlank()) "$model · " else "Claude analyst · ") + "decision support, not advice",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
     }
 }
 

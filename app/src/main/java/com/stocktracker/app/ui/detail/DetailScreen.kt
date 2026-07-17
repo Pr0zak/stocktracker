@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -645,7 +646,8 @@ private fun SignalCard(signal: SignalResult) {
     }
 }
 
-/** Tier-2 Claude analyst verdict: signal + conviction, thesis, expandable reasoning, deep-dive. */
+/** Tier-2 Claude analyst verdict: signal pill + conviction meter, horizon, thesis, expandable
+ *  reasoning, deep-dive. Mirrors the rule-based SignalCard's visual language. */
 @Composable
 private fun AiAnalystCard(
     verdict: AiVerdict?,
@@ -672,8 +674,9 @@ private fun AiAnalystCard(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
             .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // Header: title + a filled, colored signal pill (the call at a glance).
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -681,22 +684,54 @@ private fun AiAnalystCard(
         ) {
             Text("AI Analyst", style = MaterialTheme.typography.labelLarge, color = neutral)
             if (verdict != null) {
-                val label = verdict.signal.replace('_', ' ').replaceFirstChar { it.uppercase() }
-                Text(
-                    "$label · ${verdict.conviction}/100",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = sigColor(verdict.signal),
-                )
+                val c = sigColor(verdict.signal)
+                Box(
+                    modifier = Modifier
+                        .background(c.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        verdict.signal.replace('_', ' ').uppercase(),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = c,
+                    )
+                }
             }
         }
         when {
             verdict != null -> {
-                if (verdict.thesis.isNotBlank()) {
-                    Text(verdict.thesis, style = MaterialTheme.typography.bodySmall)
+                val c = sigColor(verdict.signal)
+                // Conviction (with horizon) + a meter bar, matching SignalCard.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Conviction ${verdict.conviction}/100",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = neutral,
+                    )
+                    if (verdict.horizon.isNotBlank()) {
+                        Text(verdict.horizon, style = MaterialTheme.typography.labelSmall, color = neutral)
+                    }
                 }
-                TextButton(onClick = { expanded = !expanded }) {
-                    Text(if (expanded) "Hide detail" else "Why?")
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .background(neutral.copy(alpha = 0.18f), RoundedCornerShape(3.dp)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth((verdict.conviction / 100f).coerceIn(0.02f, 1f))
+                            .height(6.dp)
+                            .background(c, RoundedCornerShape(3.dp)),
+                    )
+                }
+                if (verdict.thesis.isNotBlank()) {
+                    Text(verdict.thesis, style = MaterialTheme.typography.bodyMedium)
                 }
                 if (expanded) {
                     ReasonBlock("Rationale", verdict.rationale)
@@ -707,31 +742,48 @@ private fun AiAnalystCard(
                     }
                     ReasonBlock("Catalysts", verdict.catalysts)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onDeepDive, enabled = !loading) {
-                        Text(if (loading) "Analyzing…" else "Deep dive")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    TextButton(onClick = { expanded = !expanded }) {
+                        Text(if (expanded) "Hide detail" else "Why?")
                     }
-                    if (model.isNotBlank()) {
-                        Text(model, style = MaterialTheme.typography.labelSmall, color = neutral)
+                    TextButton(onClick = onDeepDive, enabled = !loading) { Text("Deep dive") }
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = neutral,
+                        )
                     }
                 }
             }
-            loading -> Text("Analyzing…", style = MaterialTheme.typography.bodySmall, color = neutral)
+            loading -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = neutral)
+                Text("Analyzing…", style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
             error != null -> {
                 Text(error, style = MaterialTheme.typography.bodySmall, color = neutral)
                 TextButton(onClick = onRetry) { Text("Retry") }
             }
         }
+        // Footer: model + token/cost of this call, then the standing disclaimer.
         usage?.let { u ->
             val cost = if (u.costUsd < 0.01) "%.4f".format(u.costUsd) else "%.2f".format(u.costUsd)
-            val cachedTag = if (cached) " · cached (no new call)" else ""
+            val cachedTag = if (cached) " · cached" else ""
+            val modelTag = if (model.isNotBlank()) "$model · " else ""
             Text(
-                "%,d in · %,d out · $%s%s".format(u.inputTokens, u.outputTokens, cost, cachedTag),
+                "$modelTag%,d in · %,d out · $%s%s".format(u.inputTokens, u.outputTokens, cost, cachedTag),
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
         }
-        Text("Claude analyst · not advice", style = MaterialTheme.typography.labelSmall, color = neutral)
+        Text("Claude analyst · decision support, not advice", style = MaterialTheme.typography.labelSmall, color = neutral)
     }
 }
 

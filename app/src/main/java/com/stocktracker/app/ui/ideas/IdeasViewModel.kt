@@ -10,15 +10,18 @@ import com.stocktracker.app.data.remote.analystErrorDetail
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class IdeasUiState(
-    /** False when no Signals service URL is configured in Settings (feature off). */
+    /** False when no Signals service URL is configured or the AI analyst switch is off. */
     val enabled: Boolean = true,
     val cashText: String = "",
     val deep: Boolean = false,
+    /** True widens the search beyond the watchlist with live market-screen candidates. */
+    val market: Boolean = false,
     val loading: Boolean = false,
     val result: RecommendationsResponse? = null,
     val error: String? = null,
@@ -39,11 +42,11 @@ class IdeasViewModel : ViewModel() {
 
     init {
         // Reactive: the tab's ViewModel outlives tab switches, so a URL configured in Settings
-        // after first visit must still enable this screen.
+        // after first visit (or the AI switch being flipped) must still take effect here.
         viewModelScope.launch {
-            settings.signalsApiUrl.collect { url ->
-                _state.update { it.copy(enabled = url.isNotBlank()) }
-            }
+            combine(settings.signalsApiUrl, settings.aiAnalystEnabled) { url, on ->
+                url.isNotBlank() && on
+            }.collect { enabled -> _state.update { it.copy(enabled = enabled) } }
         }
         viewModelScope.launch {
             val cash = settings.investableCash.first()
@@ -53,6 +56,7 @@ class IdeasViewModel : ViewModel() {
 
     fun setCash(text: String) = _state.update { it.copy(cashText = text, error = null) }
     fun setDeep(deep: Boolean) = _state.update { it.copy(deep = deep) }
+    fun setMarket(market: Boolean) = _state.update { it.copy(market = market) }
 
     fun getIdeas() {
         val cash = _state.value.cashText.replace(",", "").removePrefix("$").trim().toDoubleOrNull()
@@ -75,7 +79,8 @@ class IdeasViewModel : ViewModel() {
                     val sym = if (it.type == AssetType.CRYPTO) "${it.symbol.uppercase()}-USD" else it.symbol.uppercase()
                     HoldingSync(sym, it.shares!!, it.avgCost!!)
                 }
-            val res = runCatching { api.recommendations(base, cash, _state.value.deep, holdings) }
+            val s0 = _state.value
+            val res = runCatching { api.recommendations(base, cash, s0.deep, holdings, market = s0.market) }
             val resp = res.getOrNull()
             _state.update {
                 it.copy(

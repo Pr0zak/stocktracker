@@ -926,65 +926,137 @@ private fun HoldingsAndAlertsSection(
     var pctDown by remember(alerts) { mutableStateOf(alerts.percentDown?.let { numText(it) } ?: "") }
 
     val decimal = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-
-    Text("Holdings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = sharesText,
-            onValueChange = { sharesText = it },
-            label = { Text("Shares owned") },
-            singleLine = true,
-            keyboardOptions = decimal,
-            modifier = Modifier.weight(1f),
-        )
-        OutlinedTextField(
-            value = costText,
-            onValueChange = { costText = it },
-            label = { Text("Avg cost / sh") },
-            singleLine = true,
-            keyboardOptions = decimal,
-            modifier = Modifier.weight(1f),
-        )
-    }
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val sh = sharesText.toDoubleOrNull()
     val cost = costText.toDoubleOrNull()
-    if (sh != null && sh > 0.0 && quote != null) {
-        Text(
-            "Position value: ${Formatting.price(sh * quote.price, quote.currency, hideZeroCents)}",
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        if (cost != null && cost > 0.0) {
-            val gain = sh * (quote.price - cost)
-            val gainPct = if (cost != 0.0) (quote.price - cost) / cost * 100.0 else 0.0
-            val gUp = gain >= 0.0
-            Text(
-                "Total return: ${Formatting.changeLine(gain, gainPct, gUp, hideZeroCents)}",
-                fontWeight = FontWeight.Medium,
-                color = if (gUp) GainGreen else LossRed,
+
+    // ----- Holdings card -----
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Holdings", style = MaterialTheme.typography.labelLarge, color = neutral)
+            // Live return pill — the position's health at a glance, styled like the signal pill.
+            if (sh != null && sh > 0.0 && cost != null && cost > 0.0 && quote != null) {
+                val gainPct = (quote.price - cost) / cost * 100.0
+                val gUp = gainPct >= 0.0
+                val pc = if (gUp) GainGreen else LossRed
+                Box(
+                    modifier = Modifier
+                        .background(pc.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        "${if (gUp) "+" else ""}${"%.1f".format(gainPct)}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = pc,
+                    )
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = sharesText,
+                onValueChange = { sharesText = it },
+                label = { Text("Shares owned") },
+                singleLine = true,
+                keyboardOptions = decimal,
+                modifier = Modifier.weight(1f),
             )
+            OutlinedTextField(
+                value = costText,
+                onValueChange = { costText = it },
+                label = { Text("Avg cost / sh") },
+                singleLine = true,
+                keyboardOptions = decimal,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (sh != null && sh > 0.0 && quote != null) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                StatCell(
+                    "Position value",
+                    Formatting.price(sh * quote.price, quote.currency, hideZeroCents),
+                    modifier = Modifier.weight(1f),
+                )
+                if (cost != null && cost > 0.0) {
+                    val gain = sh * (quote.price - cost)
+                    val gainPct = (quote.price - cost) / cost * 100.0
+                    val gUp = gain >= 0.0
+                    StatCell(
+                        "Total return",
+                        Formatting.changeLine(gain, gainPct, gUp, hideZeroCents),
+                        valueColor = if (gUp) GainGreen else LossRed,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            if (cost != null && cost > 0.0) {
+                Text(
+                    "Now ${Formatting.price(quote.price, quote.currency, hideZeroCents)} vs your " +
+                        "${Formatting.price(cost, quote.currency, hideZeroCents)} average",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = neutral,
+                )
+            }
         }
     }
 
-    Text(
-        "Alerts",
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(top = 8.dp),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(above, { above = it }, label = { Text("Above $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
-        OutlinedTextField(below, { below = it }, label = { Text("Below $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+    // ----- Alerts card -----
+    val activeAlerts = listOf(above, below, pctUp, pctDown).count { it.toDoubleOrNull() != null }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Alerts", style = MaterialTheme.typography.labelLarge, color = neutral)
+            if (activeAlerts > 0) {
+                Box(
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        "$activeAlerts active",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+        Text("Price crosses", style = MaterialTheme.typography.labelMedium, color = neutral)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(above, { above = it }, label = { Text("Above $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+            OutlinedTextField(below, { below = it }, label = { Text("Below $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+        }
+        Text("Daily move", style = MaterialTheme.typography.labelMedium, color = neutral)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(pctUp, { pctUp = it }, label = { Text("Up ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+            OutlinedTextField(pctDown, { pctDown = it }, label = { Text("Down ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+        }
+        Text(
+            "Get notified when the price crosses a level, or the day's move exceeds a percentage.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(pctUp, { pctUp = it }, label = { Text("Up ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
-        OutlinedTextField(pctDown, { pctDown = it }, label = { Text("Down ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
-    }
-    Text(
-        "Get notified when the price crosses a level, or the day's move exceeds a percentage.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 
     Button(
         onClick = {
@@ -1001,4 +1073,18 @@ private fun HoldingsAndAlertsSection(
         },
         modifier = Modifier.fillMaxWidth(),
     ) { Text("Save holdings & alerts") }
+}
+
+/** Small labeled stat: caption above a bold value — used inside the Holdings card. */
+@Composable
+private fun StatCell(
+    label: String,
+    value: String,
+    valueColor: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = valueColor)
+    }
 }

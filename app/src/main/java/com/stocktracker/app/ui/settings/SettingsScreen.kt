@@ -255,6 +255,21 @@ fun SettingsScreen() {
             )
 
             Header("AI analyst (optional)")
+            val aiOn by settings.aiAnalystEnabled.collectAsState(initial = true)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("AI analyst")
+                Switch(checked = aiOn, onCheckedChange = { scope.launch { settings.setAiAnalystEnabled(it) } })
+            }
+            Text(
+                "Off pauses all Claude calls from the app (verdicts, entry plans, ideas) to save " +
+                    "token cost — your service URL is kept. The server's nightly scan still runs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text("Signals service URL", style = MaterialTheme.typography.bodyMedium)
             OutlinedTextField(
                 value = signalsUrlField ?: "",

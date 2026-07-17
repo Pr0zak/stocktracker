@@ -84,9 +84,12 @@ class SignalsApiService {
         cash: Double,
         deep: Boolean = false,
         holdings: List<HoldingSync> = emptyList(),
+        market: Boolean = false,
     ): RecommendationsResponse? {
         if (baseUrl.isBlank() || cash <= 0) return null
-        val body = Http.json.encodeToString(RecommendRequest(cash, deep, holdings))
+        val body = Http.json.encodeToString(
+            RecommendRequest(cash, deep, holdings, if (market) "market" else "watchlist"),
+        )
         return Http.json.decodeFromString<RecommendationsResponse>(
             Http.postJson("${baseUrl.trimEnd('/')}/recommendations", body, slow = true),
         )
@@ -105,6 +108,7 @@ data class RecommendRequest(
     val cash: Double,
     val deep: Boolean = false,
     val holdings: List<HoldingSync> = emptyList(),
+    val scope: String = "watchlist", // "watchlist" | "market" (adds live-screened candidates)
 )
 
 /** One asset's entry plan: what to do, at what price, with how many shares of the cash. */
@@ -137,6 +141,8 @@ data class PlanResponse(
 data class RecommendationsResponse(
     val model: String = "",
     val cash: Double = 0.0,
+    val scope: String = "watchlist",
+    val discovered: List<String> = emptyList(),
     val considered: Int = 0,
     val overview: String = "",
     val picks: List<EntryPlan> = emptyList(),

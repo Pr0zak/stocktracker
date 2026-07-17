@@ -67,7 +67,8 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit) {
         ) {
             if (!state.enabled) {
                 Text(
-                    "Set your Signals service URL in Settings → AI analyst to get deployment ideas.",
+                    "AI analyst is off. Enable it and set your Signals service URL in " +
+                        "Settings → AI analyst to get deployment ideas.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -75,8 +76,14 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit) {
             }
 
             Text(
-                "How much free cash do you want to put to work? The AI analyst compares your whole " +
-                    "watchlist and spreads it across its best entries.",
+                if (state.market) {
+                    "How much free cash do you want to put to work? The AI analyst compares your " +
+                        "watchlist plus live market screens (actives, gainers, growth, value) and " +
+                        "spreads it across the best entries anywhere."
+                } else {
+                    "How much free cash do you want to put to work? The AI analyst compares your whole " +
+                        "watchlist and spreads it across its best entries."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -94,6 +101,11 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(onClick = vm::getIdeas, enabled = !state.loading) { Text("Get ideas") }
+                FilterChip(
+                    selected = state.market,
+                    onClick = { vm.setMarket(!state.market) },
+                    label = { Text("Whole market") },
+                )
                 FilterChip(
                     selected = state.deep,
                     onClick = { vm.setDeep(!state.deep) },
@@ -124,7 +136,19 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit) {
                     )
                 }
                 r.picks.forEach { pick ->
-                    PickCard(pick, onClick = { assetFor(pick.symbol)?.let(onOpenDetail) })
+                    val known = assetFor(pick.symbol)
+                    PickCard(
+                        pick,
+                        isNew = known == null,
+                        onClick = {
+                            // Discovered stocks open a detail screen too (Yahoo-backed by symbol);
+                            // unknown "-USD" symbols can't (crypto detail needs a CoinGecko id).
+                            val asset = known ?: pick.symbol
+                                .takeUnless { it.uppercase().endsWith("-USD") }
+                                ?.let { Asset(it, AssetType.STOCK, it, null) }
+                            asset?.let(onOpenDetail)
+                        },
+                    )
                 }
                 if (r.passed.isNotEmpty()) {
                     Text(
@@ -171,7 +195,7 @@ internal fun sharesText(v: Double): String =
     if (v % 1.0 == 0.0) "%,d".format(v.toLong()) else "%,.6f".format(v).trimEnd('0').trimEnd('.')
 
 @Composable
-private fun PickCard(pick: EntryPlan, onClick: () -> Unit) {
+private fun PickCard(pick: EntryPlan, isNew: Boolean = false, onClick: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val c = planActionColor(pick.action, neutral)
     Column(
@@ -187,7 +211,23 @@ private fun PickCard(pick: EntryPlan, onClick: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(pick.symbol, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(pick.symbol, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                if (isNew) { // discovered by the market screen, not on the watchlist
+                    Box(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    ) {
+                        Text(
+                            "NEW",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
             Box(
                 modifier = Modifier
                     .background(c.copy(alpha = 0.16f), RoundedCornerShape(50))

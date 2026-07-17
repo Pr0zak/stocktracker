@@ -111,8 +111,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
         aiJob?.cancel()
         aiJob = viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
-            _state.update { it.copy(aiEnabled = base.isNotBlank()) }
-            if (base.isBlank()) return@launch
+            val on = settings.aiAnalystEnabled.first() // master switch — off = no Claude calls/cost
+            _state.update { it.copy(aiEnabled = base.isNotBlank() && on) }
+            if (base.isBlank() || !on) return@launch
             _state.update { it.copy(aiLoading = true, aiError = null) }
             val s = _state.value // include the current holding so the verdict is add/hold/trim-aware
             val res = runCatching {

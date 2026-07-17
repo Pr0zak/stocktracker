@@ -10,6 +10,7 @@ import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
+import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.signals.SignalEngine
@@ -47,6 +48,10 @@ data class DetailUiState(
     val aiEnabled: Boolean = false,
     val aiLoading: Boolean = false,
     val aiError: String? = null,
+    /** "What if I put $cash into this?" entry plan (on-demand, from the signals service). */
+    val plan: EntryPlan? = null,
+    val planLoading: Boolean = false,
+    val planError: String? = null,
 )
 
 class DetailViewModel(private val asset: Asset) : ViewModel() {
@@ -125,6 +130,40 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     aiCached = resp?.cached ?: it.aiCached,
                     aiLoading = false,
                     aiError = if (resp == null) "Couldn't reach the analyst service" else null,
+                )
+            }
+        }
+    }
+
+    private var planJob: Job? = null
+
+    /** "What if I deployed [cash] into this symbol?" — fetch an entry plan from the signals service.
+     *  Persists the cash amount so the Ideas screen and future plans reuse it. */
+    fun requestPlan(cash: Double, deep: Boolean = false) {
+        if (cash <= 0) {
+            _state.update { it.copy(planError = "Enter a cash amount first") }
+            return
+        }
+        planJob?.cancel()
+        planJob = viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) return@launch
+            settings.setInvestableCash(cash)
+            _state.update { it.copy(planLoading = true, planError = null) }
+            val s = _state.value
+            val res = runCatching {
+                signalsApi.planEntry(
+                    base, asset.symbol, crypto = asset.type == AssetType.CRYPTO, cash = cash,
+                    deep = deep, shares = s.shares, avgCost = s.avgCost,
+                )
+            }
+            ensureActive() // runCatching swallows cancellation; don't apply a superseded result
+            val resp = res.getOrNull()
+            _state.update {
+                it.copy(
+                    plan = resp?.plan ?: it.plan, // keep the prior plan on a failed refresh
+                    planLoading = false,
+                    planError = if (resp == null) "Couldn't reach the analyst service" else null,
                 )
             }
         }

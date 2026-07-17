@@ -46,14 +46,24 @@ object Http {
         .cookieJar(cookieJar)
         .build()
 
+    // Analyst (LLM) calls legitimately run 30-120s — deep dives think, recommendations read the whole
+    // watchlist in one call — so they get a patient client instead of the quote-endpoint ceiling.
+    private val slowClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .readTimeout(180, TimeUnit.SECONDS)
+            .callTimeout(240, TimeUnit.SECONDS)
+            .build()
+    }
+
     val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
         coerceInputValues = true
     }
 
-    /** GET [url] on the IO dispatcher; retries a couple of times on HTTP 429 with backoff. */
-    suspend fun getString(url: String): String = withContext(Dispatchers.IO) {
+    /** GET [url] on the IO dispatcher; retries a couple of times on HTTP 429 with backoff.
+     *  [slow] switches to the long-timeout client for analyst (LLM) endpoints. */
+    suspend fun getString(url: String, slow: Boolean = false): String = withContext(Dispatchers.IO) {
         var lastError: IOException? = null
         repeat(3) { attempt ->
             val request = Request.Builder()
@@ -61,7 +71,7 @@ object Http {
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", "application/json, text/csv, */*")
                 .build()
-            client.newCall(request).execute().use { response ->
+            (if (slow) slowClient else client).newCall(request).execute().use { response ->
                 if (response.code == 429) {
                     lastError = IOException("HTTP 429 (rate limited) for $url")
                     // fall through to backoff + retry below
@@ -78,14 +88,15 @@ object Http {
         throw lastError ?: IOException("Request failed after retries: $url")
     }
 
-    /** POST a JSON [body] to [url] and return the response body. Throws [HttpStatusException] on non-2xx. */
-    suspend fun postJson(url: String, body: String): String = withContext(Dispatchers.IO) {
+    /** POST a JSON [body] to [url] and return the response body. Throws [HttpStatusException] on non-2xx.
+     *  [slow] switches to the long-timeout client for analyst (LLM) endpoints. */
+    suspend fun postJson(url: String, body: String, slow: Boolean = false): String = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", USER_AGENT)
             .post(body.toRequestBody("application/json".toMediaType()))
             .build()
-        client.newCall(request).execute().use { response ->
+        (if (slow) slowClient else client).newCall(request).execute().use { response ->
             val respBody = response.body?.string()
             if (!response.isSuccessful) throw HttpStatusException(response.code, url, respBody)
             respBody ?: ""

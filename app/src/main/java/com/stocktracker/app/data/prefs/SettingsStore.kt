@@ -2,6 +2,7 @@ package com.stocktracker.app.data.prefs
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -30,6 +31,7 @@ class SettingsStore(private val context: Context) {
     private val watchlistGroupsKey = stringPreferencesKey("watchlist_groups")
     private val signalsApiUrlKey = stringPreferencesKey("signals_api_url")
     private val lastScanNotifiedKey = longPreferencesKey("last_scan_notified_at")
+    private val investableCashKey = doublePreferencesKey("investable_cash")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
@@ -37,6 +39,12 @@ class SettingsStore(private val context: Context) {
     /** epoch-seconds of the last nightly scan we already notified about (dedup across worker runs). */
     val lastScanNotifiedAt: Flow<Long> = context.dataStore.data.map { it[lastScanNotifiedKey] ?: 0L }
     suspend fun setLastScanNotifiedAt(value: Long) = context.dataStore.edit { it[lastScanNotifiedKey] = value }
+
+    /** Free cash the user considers investable (drives the Ideas screen + entry plans). 0 = unset. */
+    val investableCash: Flow<Double> = context.dataStore.data.map { it[investableCashKey] ?: 0.0 }
+    suspend fun setInvestableCash(amount: Double) = context.dataStore.edit {
+        it[investableCashKey] = amount.coerceAtLeast(0.0)
+    }
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }

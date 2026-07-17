@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +67,7 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiVerdict
+import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.signals.SignalLabel
 import com.stocktracker.app.signals.SignalResult
@@ -74,6 +76,10 @@ import com.stocktracker.app.ui.components.ChartMarker
 import com.stocktracker.app.ui.components.ChartSubPane
 import com.stocktracker.app.ui.components.FiftyTwoWeekRangeBar
 import com.stocktracker.app.ui.components.PriceChart
+import com.stocktracker.app.ui.ideas.planActionColor
+import com.stocktracker.app.ui.ideas.planActionLabel
+import com.stocktracker.app.ui.ideas.sharesText
+import com.stocktracker.app.ui.ideas.usd
 import com.stocktracker.app.widget.WidgetRefreshScheduler
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
@@ -304,6 +310,12 @@ fun DetailScreen(
                     error = state.aiError,
                     onRetry = { vm.requestAiVerdict(deep = false) },
                     onDeepDive = { vm.requestAiVerdict(deep = true) },
+                )
+                EntryPlanCard(
+                    plan = state.plan,
+                    loading = state.planLoading,
+                    error = state.planError,
+                    onPlan = { cash -> vm.requestPlan(cash) },
                 )
             }
 
@@ -774,6 +786,118 @@ private fun AiAnalystCard(
             style = MaterialTheme.typography.labelSmall,
             color = neutral,
         )
+    }
+}
+
+/** "What if I put $X into this?" — an on-demand entry plan (action, zone, shares, stop/target). */
+@Composable
+private fun EntryPlanCard(
+    plan: EntryPlan?,
+    loading: Boolean,
+    error: String?,
+    onPlan: (Double) -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val savedCash by ServiceLocator.settingsStore.investableCash.collectAsState(initial = 0.0)
+    var cashText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(savedCash) {
+        if (cashText == null && savedCash > 0) {
+            cashText = if (savedCash % 1.0 == 0.0) "%,d".format(savedCash.toLong()) else "%,.2f".format(savedCash)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Entry plan", style = MaterialTheme.typography.labelLarge, color = neutral)
+            if (plan != null) {
+                val c = planActionColor(plan.action, neutral)
+                Box(
+                    modifier = Modifier
+                        .background(c.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        planActionLabel(plan.action),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = c,
+                    )
+                }
+            }
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = cashText ?: "",
+                onValueChange = { cashText = it },
+                label = { Text("Cash to deploy") },
+                prefix = { Text("$") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = {
+                    val cash = (cashText ?: "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                    onPlan(cash)
+                },
+                enabled = !loading,
+            ) { Text("Plan") }
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = neutral)
+            }
+        }
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
+        if (plan != null) {
+            val c = planActionColor(plan.action, neutral)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Conviction ${plan.conviction}/100", style = MaterialTheme.typography.labelMedium, color = neutral)
+                Text(
+                    "${sharesText(plan.suggestedShares)} sh · ${usd(plan.allocationUsd)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .background(neutral.copy(alpha = 0.18f), RoundedCornerShape(3.dp)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth((plan.conviction / 100f).coerceIn(0.02f, 1f))
+                        .height(6.dp)
+                        .background(c, RoundedCornerShape(3.dp)),
+                )
+            }
+            Text(
+                "Entry ${usd(plan.entryLow)}–${usd(plan.entryHigh)} · stop ${usd(plan.stop)} · target ${usd(plan.target)}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (plan.timing.isNotBlank()) {
+                Text("When: ${plan.timing}", style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
+            if (plan.thesis.isNotBlank()) {
+                Text(plan.thesis, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Text("Scenario planner · decision support, not advice", style = MaterialTheme.typography.labelSmall, color = neutral)
     }
 }
 

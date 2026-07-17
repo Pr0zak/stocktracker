@@ -65,6 +65,8 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.signals.SignalLabel
+import com.stocktracker.app.signals.SignalResult
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.ChartMarker
 import com.stocktracker.app.ui.components.ChartSubPane
@@ -289,6 +291,8 @@ fun DetailScreen(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+
+            state.signal?.let { SignalCard(it) }
 
             HoldingsAndAlertsSection(
                 quote = quote,
@@ -559,6 +563,70 @@ private fun StatMini(label: String, value: String) {
     Column {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+    }
+}
+
+/** Tier-1 rule-based signal readout: score meter, label, the top few reasons, and a not-advice note. */
+@Composable
+private fun SignalCard(signal: SignalResult) {
+    val buy = Color(0xFF16A34A)
+    val sell = Color(0xFFDC2626)
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val labelColor = when (signal.label) {
+        SignalLabel.STRONG_BUY, SignalLabel.BUY -> buy
+        SignalLabel.SELL, SignalLabel.STRONG_SELL -> sell
+        SignalLabel.HOLD -> neutral
+    }
+    fun reasonColor(score: Double) = when {
+        score > 0.05 -> buy
+        score < -0.05 -> sell
+        else -> neutral
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Signal", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Text(
+                "${signal.label.display} · ${signal.score}/100",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = labelColor,
+            )
+        }
+        // Score meter: 0 (bearish) ─ 50 (neutral) ─ 100 (bullish).
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .background(neutral.copy(alpha = 0.18f), RoundedCornerShape(3.dp)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth((signal.score / 100f).coerceIn(0.02f, 1f))
+                    .height(6.dp)
+                    .background(labelColor, RoundedCornerShape(3.dp)),
+            )
+        }
+        signal.components.take(3).forEach { c ->
+            Text(c.reason, style = MaterialTheme.typography.bodySmall, color = reasonColor(c.score))
+        }
+        signal.regimeNote?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+        }
+        Text(
+            "Rule-based signal on daily bars — decision support, not advice.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
     }
 }
 

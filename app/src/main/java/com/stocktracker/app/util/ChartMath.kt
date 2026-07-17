@@ -107,8 +107,11 @@ fun rsi(values: List<Double>, period: Int = 14): List<Double?> {
     return out
 }
 
-private fun rsiFrom(avgGain: Double, avgLoss: Double): Double =
-    if (avgLoss == 0.0) 100.0 else 100.0 - 100.0 / (1.0 + avgGain / avgLoss)
+private fun rsiFrom(avgGain: Double, avgLoss: Double): Double = when {
+    avgLoss == 0.0 && avgGain == 0.0 -> 50.0 // flat window: RSI is neutral, not 100
+    avgLoss == 0.0 -> 100.0
+    else -> 100.0 - 100.0 / (1.0 + avgGain / avgLoss)
+}
 
 /** MACD: line = EMA(fast) − EMA(slow); signal = EMA(signalP) of the line; histogram = line − signal. */
 data class MacdResult(val macd: List<Double?>, val signal: List<Double?>, val histogram: List<Double?>)

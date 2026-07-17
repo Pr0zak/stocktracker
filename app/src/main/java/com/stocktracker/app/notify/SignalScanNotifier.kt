@@ -30,10 +30,15 @@ object SignalScanNotifier {
         if (generated <= last) return // already processed this scan
 
         val flips = scan.results.filter { it.flipped }
-        if (flips.isNotEmpty()) {
-            val text = flips.joinToString(", ") { "${it.symbol} → ${it.signal.replace('_', ' ')}" }
-            val title = if (flips.size == 1) "1 signal changed overnight" else "${flips.size} signals changed overnight"
-            AlertNotifier.notify(context, "signal_scan".hashCode(), title, text)
+        val squeezes = scan.results.filter { it.squeezeChanged }
+        if (flips.isNotEmpty() || squeezes.isNotEmpty()) {
+            val parts = buildList {
+                flips.forEach { add("${it.symbol} → ${it.signal.replace('_', ' ')}") }
+                squeezes.forEach { add("${it.symbol} short pressure → ${it.squeeze?.uppercase()}") }
+            }
+            val n = flips.size + squeezes.size
+            val title = if (n == 1) "1 signal changed overnight" else "$n signals changed overnight"
+            AlertNotifier.notify(context, "signal_scan".hashCode(), title, parts.joinToString(", "))
         }
         ServiceLocator.settingsStore.setLastScanNotifiedAt(generated)
     }

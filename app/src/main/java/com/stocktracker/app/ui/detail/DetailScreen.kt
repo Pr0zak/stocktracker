@@ -71,6 +71,7 @@ import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.EntryPlan
+import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.signals.SignalLabel
 import com.stocktracker.app.signals.SignalResult
@@ -317,6 +318,8 @@ fun DetailScreen(
                     onDeepDive = { vm.requestAiVerdict(deep = true) },
                 )
             }
+            state.shortPressure?.let { ShortPressureCard(it) }
+
             if (state.aiEnabled) {
                 EntryPlanCard(
                     plan = state.plan,
@@ -846,6 +849,115 @@ private fun SignalsCard(
             val modelTag = if (verdict != null && model.isNotBlank()) "$model · " else ""
             Text(
                 "${modelTag}daily bars · decision support, not advice",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+    }
+}
+
+/**
+ * Short-pressure card (stocks): official FINRA short interest + daily short volume + SEC FTDs,
+ * a quiet/fuel/ignition state, this symbol's own after-FTD-spike track record, and upcoming key
+ * dates. Free data — auto-loaded, collapsed by default.
+ */
+@Composable
+private fun ShortPressureCard(sp: ShortPressureResponse) {
+    val buy = Color(0xFF16A34A)
+    val sell = Color(0xFFDC2626)
+    val amber = Color(0xFFD97706)
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val (stateLabel, stateColor) = when (sp.state) {
+        "ignition" -> "IGNITION" to sell // high-risk fireworks, not a calm buy — flag it hot
+        "fuel" -> "FUEL" to amber
+        else -> "QUIET" to neutral
+    }
+    var open by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Short pressure", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .background(stateColor.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        stateLabel,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = stateColor,
+                    )
+                }
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse short pressure" else "Expand short pressure",
+                    tint = neutral,
+                )
+            }
+        }
+        if (!open) {
+            Text(
+                listOfNotNull(
+                    sp.daysToCover?.let { "DTC %.1f".format(it) },
+                    sp.shortVolRatio5d?.let { "short vol %.0f%%".format(it * 100) },
+                    sp.ftdTrend?.let { "FTDs $it" },
+                ).joinToString(" · ") + " · tap for detail",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+        if (open) {
+            sp.reasons.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                sp.shortInterest?.let {
+                    StatCell("Short interest", "%,d".format(it), modifier = Modifier.weight(1f))
+                }
+                sp.daysToCover?.let {
+                    StatCell("Days to cover", "%.1f".format(it), modifier = Modifier.weight(1f))
+                }
+                sp.shortVolRatio5d?.let {
+                    StatCell("Short vol (5d)", "%.0f%%".format(it * 100), modifier = Modifier.weight(1f))
+                }
+            }
+            sp.siDate?.let {
+                Text(
+                    "Official FINRA short interest as of $it (published ~9 business days later).",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = neutral,
+                )
+            }
+            sp.eventStudy?.let { es ->
+                val f5 = es.fwd5MedianPct?.let { "%+.1f%%".format(it) } ?: "—"
+                val f10 = es.fwd10MedianPct?.let { "%+.1f%%".format(it) } ?: "—"
+                val hit = es.fwd10HitRate?.let { " · up %d%% of the time".format((it * 100).roundToInt()) } ?: ""
+                Text(
+                    "This symbol after its ${es.events} past FTD spikes: median $f5 in 5 days, " +
+                        "$f10 in 10$hit — history, not a promise.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if ((es.fwd10MedianPct ?: 0.0) > 0) buy else neutral,
+                )
+            }
+            if (sp.upcoming.isNotEmpty()) {
+                Text("Upcoming dates", style = MaterialTheme.typography.labelMedium, color = neutral)
+                sp.upcoming.take(4).forEach { u ->
+                    Text("${u.date} — ${u.label}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Text(
+                "FINRA + SEC data · SI and FTDs publish with a lag — context, not timing · not advice",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )

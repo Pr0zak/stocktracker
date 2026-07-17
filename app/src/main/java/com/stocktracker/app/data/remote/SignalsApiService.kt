@@ -54,6 +54,13 @@ class SignalsApiService {
         Http.postJson("${baseUrl.trimEnd('/')}/api/settings", Http.json.encodeToString(WatchlistSync(stocks, cryptos)))
     }
 
+    /** Short-pressure read (FINRA SI + short volume + SEC FTDs) — free, no LLM call. Stocks only. */
+    suspend fun shortPressure(baseUrl: String, symbol: String): ShortPressureResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = Http.getString("${baseUrl.trimEnd('/')}/shorts/${symbol.uppercase()}", slow = true)
+        return Http.json.decodeFromString<ShortPressureResponse>(body)
+    }
+
     /**
      * Scenario: "if I deployed [cash] into this symbol" — one asset's entry plan. Optional
      * shares+avgCost tell the analyst the asset is already held (concentration awareness).
@@ -98,6 +105,37 @@ class SignalsApiService {
         )
     }
 }
+
+@Serializable
+data class ShortPressureResponse(
+    val symbol: String = "",
+    val state: String = "quiet", // quiet | fuel | ignition
+    @SerialName("days_to_cover") val daysToCover: Double? = null,
+    @SerialName("short_interest") val shortInterest: Long? = null,
+    @SerialName("si_change_pct") val siChangePct: Double? = null,
+    @SerialName("si_date") val siDate: String? = null,
+    @SerialName("short_vol_ratio_5d") val shortVolRatio5d: Double? = null,
+    @SerialName("ftd_trend") val ftdTrend: String? = null,
+    @SerialName("event_study") val eventStudy: FtdEventStudy? = null,
+    val upcoming: List<UpcomingDate> = emptyList(),
+    val reasons: List<String> = emptyList(),
+)
+
+/** What this symbol's own price history did after past FTD spikes. */
+@Serializable
+data class FtdEventStudy(
+    val events: Int = 0,
+    @SerialName("fwd5_median_pct") val fwd5MedianPct: Double? = null,
+    @SerialName("fwd10_median_pct") val fwd10MedianPct: Double? = null,
+    @SerialName("fwd10_hit_rate") val fwd10HitRate: Double? = null,
+)
+
+@Serializable
+data class UpcomingDate(
+    val date: String,
+    val label: String,
+    val kind: String = "",
+)
 
 @Serializable
 data class HoldingSync(
@@ -174,6 +212,9 @@ data class ScanResult(
     val conviction: Int = 0,
     val flipped: Boolean = false,
     @SerialName("prev_signal") val prevSignal: String? = null,
+    /** Short-pressure state (quiet/fuel/ignition) and whether it changed vs the prior scan. */
+    val squeeze: String? = null,
+    @SerialName("squeeze_changed") val squeezeChanged: Boolean = false,
 )
 
 @Serializable

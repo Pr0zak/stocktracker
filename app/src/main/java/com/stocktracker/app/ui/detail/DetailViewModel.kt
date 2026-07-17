@@ -11,6 +11,7 @@ import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.EntryPlan
+import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.data.remote.analystErrorDetail
 import com.stocktracker.app.di.ServiceLocator
@@ -53,6 +54,8 @@ data class DetailUiState(
     val plan: EntryPlan? = null,
     val planLoading: Boolean = false,
     val planError: String? = null,
+    /** Short-pressure read (SI/short-volume/FTDs) — free data, auto-fetched for stocks. */
+    val shortPressure: ShortPressureResponse? = null,
 )
 
 class DetailViewModel(private val asset: Asset) : ViewModel() {
@@ -110,6 +113,16 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             val base = settings.signalsApiUrl.first()
             val on = settings.aiAnalystEnabled.first()
             _state.update { it.copy(aiEnabled = base.isNotBlank() && on) }
+        }
+        // Short-pressure data IS auto-fetched for stocks: it's free (FINRA/SEC data, no model call)
+        // and gated only on the service URL, not the AI switch.
+        if (asset.type == AssetType.STOCK) {
+            viewModelScope.launch {
+                val base = settings.signalsApiUrl.first()
+                if (base.isBlank()) return@launch
+                val sp = runCatching { signalsApi.shortPressure(base, asset.symbol) }.getOrNull()
+                if (sp != null) _state.update { it.copy(shortPressure = sp) }
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 package com.stocktracker.app.notify
 
 import android.content.Context
+import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.first
@@ -19,6 +20,10 @@ object SignalScanNotifier {
         val base = ServiceLocator.settingsStore.signalsApiUrl.first()
         if (base.isBlank()) return
 
+        // Keep the backend's nightly-scan watchlist in sync with the app's — so there's no separate
+        // list to maintain on the server; the app is the source of truth.
+        runCatching { syncWatchlist(base) }
+
         val scan = runCatching { api.latestScan(base) }.getOrNull() ?: return
         val generated = scan.generatedAt?.toLong() ?: return
         val last = ServiceLocator.settingsStore.lastScanNotifiedAt.first()
@@ -31,5 +36,12 @@ object SignalScanNotifier {
             AlertNotifier.notify(context, "signal_scan".hashCode(), title, text)
         }
         ServiceLocator.settingsStore.setLastScanNotifiedAt(generated)
+    }
+
+    private suspend fun syncWatchlist(base: String) {
+        val assets = ServiceLocator.watchlistStore.snapshot()
+        val stocks = assets.filter { it.type == AssetType.STOCK }.map { it.symbol.uppercase() }
+        val cryptos = assets.filter { it.type == AssetType.CRYPTO }.map { "${it.symbol.uppercase()}-USD" }
+        api.syncWatchlist(base, stocks, cryptos)
     }
 }

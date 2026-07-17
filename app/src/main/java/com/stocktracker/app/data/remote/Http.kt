@@ -7,8 +7,10 @@ import kotlinx.serialization.json.Json
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
@@ -74,6 +76,20 @@ object Http {
             delay((attempt + 1) * 1000L) // 1s, 2s
         }
         throw lastError ?: IOException("Request failed after retries: $url")
+    }
+
+    /** POST a JSON [body] to [url] and return the response body. Throws [HttpStatusException] on non-2xx. */
+    suspend fun postJson(url: String, body: String): String = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            val respBody = response.body?.string()
+            if (!response.isSuccessful) throw HttpStatusException(response.code, url, respBody)
+            respBody ?: ""
+        }
     }
 }
 

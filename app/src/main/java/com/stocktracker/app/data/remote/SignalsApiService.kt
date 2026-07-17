@@ -3,6 +3,7 @@ package com.stocktracker.app.data.remote
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 
 /**
  * Client for the self-hosted Tier-2 "signals" analyst service (see ~/stocktracker-signals). It
@@ -35,7 +36,19 @@ class SignalsApiService {
         val body = Http.getString("${baseUrl.trimEnd('/')}/scan/latest")
         return Http.json.decodeFromString<ScanLatest>(body)
     }
+
+    /** Push the app's watchlist up so the backend's nightly scan tracks what the user tracks. */
+    suspend fun syncWatchlist(baseUrl: String, stocks: List<String>, cryptos: List<String>) {
+        if (baseUrl.isBlank()) return
+        Http.postJson("${baseUrl.trimEnd('/')}/api/settings", Http.json.encodeToString(WatchlistSync(stocks, cryptos)))
+    }
 }
+
+@Serializable
+data class WatchlistSync(
+    val watchlist: List<String>,
+    @SerialName("crypto_watchlist") val cryptoWatchlist: List<String>,
+)
 
 @Serializable
 data class ScanLatest(

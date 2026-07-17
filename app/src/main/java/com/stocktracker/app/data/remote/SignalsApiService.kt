@@ -23,6 +23,7 @@ class SignalsApiService {
         deep: Boolean = false,
         shares: Double? = null,
         avgCost: Double? = null,
+        ruleScore: Int? = null,
     ): AiSignalResponse? {
         if (baseUrl.isBlank()) return null
         // The backend fetches via Yahoo, whose crypto symbols take a -USD suffix.
@@ -33,7 +34,9 @@ class SignalsApiService {
         } else {
             ""
         }
-        val url = "${baseUrl.trimEnd('/')}/signal/$sym?crypto=$crypto&deep=$deep$pos"
+        // The on-device rule score rides along so the analyst reconciles a diverging read.
+        val rs = ruleScore?.let { "&rule_score=$it" } ?: ""
+        val url = "${baseUrl.trimEnd('/')}/signal/$sym?crypto=$crypto&deep=$deep$pos$rs"
         val body = Http.getString(url, slow = true) // LLM latency, not a quote endpoint
         return Http.json.decodeFromString<AiSignalResponse>(body)
     }

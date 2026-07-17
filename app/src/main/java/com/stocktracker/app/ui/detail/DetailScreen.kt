@@ -100,6 +100,7 @@ import com.stocktracker.app.util.stochastic
 import com.stocktracker.app.util.vwap
 import kotlinx.coroutines.launch
 import com.stocktracker.app.widget.WidgetPinning
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -304,17 +305,19 @@ fun DetailScreen(
                 )
             }
 
-            state.signal?.let { SignalCard(it) }
-
-            if (state.aiEnabled) {
-                AiAnalystCard(
+            if (state.signal != null || state.aiEnabled) {
+                SignalsCard(
+                    signal = state.signal,
                     verdict = state.aiVerdict,
                     model = state.aiModel,
                     loading = state.aiLoading,
                     error = state.aiError,
-                    onRetry = { vm.requestAiVerdict(deep = false) },
+                    aiEnabled = state.aiEnabled,
+                    onAnalyze = { vm.requestAiVerdict(deep = false) },
                     onDeepDive = { vm.requestAiVerdict(deep = true) },
                 )
+            }
+            if (state.aiEnabled) {
                 EntryPlanCard(
                     plan = state.plan,
                     loading = state.planLoading,
@@ -595,43 +598,94 @@ private fun StatMini(label: String, value: String) {
     }
 }
 
-/** Tier-1 rule-based signal readout: score meter, label, the top few reasons, and a not-advice note. */
+private fun aiDirectionalScore(v: AiVerdict): Int {
+    // The AI's conviction is confidence in its LABEL, not a direction — map both onto the rule
+    // engine's 0-100 directional scale (50 neutral) so the two reads are visually comparable.
+    val dir = when (v.signal) {
+        "strong_buy" -> 1.0
+        "buy" -> 0.5
+        "sell" -> -0.5
+        "strong_sell" -> -1.0
+        else -> 0.0
+    }
+    return (50 + dir * (v.conviction.coerceIn(0, 100) / 100.0) * 50).roundToInt()
+}
+
+/** bullish = +1, neutral = 0, bearish = -1 — for consensus/divergence between the two reads. */
+private fun ruleBucket(l: SignalLabel): Int = when (l) {
+    SignalLabel.STRONG_BUY, SignalLabel.BUY -> 1
+    SignalLabel.SELL, SignalLabel.STRONG_SELL -> -1
+    SignalLabel.HOLD -> 0
+}
+
+private fun aiBucket(signal: String): Int = when {
+    signal.contains("buy") -> 1
+    signal.contains("sell") -> -1
+    else -> 0
+}
+
+/**
+ * One unified card for both reads on this chart — the mechanical rule engine and the Claude
+ * analyst — on the same directional 0-100 scale, with an explicit consensus/divergence pill.
+ * Collapsed by default; the AI half only runs when the user taps Analyze (token cost is opt-in).
+ */
 @Composable
-private fun SignalCard(signal: SignalResult) {
+private fun SignalsCard(
+    signal: SignalResult?,
+    verdict: AiVerdict?,
+    model: String,
+    loading: Boolean,
+    error: String?,
+    aiEnabled: Boolean,
+    onAnalyze: () -> Unit,
+    onDeepDive: () -> Unit,
+) {
     val buy = Color(0xFF16A34A)
     val sell = Color(0xFFDC2626)
+    val mixed = Color(0xFFD97706)
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val labelColor = when (signal.label) {
-        SignalLabel.STRONG_BUY, SignalLabel.BUY -> buy
-        SignalLabel.SELL, SignalLabel.STRONG_SELL -> sell
-        SignalLabel.HOLD -> neutral
+    fun bucketColor(b: Int) = when {
+        b > 0 -> buy
+        b < 0 -> sell
+        else -> neutral
     }
     fun reasonColor(score: Double) = when {
         score > 0.05 -> buy
         score < -0.05 -> sell
         else -> neutral
     }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+
+    var open by remember { mutableStateOf(false) }
+    var why by remember { mutableStateOf(false) }
+
+    val rb = signal?.let { ruleBucket(it.label) }
+    val ab = verdict?.let { aiBucket(it.signal) }
+    val diverging = rb != null && ab != null && rb != ab
+    // Consensus pill: agreement shows the shared read; disagreement is called out as MIXED.
+    val (pillText, pillColor) = when {
+        rb != null && ab != null && diverging -> "MIXED" to mixed
+        ab != null -> when {
+            ab > 0 -> "BULLISH" to buy
+            ab < 0 -> "BEARISH" to sell
+            else -> "NEUTRAL" to neutral
+        }
+        rb != null -> when {
+            rb > 0 -> "BULLISH" to buy
+            rb < 0 -> "BEARISH" to sell
+            else -> "NEUTRAL" to neutral
+        }
+        else -> null to neutral
+    }
+
+    @Composable
+    fun meterRow(label: String, score: Int, text: String, color: Color) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Signal", style = MaterialTheme.typography.labelLarge, color = neutral)
-            Text(
-                "${signal.label.display} · ${signal.score}/100",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = labelColor,
-            )
+            Text(label, style = MaterialTheme.typography.labelMedium, color = neutral)
+            Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = color)
         }
-        // Score meter: 0 (bearish) ─ 50 (neutral) ─ 100 (bullish).
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -640,47 +694,12 @@ private fun SignalCard(signal: SignalResult) {
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth((signal.score / 100f).coerceIn(0.02f, 1f))
+                    .fillMaxWidth((score / 100f).coerceIn(0.02f, 1f))
                     .height(6.dp)
-                    .background(labelColor, RoundedCornerShape(3.dp)),
+                    .background(color, RoundedCornerShape(3.dp)),
             )
         }
-        signal.components.take(3).forEach { c ->
-            Text(c.reason, style = MaterialTheme.typography.bodySmall, color = reasonColor(c.score))
-        }
-        signal.regimeNote?.let {
-            Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
-        }
-        Text(
-            "Rule-based signal on daily bars — decision support, not advice.",
-            style = MaterialTheme.typography.labelSmall,
-            color = neutral,
-        )
     }
-}
-
-/** Tier-2 Claude analyst verdict: signal pill + conviction meter, horizon, thesis, expandable
- *  reasoning, deep-dive. Mirrors the rule-based SignalCard's visual language. */
-@Composable
-private fun AiAnalystCard(
-    verdict: AiVerdict?,
-    model: String,
-    loading: Boolean,
-    error: String?,
-    onRetry: () -> Unit,
-    onDeepDive: () -> Unit,
-) {
-    val buy = Color(0xFF16A34A)
-    val sell = Color(0xFFDC2626)
-    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    fun sigColor(s: String) = when {
-        s.contains("buy") -> buy
-        s.contains("sell") -> sell
-        else -> neutral
-    }
-    // Collapsed by default — the full analysis runs long; header + pill + one line is the summary.
-    var open by remember { mutableStateOf(false) }
-    var expanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -690,133 +709,143 @@ private fun AiAnalystCard(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Header: title + a filled, colored signal pill (the call at a glance).
+        // Header: consensus pill + chevron.
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("AI Analyst", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Text("Signals", style = MaterialTheme.typography.labelLarge, color = neutral)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (verdict != null) {
-                    val c = sigColor(verdict.signal)
+                if (pillText != null) {
                     Box(
                         modifier = Modifier
-                            .background(c.copy(alpha = 0.16f), RoundedCornerShape(50))
+                            .background(pillColor.copy(alpha = 0.16f), RoundedCornerShape(50))
                             .padding(horizontal = 10.dp, vertical = 3.dp),
                     ) {
                         Text(
-                            verdict.signal.replace('_', ' ').uppercase(),
+                            pillText,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = c,
+                            color = pillColor,
                         )
                     }
                 }
                 Icon(
                     if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = if (open) "Collapse analysis" else "Expand analysis",
+                    contentDescription = if (open) "Collapse signals" else "Expand signals",
                     tint = neutral,
                 )
             }
         }
-        if (verdict != null && !open) {
-            // One-line summary while collapsed — tap the card for the full analysis.
+
+        // Collapsed: both reads in one line.
+        if (!open) {
+            val rulesPart = signal?.let { "Rules ${it.label.display} ${it.score}" } ?: "Rules —"
+            val aiPart = when {
+                verdict != null -> "AI ${verdict.signal.replace('_', ' ')} ${aiDirectionalScore(verdict)}"
+                aiEnabled -> "AI not run"
+                else -> null
+            }
             Text(
-                "Conviction ${verdict.conviction}/100" +
-                    (if (verdict.horizon.isNotBlank()) " · ${verdict.horizon}" else "") +
-                    " · tap for the full analysis",
+                listOfNotNull(rulesPart, aiPart).joinToString(" · ") + " · tap for detail",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
         }
-        when {
-            verdict != null && open -> {
-                val c = sigColor(verdict.signal)
-                // Conviction (with horizon) + a meter bar, matching SignalCard.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Conviction ${verdict.conviction}/100",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = neutral,
-                    )
-                    if (verdict.horizon.isNotBlank()) {
-                        Text(verdict.horizon, style = MaterialTheme.typography.labelSmall, color = neutral)
-                    }
+
+        if (open) {
+            // --- Rule engine ---
+            signal?.let { s ->
+                meterRow("Rule engine", s.score, "${s.label.display} · ${s.score}/100", bucketColor(ruleBucket(s.label)))
+                s.components.take(2).forEach { c ->
+                    Text(c.reason, style = MaterialTheme.typography.bodySmall, color = reasonColor(c.score))
                 }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .background(neutral.copy(alpha = 0.18f), RoundedCornerShape(3.dp)),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth((verdict.conviction / 100f).coerceIn(0.02f, 1f))
-                            .height(6.dp)
-                            .background(c, RoundedCornerShape(3.dp)),
-                    )
+                s.regimeNote?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
                 }
-                if (verdict.thesis.isNotBlank()) {
-                    Text(verdict.thesis, style = MaterialTheme.typography.bodyMedium)
-                }
-                if (expanded) {
-                    ReasonBlock("Rationale", verdict.rationale)
-                    ReasonBlock("Risks", verdict.keyRisks)
-                    if (verdict.invalidation.isNotBlank()) {
-                        Text("Invalidation", style = MaterialTheme.typography.labelMedium, color = neutral)
-                        Text(verdict.invalidation, style = MaterialTheme.typography.bodySmall)
-                    }
-                    ReasonBlock("Catalysts", verdict.catalysts)
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    TextButton(onClick = { expanded = !expanded }) {
-                        Text(if (expanded) "Hide detail" else "Why?")
-                    }
-                    TextButton(onClick = onDeepDive, enabled = !loading) { Text("Deep dive") }
-                    if (loading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = neutral,
+            }
+
+            // --- Claude analyst ---
+            if (aiEnabled) {
+                when {
+                    verdict != null -> {
+                        meterRow(
+                            "AI analyst",
+                            aiDirectionalScore(verdict),
+                            verdict.signal.replace('_', ' ').replaceFirstChar { it.uppercase() } +
+                                " · conviction ${verdict.conviction}" +
+                                (if (verdict.horizon.isNotBlank()) " · ${verdict.horizon}" else ""),
+                            bucketColor(aiBucket(verdict.signal)),
                         )
+                        if (diverging) {
+                            Text(
+                                "Reads diverge — the AI explains the difference under Why?",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = mixed,
+                            )
+                        }
+                        if (verdict.thesis.isNotBlank()) {
+                            Text(verdict.thesis, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        if (why) {
+                            ReasonBlock("Rationale", verdict.rationale)
+                            ReasonBlock("Risks", verdict.keyRisks)
+                            if (verdict.invalidation.isNotBlank()) {
+                                Text("Invalidation", style = MaterialTheme.typography.labelMedium, color = neutral)
+                                Text(verdict.invalidation, style = MaterialTheme.typography.bodySmall)
+                            }
+                            ReasonBlock("Catalysts", verdict.catalysts)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            TextButton(onClick = { why = !why }) {
+                                Text(if (why) "Hide detail" else "Why?")
+                            }
+                            TextButton(onClick = onDeepDive, enabled = !loading) { Text("Deep dive") }
+                            if (loading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = neutral,
+                                )
+                            }
+                        }
+                    }
+                    loading -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = neutral)
+                        Text("Analyzing…", style = MaterialTheme.typography.bodySmall, color = neutral)
+                    }
+                    error != null -> {
+                        Text(error, style = MaterialTheme.typography.bodySmall, color = neutral)
+                        TextButton(onClick = onAnalyze) { Text("Retry") }
+                    }
+                    else -> Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "AI second opinion — one model call, only when you tap.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = neutral,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onAnalyze) { Text("Analyze") }
                     }
                 }
             }
-            loading -> Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = neutral)
-                Text("Analyzing…", style = MaterialTheme.typography.bodySmall, color = neutral)
-            }
-            error != null -> {
-                Text(error, style = MaterialTheme.typography.bodySmall, color = neutral)
-                TextButton(onClick = onRetry) { Text("Retry") }
-            }
-            else -> {
-                // Idle: nothing fetched yet — analysis runs only when the user asks (saves tokens).
-                Text(
-                    "Get a Claude read on this chart — runs one model call, only when you tap.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = neutral,
-                )
-                TextButton(onClick = { open = true; onRetry() }) { Text("Analyze") }
-            }
-        }
-        // Footer: which model produced the verdict + the standing disclaimer. (Token/cost usage now
-        // lives on the signals service's usage page, so it's no longer repeated per-card here.)
-        if (open || verdict == null) {
+
+            val modelTag = if (verdict != null && model.isNotBlank()) "$model · " else ""
             Text(
-                (if (model.isNotBlank()) "$model · " else "Claude analyst · ") + "decision support, not advice",
+                "${modelTag}daily bars · decision support, not advice",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )

@@ -127,6 +127,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 signalsApi.verdict(
                     base, asset.symbol, crypto = asset.type == AssetType.CRYPTO, deep = deep,
                     shares = s.shares, avgCost = s.avgCost,
+                    ruleScore = s.signal?.score, // analyst reconciles with the on-device read
                 )
             }
             ensureActive() // runCatching swallows cancellation; don't apply a superseded result

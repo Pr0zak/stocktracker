@@ -12,6 +12,7 @@ import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
+import com.stocktracker.app.data.remote.HttpStatusException
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.data.remote.analystErrorDetail
@@ -34,8 +35,10 @@ data class DetailUiState(
     val chart: List<PricePoint> = emptyList(),
     val range: ChartRange = ChartRange.MONTH,
     val loadingChart: Boolean = true,
-    /** True when the last fetch *failed* (vs. succeeding with genuinely no data) — drives retry UI. */
+    /** True when the last fetch *failed transiently* (rate-limit/network) — drives the retry UI. */
     val chartError: Boolean = false,
+    /** True when this symbol has no historical data at all (404/empty) — a retry can't help. */
+    val chartNoData: Boolean = false,
     val inWatchlist: Boolean = false,
     val shares: Double? = null,
     val avgCost: Double? = null,
@@ -263,18 +266,23 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     }
 
     fun selectRange(range: ChartRange) {
-        _state.update { it.copy(range = range, loadingChart = true, chartError = false) }
+        _state.update { it.copy(range = range, loadingChart = true, chartError = false, chartNoData = false) }
         chartJob?.cancel() // supersede any in-flight load for a previous range
         chartJob = viewModelScope.launch {
             val result = runCatching { repo.history(asset, range, includeExtended = showExtended) }
             // runCatching also swallows CancellationException, so a cancelled (superseded) load would
             // otherwise fall through and write stale state; ensureActive() bails it out first.
             ensureActive()
+            val data = result.getOrDefault(emptyList())
+            // A 404 (symbol has no chart on Yahoo, e.g. an expired warrant) or an empty success is
+            // permanent — offer no retry. A 429/5xx/network error is transient — offer a retry.
+            val permanent = (result.exceptionOrNull() as? HttpStatusException)?.code in setOf(400, 404, 410)
             _state.update {
                 it.copy(
-                    chart = result.getOrDefault(emptyList()),
+                    chart = data,
                     loadingChart = false,
-                    chartError = result.isFailure, // failed fetch → retry UI; empty success → "no data"
+                    chartError = result.isFailure && !permanent,
+                    chartNoData = permanent || (result.isSuccess && data.isEmpty()),
                 )
             }
         }

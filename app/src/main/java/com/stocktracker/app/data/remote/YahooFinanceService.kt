@@ -23,6 +23,14 @@ import java.time.ZoneId
 class YahooFinanceService {
 
     /**
+     * Yahoo's ticker form: share-class / warrant symbols use a DASH, not a dot (BRK-B not BRK.B,
+     * GME-WS not GME.WS), and index tickers carry a caret (^VIX) that must be URL-encoded. Watchlist
+     * symbols are often stored dot-form (Finnhub's convention), so normalize before every call.
+     */
+    private fun yahooSymbol(symbol: String): String =
+        symbol.uppercase().replace('.', '-').replace("^", "%5E")
+
+    /**
      * @param includeExtended fetch + flag pre/post-market points (only meaningful for the 1D view).
      */
     suspend fun history(
@@ -33,7 +41,7 @@ class YahooFinanceService {
         // Pre/post-market is only meaningful (and returned) for the intraday views.
         val prePost = includeExtended && (range == ChartRange.DAY || range == ChartRange.WEEK)
         // Index tickers carry a caret (^VIX); pre-encode it so it survives URL construction.
-        val enc = symbol.uppercase().replace("^", "%5E")
+        val enc = yahooSymbol(symbol)
         val path = "v8/finance/chart/$enc?${rangeParams(range)}&includePrePost=$prePost"
         val result = fetchChart(path).chart.result?.firstOrNull() ?: return emptyList()
         val timestamps = result.timestamp ?: return emptyList()
@@ -118,7 +126,7 @@ class YahooFinanceService {
 
     /** Ex-dividend dates + amounts within [range], from the chart endpoint's dividend events. */
     suspend fun dividends(symbol: String, range: ChartRange): List<Pair<Long, Double>> {
-        val enc = symbol.uppercase().replace("^", "%5E")
+        val enc = yahooSymbol(symbol)
         val path = "v8/finance/chart/$enc?${rangeParams(range)}&events=div"
         // Decorative overlay — a failure here should quietly yield no markers, not surface an error.
         val result = runCatching { fetchChart(path) }.getOrNull()?.chart?.result?.firstOrNull()
@@ -129,7 +137,7 @@ class YahooFinanceService {
 
     /** 52-week high/low straight from Yahoo's chart meta (a tiny range=1d request suffices). */
     suspend fun fiftyTwoWeek(symbol: String): Pair<Double, Double>? {
-        val enc = symbol.uppercase().replace("^", "%5E")
+        val enc = yahooSymbol(symbol)
         val path = "v8/finance/chart/$enc?range=1d&interval=1d"
         val meta = fetchChart(path).chart.result?.firstOrNull()?.meta
         val hi = meta?.fiftyTwoWeekHigh
@@ -142,7 +150,7 @@ class YahooFinanceService {
      * primary quote source (Finnhub is an optional fallback). Returns null if the symbol is unknown.
      */
     suspend fun quote(symbol: String): Quote? {
-        val enc = symbol.uppercase().replace("^", "%5E")
+        val enc = yahooSymbol(symbol)
         val path = "v8/finance/chart/$enc?range=1d&interval=1d"
         // fetchChart throws on a transient failure (so the repo can serve a stale quote) and returns
         // a null result only when Yahoo genuinely has no data for the symbol.

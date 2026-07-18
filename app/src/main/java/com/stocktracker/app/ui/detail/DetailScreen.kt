@@ -288,7 +288,25 @@ fun DetailScreen(
                         valueFormatter = chartValueFormatter,
                         timeFormatter = chartTimeFormatter,
                     )
-                    // A failed fetch is offered a retry; a successful-but-empty range just says so.
+                    // No data at all (delisted/expired symbol) → say so, no pointless retry.
+                    state.chartNoData -> Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            "Chart unavailable — no historical data for this symbol",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (quote != null) {
+                            Text(
+                                "Live price still tracked above.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    // A transient failure is offered a retry.
                     state.chartError -> Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp),

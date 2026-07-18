@@ -102,6 +102,14 @@ class SignalsApiService {
         return Http.json.decodeFromString<InsiderResponse>(body)
     }
 
+    /** Quality tags (Finnhub basic-financials) — ROE/margins/D-E + Buffett/wide-moat/aristocrat flags.
+     *  Stance-neutral business descriptors. Free. Null on 404. */
+    suspend fun quality(baseUrl: String, symbol: String): QualityResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = Http.getString("${baseUrl.trimEnd('/')}/quality/${symbol.uppercase()}", slow = true)
+        return Http.json.decodeFromString<QualityResponse>(body)
+    }
+
     /** Catalyst calendar (SI dates, OPEX, earnings, speculative T+35 echoes). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
@@ -266,6 +274,24 @@ data class InsiderBuy(
     val shares: Long = 0,
     val value: Long = 0,
 )
+
+/** GET /quality/{symbol} — business-quality descriptors (Finnhub basic-financials). */
+@Serializable
+data class QualityResponse(
+    val symbol: String = "",
+    val roe: Double? = null,                                  // percent
+    @SerialName("gross_margin") val grossMargin: Double? = null,
+    @SerialName("net_margin") val netMargin: Double? = null,
+    @SerialName("debt_to_equity") val debtToEquity: Double? = null,  // ratio
+    @SerialName("high_roe") val highRoe: Boolean = false,
+    @SerialName("low_debt") val lowDebt: Boolean = false,
+    @SerialName("wide_moat") val wideMoat: Boolean = false,
+    @SerialName("buffett_quality") val buffettQuality: Boolean = false,
+    @SerialName("dividend_aristocrat") val dividendAristocrat: Boolean = false,
+) {
+    val hasAnyFlag: Boolean get() = highRoe || lowDebt || wideMoat || buffettQuality || dividendAristocrat
+    val hasMetrics: Boolean get() = roe != null || grossMargin != null || debtToEquity != null
+}
 
 @Serializable
 data class HalvingCycle(

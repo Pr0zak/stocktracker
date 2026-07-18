@@ -14,6 +14,7 @@ import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.HttpStatusException
 import com.stocktracker.app.data.remote.InsiderResponse
+import com.stocktracker.app.data.remote.QualityResponse
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.data.remote.TouchStudyResponse
@@ -71,6 +72,8 @@ data class DetailUiState(
     val shortPressure: ShortPressureResponse? = null,
     /** Insider buying (Form 4 open-market purchases) — free, auto-fetched for stocks (only set when >0). */
     val insider: InsiderResponse? = null,
+    /** Quality tags (ROE/margins/D-E + Buffett/wide-moat/aristocrat flags) — free, auto-fetched for stocks. */
+    val quality: QualityResponse? = null,
     /** Halving-cycle + multi-year trend — free data, auto-fetched for crypto. */
     val cycleInfo: CycleResponse? = null,
     /** Below-the-200-week-line trend (SMA, zone, direction, weekly RSI) — free, auto-fetched for stocks. */
@@ -149,6 +152,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 // Insider buying — the bullish informed-money mirror; only surface when buys exist.
                 val ins = runCatching { signalsApi.insider(base, asset.symbol) }.getOrNull()
                 if (ins != null && ins.buyCount12m > 0) _state.update { it.copy(insider = ins) }
+                // Business-quality descriptors — stance-neutral context; show when there's anything to show.
+                val q = runCatching { signalsApi.quality(base, asset.symbol) }.getOrNull()
+                if (q != null && (q.hasAnyFlag || q.hasMetrics)) _state.update { it.copy(quality = q) }
             }
             // Below-the-200-week-line context (the equity mirror of crypto's cycle card) + the touch
             // study — both free, no LLM. 404s for names with under ~4 years of weekly history → stay null.

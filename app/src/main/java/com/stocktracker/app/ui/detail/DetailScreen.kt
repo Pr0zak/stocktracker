@@ -79,6 +79,7 @@ import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.InsiderResponse
+import com.stocktracker.app.data.remote.QualityResponse
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.TouchStudyResponse
 import com.stocktracker.app.data.remote.TrendResponse
@@ -389,6 +390,7 @@ fun DetailScreen(
             state.insider?.let { InsiderBuyingCard(it) }
             state.cycleInfo?.let { HalvingCycleCard(it) }
             state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
+            state.quality?.let { QualityCard(it) }
 
             if (state.aiEnabled) {
                 EntryPlanCard(
@@ -1290,6 +1292,97 @@ private fun InsiderBuyingCard(ins: InsiderResponse) {
             }
             Text(
                 "Open-market Form 4 purchases — a modest bullish base rate; confirming context, not timing · not advice",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+    }
+}
+
+/**
+ * Quality card (stocks): business-quality descriptors from Finnhub basic-financials — ROE, margins,
+ * debt-to-equity, and Buffett-quality / wide-moat / dividend-aristocrat flags. Stance-NEUTRAL context.
+ */
+@Composable
+private fun QualityCard(q: QualityResponse) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val blue = Color(0xFF4666CF)
+    var open by remember { mutableStateOf(false) }
+    val headline = when {
+        q.buffettQuality -> "Buffett quality"
+        q.wideMoat -> "Wide moat"
+        q.dividendAristocrat -> "Aristocrat"
+        else -> null
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Quality", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (headline != null) {
+                    Box(
+                        modifier = Modifier
+                            .background(blue.copy(alpha = 0.16f), RoundedCornerShape(50))
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            headline,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = blue,
+                        )
+                    }
+                }
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse quality" else "Expand quality",
+                    tint = neutral,
+                )
+            }
+        }
+        if (!open) {
+            val parts = listOfNotNull(
+                q.roe?.let { "ROE %.0f%%".format(it) },
+                q.grossMargin?.let { "gross %.0f%%".format(it) },
+                q.debtToEquity?.let { "D/E %.2f".format(it) },
+            )
+            Text(
+                (parts.joinToString(" · ").ifBlank { "quality metrics" }) + " · tap for detail",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+        if (open) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                q.roe?.let { StatCell("ROE", "%.0f%%".format(it), modifier = Modifier.weight(1f)) }
+                q.grossMargin?.let { StatCell("Gross margin", "%.0f%%".format(it), modifier = Modifier.weight(1f)) }
+                q.debtToEquity?.let { StatCell("Debt/Equity", "%.2f".format(it), modifier = Modifier.weight(1f)) }
+            }
+            if (q.hasAnyFlag) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (q.buffettQuality) InsiderChip("Buffett quality", blue)
+                    if (q.wideMoat) InsiderChip("Wide moat", blue)
+                    if (q.dividendAristocrat) InsiderChip("Dividend aristocrat", blue)
+                    if (q.highRoe) InsiderChip("High ROE", blue)
+                    if (q.lowDebt) InsiderChip("Low debt", blue)
+                }
+            }
+            Text(
+                "Business-quality descriptors (Finnhub) — durability context, not a buy/sell signal · not advice",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )

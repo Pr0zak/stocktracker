@@ -327,11 +327,18 @@ private fun GoodTimeToAddSection(dips: List<DipEntry>, onOpenAll: () -> Unit) {
     }
 }
 
-/** One dip row: symbol · tier chip · the dip percent (kept deliberately terse). */
+/** One dip row: symbol · tier chip · the dip percent (kept deliberately terse). Tappable (in the
+ *  full list) to open the name's detail. */
 @Composable
-private fun DipRow(d: DipEntry) {
+private fun DipRow(d: DipEntry, onClick: (() -> Unit)? = null) {
     val (label, color) = dipMeta(d.tier)
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Text(
             d.symbol,
             fontWeight = FontWeight.Bold,
@@ -365,15 +372,18 @@ private fun dipPct(d: DipEntry): String =
  *  watchlist strip. Fetches the latest scan itself so it stays a lightweight standalone screen. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DipListScreen(onBack: () -> Unit) {
-    val dips by produceState(initialValue = emptyList<DipEntry>()) {
+fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
+    val data by produceState(emptyList<DipEntry>() to emptyMap<String, Asset>()) {
         val base = ServiceLocator.settingsStore.signalsApiUrl.first()
         val scan = runCatching { SignalsApiService().latestScan(base) }.getOrNull()
+        val bySym = ServiceLocator.watchlistStore.watchlist.first().associateBy { it.symbol.uppercase() }
         val order = listOf("mega_dip", "below_line", "oversold", "pullback_10", "pullback_5")
-        value = scan?.results?.mapNotNull { r ->
+        val dips = scan?.results?.mapNotNull { r ->
             r.dip?.let { DipEntry(r.symbol.removeSuffix("-USD"), it, r.pctOffRecentHigh, r.pctOff52wHigh) }
         }?.sortedBy { order.indexOf(it.tier).let { i -> if (i < 0) 99 else i } } ?: emptyList()
+        value = dips to bySym
     }
+    val (dips, bySym) = data
     Scaffold(
         topBar = {
             TopAppBar(
@@ -401,7 +411,11 @@ fun DipListScreen(onBack: () -> Unit) {
                     )
                 }
             }
-            items(dips) { DipRow(it) }
+            items(dips) { d ->
+                DipRow(d, onClick = {
+                    onOpenDetail(bySym[d.symbol.uppercase()] ?: Asset(d.symbol, AssetType.STOCK, d.symbol))
+                })
+            }
         }
     }
 }

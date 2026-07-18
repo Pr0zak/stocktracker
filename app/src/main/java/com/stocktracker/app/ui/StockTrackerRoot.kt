@@ -107,7 +107,12 @@ fun StockTrackerRoot() {
                 )
             }
             composable("vix") { VixDetailScreen(onBack = { nav.popBackStack() }) }
-            composable("dips") { DipListScreen(onBack = { nav.popBackStack() }) }
+            composable("dips") {
+                DipListScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { nav.navigate(detailRoute(it)) },
+                )
+            }
             composable(
                 route = "calendar?symbol={symbol}",
                 arguments = listOf(navArgument("symbol") { type = NavType.StringType; defaultValue = "" }),

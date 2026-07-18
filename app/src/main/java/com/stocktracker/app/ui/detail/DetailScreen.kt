@@ -78,6 +78,7 @@ import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
+import com.stocktracker.app.data.remote.InsiderResponse
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.TouchStudyResponse
 import com.stocktracker.app.data.remote.TrendResponse
@@ -385,6 +386,7 @@ fun DetailScreen(
                 )
             }
             state.shortPressure?.let { ShortPressureCard(it) }
+            state.insider?.let { InsiderBuyingCard(it) }
             state.cycleInfo?.let { HalvingCycleCard(it) }
             state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
 
@@ -1210,6 +1212,110 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
             )
         }
     }
+}
+
+/**
+ * Insider-buying card (stocks): open-market Form 4 PURCHASES over the last 12 months — the bullish
+ * informed-money mirror of the short-pressure card. Only shown when there were actual buys. Free data.
+ */
+@Composable
+private fun InsiderBuyingCard(ins: InsiderResponse) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val green = Color(0xFF2E9E57)
+    var open by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Insider buying", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .background(green.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        fmtUsdCompact(ins.buyTotal12m),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = green,
+                    )
+                }
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse insider" else "Expand insider",
+                    tint = neutral,
+                )
+            }
+        }
+        if (!open) {
+            val parts = listOfNotNull(
+                "${ins.buyCount12m} open-market buy${if (ins.buyCount12m != 1) "s" else ""} (12mo)",
+                if (ins.hasConvictionBuy) "conviction" else null,
+                if (ins.hasClusterBuy) "cluster" else null,
+            )
+            Text(
+                parts.joinToString(" · ") + " · tap for detail",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+        if (open) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                StatCell("Largest buy", fmtUsdCompact(ins.largestBuyValue), valueColor = green, modifier = Modifier.weight(1f))
+                StatCell("12-mo total", fmtUsdCompact(ins.buyTotal12m), modifier = Modifier.weight(1f))
+                StatCell("Buys (12mo)", "${ins.buyCount12m}", modifier = Modifier.weight(1f))
+            }
+            if (ins.hasConvictionBuy || ins.hasClusterBuy) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (ins.hasConvictionBuy) InsiderChip("Conviction buy (≥\$500k)", green)
+                    if (ins.hasClusterBuy) InsiderChip("Cluster (3+ insiders)", green)
+                }
+            }
+            ins.latestBuys.take(3).forEach { b ->
+                Text(
+                    "${b.date} · ${b.name.ifBlank { "Insider" }} · ${fmtUsdCompact(b.value)}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Text(
+                "Open-market Form 4 purchases — a modest bullish base rate; confirming context, not timing · not advice",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+    }
+}
+
+@Composable
+private fun InsiderChip(text: String, color: androidx.compose.ui.graphics.Color) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = color,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+/** Compact USD for insider dollar values: 9186831 → "$9.2M". */
+private fun fmtUsdCompact(v: Long): String = when {
+    v >= 1_000_000_000 -> "\$%.1fB".format(v / 1e9)
+    v >= 1_000_000 -> "\$%.1fM".format(v / 1e6)
+    v >= 1_000 -> "\$%.0fK".format(v / 1e3)
+    else -> "\$$v"
 }
 
 /** "20260611" → "06-11" for compact chart axis labels. */

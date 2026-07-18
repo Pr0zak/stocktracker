@@ -94,6 +94,14 @@ class SignalsApiService {
         return Http.json.decodeFromString<TouchStudyResponse>(body)
     }
 
+    /** Insider buying (SEC Form 4 via Finnhub) — open-market purchases in the last 12 months, the
+     *  bullish smart-money read. Free (needs a Finnhub key on the service). Null on 404/no-key. */
+    suspend fun insider(baseUrl: String, symbol: String): InsiderResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = Http.getString("${baseUrl.trimEnd('/')}/insider/${symbol.uppercase()}", slow = true)
+        return Http.json.decodeFromString<InsiderResponse>(body)
+    }
+
     /** Catalyst calendar (SI dates, OPEX, earnings, speculative T+35 echoes). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
@@ -237,6 +245,26 @@ data class TouchStudyResponse(
     @SerialName("median_fwd_24m_pct") val medianFwd24mPct: Double? = null,
     @SerialName("pct_positive_24m") val pctPositive24m: Int? = null,
     @SerialName("spy_avg_fwd_24m_pct") val spyAvgFwd24mPct: Double? = null,
+)
+
+/** GET /insider/{symbol} — open-market insider purchases (Form 4) over the last 12 months. */
+@Serializable
+data class InsiderResponse(
+    val symbol: String = "",
+    @SerialName("buy_count_12m") val buyCount12m: Int = 0,
+    @SerialName("buy_total_12m") val buyTotal12m: Long = 0,
+    @SerialName("largest_buy_value") val largestBuyValue: Long = 0,
+    @SerialName("has_conviction_buy") val hasConvictionBuy: Boolean = false,
+    @SerialName("has_cluster_buy") val hasClusterBuy: Boolean = false,
+    @SerialName("latest_buys") val latestBuys: List<InsiderBuy> = emptyList(),
+)
+
+@Serializable
+data class InsiderBuy(
+    val name: String = "",
+    val date: String = "",
+    val shares: Long = 0,
+    val value: Long = 0,
 )
 
 @Serializable

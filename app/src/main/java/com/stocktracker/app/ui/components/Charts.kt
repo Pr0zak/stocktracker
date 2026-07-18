@@ -120,6 +120,7 @@ fun PriceChart(
     showAxis: Boolean = false,
     zoomable: Boolean = false,
     costLine: Double? = null,
+    sma200wLine: Double? = null,
     overlays: List<ChartLineOverlay> = emptyList(),
     subPanes: List<ChartSubPane> = emptyList(),
     markers: List<ChartMarker> = emptyList(),
@@ -257,8 +258,8 @@ fun PriceChart(
                     if (v > dataMax) dataMax = v
                 }
             }
-            val min = if (costLine != null) minOf(dataMin, costLine) else dataMin
-            val max = if (costLine != null) maxOf(dataMax, costLine) else dataMax
+            val min = minOf(dataMin, costLine ?: dataMin, sma200wLine ?: dataMin)
+            val max = maxOf(dataMax, costLine ?: dataMax, sma200wLine ?: dataMax)
             val range = (max - min).takeIf { it > 0.0 } ?: 1.0
             val stepX = size.width / (visN - 1)
             fun xg(i: Int) = (i - startIdx) * stepX
@@ -363,6 +364,34 @@ fun PriceChart(
                     cornerRadius = CornerRadius(4f, 4f),
                 )
                 drawText(costLabel, topLeft = Offset(lx, ly))
+            }
+
+            // 200-week line — amber dashed reference so you can see price cross it on long ranges.
+            if (sma200wLine != null) {
+                val ly200 = y(sma200wLine)
+                val amber = Color(0xFFD29922)
+                drawLine(
+                    color = amber.copy(alpha = 0.85f),
+                    start = Offset(0f, ly200),
+                    end = Offset(size.width, ly200),
+                    strokeWidth = 1.4.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 5f)),
+                )
+                val lbl = textMeasurer.measure(
+                    "200-wk " + valueFormatter(sma200wLine),
+                    TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = amber),
+                )
+                val tw2 = lbl.size.width.toFloat()
+                val th2 = lbl.size.height.toFloat()
+                var ly2 = ly200 + 3f
+                if (ly2 + th2 > plotBottom) ly2 = ly200 - th2 - 3f
+                drawRoundRect(
+                    color = surface.copy(alpha = 0.78f),
+                    topLeft = Offset(1f, ly2 - 1f),
+                    size = Size(tw2 + 6f, th2 + 2f),
+                    cornerRadius = CornerRadius(4f, 4f),
+                )
+                drawText(lbl, topLeft = Offset(4f, ly2))
             }
 
             // High / low markers over the visible extremes.

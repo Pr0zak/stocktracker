@@ -91,6 +91,7 @@ import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.ChartMarker
 import com.stocktracker.app.ui.components.ChartSubPane
 import com.stocktracker.app.ui.components.FiftyTwoWeekRangeBar
+import com.stocktracker.app.ui.components.ThresholdMeter
 import com.stocktracker.app.ui.components.TwoHundredWeekLineBar
 import com.stocktracker.app.ui.components.PriceChart
 import com.stocktracker.app.ui.ideas.formatCashPlain
@@ -286,6 +287,10 @@ fun DetailScreen(
                         showAxis = true,
                         zoomable = true,
                         costLine = if (percentMode) null else state.avgCost?.takeIf { it > 0.0 },
+                        // The 200-week line drawn on the chart — long ranges only (off-scale on 1D/1W).
+                        sma200wLine = if (!percentMode &&
+                            state.range in setOf(ChartRange.YEAR, ChartRange.THREE_YEAR, ChartRange.ALL)
+                        ) state.stockTrend?.sma200w else null,
                         overlays = allOverlays,
                         subPanes = indicatorResult.subPanes,
                         markers = allMarkers,
@@ -1166,28 +1171,33 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
         if (open) {
             // Visual: where price sits relative to its 200-week line (the line fixed at centre).
             tr.priceVs200wSmaPct?.let { pct -> TwoHundredWeekLineBar(pct, below) }
+            // %-from-line lives in the bar above; the cells cover the rest.
             Row(modifier = Modifier.fillMaxWidth()) {
                 tr.sma200w?.let {
                     StatCell("200w SMA", "%.2f".format(it), modifier = Modifier.weight(1f))
                 }
-                tr.priceVs200wSmaPct?.let {
-                    StatCell("vs 200w line", "%+.1f%%".format(it), valueColor = accent, modifier = Modifier.weight(1f))
-                }
-                tr.rsi14w?.let {
-                    StatCell(
-                        "14-wk RSI",
-                        "%.0f".format(it),
-                        valueColor = if (tr.weeklyOversold == true) Color(0xFFD29922) else Color.Unspecified,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-            Row(modifier = Modifier.fillMaxWidth()) {
                 zoneLabel?.let { StatCell("Zone", it, modifier = Modifier.weight(1f)) }
-                dirLabel?.let { StatCell("Direction", it, modifier = Modifier.weight(1f)) }
                 tr.pctOffAllTimeHigh?.let {
                     StatCell("Off ATH", "%.1f%%".format(it), modifier = Modifier.weight(1f))
                 }
+            }
+            dirLabel?.let { d ->
+                Text("Direction: $d", style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+            // RSI as a mini gauge — green when oversold (<30), red when overbought (>70).
+            tr.rsi14w?.let { rsi ->
+                val rsiColor = when {
+                    rsi < 30 -> Color(0xFF2E9E57)
+                    rsi > 70 -> Color(0xFFB0543D)
+                    else -> neutral
+                }
+                ThresholdMeter(
+                    "14-week RSI",
+                    "%.0f".format(rsi) + if (tr.weeklyOversold == true) " · oversold" else "",
+                    (rsi / 100.0).toFloat(),
+                    rsiColor,
+                    thresholdFraction = 0.30f,
+                )
             }
             tr.cagr3yPct?.let {
                 Text(
@@ -1217,6 +1227,15 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
                     if (t.measured12m < 3) append(" Small sample (${t.measured12m}) — anecdote, not a rule.")
                 }
                 Text(body, style = MaterialTheme.typography.bodySmall)
+                t.pctPositive12m?.let { pp ->
+                    ThresholdMeter(
+                        "Resolved higher after a dip",
+                        "$pp% of ${t.touchCount}",
+                        (pp / 100.0).toFloat(),
+                        if (pp >= 50) Color(0xFF2E9E57) else Color(0xFFB0543D),
+                        thresholdFraction = 0.5f,
+                    )
+                }
             }
             Text(
                 "Long-term mean-reversion context — a low reading isn't a buy signal on its own · not advice",
@@ -1375,10 +1394,20 @@ private fun QualityCard(q: QualityResponse) {
             )
         }
         if (open) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                q.roe?.let { StatCell("ROE", "%.0f%%".format(it), modifier = Modifier.weight(1f)) }
-                q.grossMargin?.let { StatCell("Gross margin", "%.0f%%".format(it), modifier = Modifier.weight(1f)) }
-                q.debtToEquity?.let { StatCell("Debt/Equity", "%.2f".format(it), modifier = Modifier.weight(1f)) }
+            // Mini-meters with the "good" threshold ticked, instead of bare numbers.
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                q.roe?.let {
+                    ThresholdMeter("ROE", "%.0f%%".format(it), (it / 40.0).toFloat(),
+                        if (it > 15) Color(0xFF2E9E57) else neutral, thresholdFraction = 15f / 40f)
+                }
+                q.grossMargin?.let {
+                    ThresholdMeter("Gross margin", "%.0f%%".format(it), (it / 100.0).toFloat(),
+                        if (it > 40) Color(0xFF2E9E57) else neutral, thresholdFraction = 0.40f)
+                }
+                q.debtToEquity?.let {
+                    ThresholdMeter("Debt / equity", "%.2f".format(it), (it / 2.0).toFloat(),
+                        if (it < 0.5) Color(0xFF2E9E57) else Color(0xFFD29922), thresholdFraction = 0.5f / 2f)
+                }
             }
             if (q.hasAnyFlag) {
                 Row(

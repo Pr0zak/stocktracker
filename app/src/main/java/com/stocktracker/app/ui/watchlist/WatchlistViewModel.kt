@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.downsample
 import kotlinx.coroutines.async
@@ -22,6 +23,8 @@ data class WatchlistItemUi(
     val asset: Asset,
     val quote: Quote?,
     val sparkline: List<Double>,
+    /** Below its 200-week line per the latest nightly scan — drives the "Below 200w" tab + row badge. */
+    val below200wma: Boolean? = null,
 )
 
 data class WatchlistUiState(
@@ -36,9 +39,16 @@ class WatchlistViewModel : ViewModel() {
     private val store = ServiceLocator.watchlistStore
     private val settings = ServiceLocator.settingsStore
     private val cache = ServiceLocator.priceCache
+    private val signalsApi = SignalsApiService()
 
     private val _state = MutableStateFlow(WatchlistUiState(stocksEnabled = repo.stocksEnabled))
     val state = _state.asStateFlow()
+
+    // symbol (scan form: uppercase stock / "SYM-USD" crypto) → below its 200-week line, from the
+    // latest nightly scan. Applied to rows as they load so the "Below 200w" tab/badge can filter.
+    private var belowLineMap: Map<String, Boolean> = emptyMap()
+    private fun scanKey(a: Asset): String =
+        if (a.type == AssetType.CRYPTO) "${a.symbol.uppercase()}-USD" else a.symbol.uppercase()
 
     private var currentAssets: List<Asset> = emptyList()
     private var lastKey: String? = null
@@ -48,6 +58,7 @@ class WatchlistViewModel : ViewModel() {
     private var loadGeneration = 0
 
     init {
+        viewModelScope.launch { loadBelowLineFlags() }
         viewModelScope.launch {
             // Reload when the watchlist OR the Finnhub key changes (adding a key should immediately
             // start fetching stocks). distinctUntilChanged avoids reacting to unrelated settings.
@@ -86,7 +97,20 @@ class WatchlistViewModel : ViewModel() {
     }
 
     fun refresh() {
-        viewModelScope.launch { loadQuotes(currentAssets) }
+        viewModelScope.launch {
+            loadQuotes(currentAssets)
+            loadBelowLineFlags()
+        }
+    }
+
+    /** Pull the latest nightly scan once to learn which watchlist names sit below their 200-week
+     *  line, and stamp the flag onto the current rows. Best-effort; no-op without a Signals URL. */
+    private suspend fun loadBelowLineFlags() {
+        val base = settings.signalsApiUrl.first()
+        if (base.isBlank()) return
+        val scan = runCatching { signalsApi.latestScan(base) }.getOrNull() ?: return
+        belowLineMap = scan.results.mapNotNull { r -> r.below200wma?.let { r.symbol.uppercase() to it } }.toMap()
+        _state.update { st -> st.copy(items = st.items.map { it.copy(below200wma = belowLineMap[scanKey(it.asset)]) }) }
     }
 
     // Set by a real drag; guards persistOrder() from firing on initial composition (which would
@@ -154,7 +178,10 @@ class WatchlistViewModel : ViewModel() {
         _state.update { st ->
             st.copy(
                 items = assets.map { a ->
-                    WatchlistItemUi(a, seedQuotes[a.id], (seedBuffers[a.id] ?: emptyList()).downsample(40))
+                    WatchlistItemUi(
+                        a, seedQuotes[a.id], (seedBuffers[a.id] ?: emptyList()).downsample(40),
+                        below200wma = belowLineMap[scanKey(a)],
+                    )
                 },
                 loading = true,
             )
@@ -201,7 +228,7 @@ class WatchlistViewModel : ViewModel() {
                 AssetType.CRYPTO -> f.cryptoSpark
                 AssetType.STOCK -> (buffers[f.asset.id] ?: emptyList()).downsample(40)
             }
-            WatchlistItemUi(f.asset, quote, spark)
+            WatchlistItemUi(f.asset, quote, spark, below200wma = belowLineMap[scanKey(f.asset)])
         }
         if (gen != loadGeneration) return // superseded (e.g. by a remove) — don't clobber the UI
         _state.update { it.copy(items = items, loading = false) }

@@ -58,6 +58,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 private const val TAB_ALL = "All"
 private const val TAB_STOCKS = "Stocks"
 private const val TAB_CRYPTO = "Crypto"
+private const val TAB_BELOW = "Below 200w" // computed tab, shown only when a name is below its 200-week line
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,7 +89,7 @@ fun WatchlistScreen(
     var selected by remember { mutableStateOf(TAB_ALL) }
     // A deleted/emptied list shouldn't leave us stranded on a missing tab.
     LaunchedEffect(groups) {
-        if (selected !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) && selected !in groups) selected = TAB_ALL
+        if (selected !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO, TAB_BELOW) && selected !in groups) selected = TAB_ALL
     }
     var showNewListDialog by remember { mutableStateOf(false) }
     var newListName by remember { mutableStateOf("") }
@@ -132,6 +133,7 @@ fun WatchlistScreen(
                 TAB_ALL -> true
                 TAB_STOCKS -> item.asset.type == AssetType.STOCK
                 TAB_CRYPTO -> item.asset.type == AssetType.CRYPTO
+                TAB_BELOW -> item.below200wma == true
                 else -> item.asset.groups.contains(selected)
             }
         }
@@ -152,7 +154,8 @@ fun WatchlistScreen(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        (listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) + groups).forEach { tab ->
+                        val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
+                        (listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) + belowTab + groups).forEach { tab ->
                             FilterChip(
                                 selected = selected == tab,
                                 onClick = { selected = tab },
@@ -175,8 +178,8 @@ fun WatchlistScreen(
                     vix?.let { v -> item(key = "hdr:vix") { FearGauge(v, onClick = onOpenVix) } }
                 }
 
-                // Offer to delete the currently-selected user list.
-                if (selected !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO)) {
+                // Offer to delete the currently-selected user list (not the computed Below-200w tab).
+                if (selected !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO, TAB_BELOW)) {
                     item(key = "hdr:deletelist") {
                         TextButton(onClick = { confirmDeleteGroup = selected }) {
                             Text("Delete “$selected” list")
@@ -222,6 +225,7 @@ fun WatchlistScreen(
                                     sparkline = item.sparkline,
                                     holdingsText = holdingsText,
                                     isCrypto = item.asset.type == AssetType.CRYPTO,
+                                    belowLine = item.below200wma == true,
                                     onClick = { onOpenDetail(item.asset) },
                                 )
                             }

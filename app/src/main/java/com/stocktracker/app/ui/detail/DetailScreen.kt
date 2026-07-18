@@ -91,6 +91,7 @@ import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.ChartMarker
 import com.stocktracker.app.ui.components.ChartSubPane
 import com.stocktracker.app.ui.components.FiftyTwoWeekRangeBar
+import com.stocktracker.app.ui.components.TwoHundredWeekLineBar
 import com.stocktracker.app.ui.components.PriceChart
 import com.stocktracker.app.ui.ideas.formatCashPlain
 import com.stocktracker.app.ui.ideas.planActionColor
@@ -1163,6 +1164,8 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
             )
         }
         if (open) {
+            // Visual: where price sits relative to its 200-week line (the line fixed at centre).
+            tr.priceVs200wSmaPct?.let { pct -> TwoHundredWeekLineBar(pct, below) }
             Row(modifier = Modifier.fillMaxWidth()) {
                 tr.sma200w?.let {
                     StatCell("200w SMA", "%.2f".format(it), modifier = Modifier.weight(1f))

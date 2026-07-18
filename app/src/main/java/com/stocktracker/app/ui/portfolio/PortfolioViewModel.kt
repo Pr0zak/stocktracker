@@ -39,6 +39,12 @@ data class PortfolioUiState(
     val hasCostBasis: Boolean = false,
     val holdings: List<Holding> = emptyList(),
     val chart: List<PricePoint> = emptyList(),
+    /** The same starting value invested in the S&P 500, aligned to the portfolio's days (chart overlay). */
+    val benchmarkChart: List<PricePoint> = emptyList(),
+    /** Worst peak-to-trough dip of the reconstructed value series, as a (<= 0) percent. */
+    val maxDrawdownPct: Double? = null,
+    /** Portfolio total return minus the S&P's over the window, in percentage points. */
+    val vsSpyPct: Double? = null,
     val range: ChartRange = ChartRange.YEAR,
     val loading: Boolean = true,
     val loadingChart: Boolean = true,
@@ -160,6 +166,56 @@ class PortfolioViewModel : ViewModel() {
             }
             if (any) series.add(PricePoint(day * dayMs, total))
         }
-        _state.update { it.copy(chart = series, loadingChart = false) }
+
+        // Benchmark overlay + risk/relative stats: "the same starting value in the S&P 500".
+        val benchRaw = runCatching { repo.benchmark(range) }.getOrNull().orEmpty().sortedBy { it.epochMs }
+        val benchSeries = if (series.size >= 2 && benchRaw.size >= 2) alignBenchmark(series, benchRaw) else emptyList()
+        val maxDd = if (series.size >= 2) maxDrawdownPct(series.map { it.price }) else null
+        val vsSpy = if (series.size >= 2 && benchSeries.size >= 2 &&
+            series.first().price > 0.0 && benchSeries.first().price > 0.0) {
+            val portRet = series.last().price / series.first().price - 1.0
+            val spyRet = benchSeries.last().price / benchSeries.first().price - 1.0
+            (portRet - spyRet) * 100.0
+        } else {
+            null
+        }
+        _state.update {
+            it.copy(chart = series, benchmarkChart = benchSeries, maxDrawdownPct = maxDd,
+                vsSpyPct = vsSpy, loadingChart = false)
+        }
+    }
+
+    /** Rebase the S&P series to the portfolio's starting value, sampled on the portfolio's calendar
+     *  days (forward-filled) — the "same money in the S&P 500" line for a like-for-like overlay. */
+    private fun alignBenchmark(port: List<PricePoint>, bench: List<PricePoint>): List<PricePoint> {
+        val dayMs = 86_400_000L
+        val startValue = port.first().price
+        var j = 0
+        var lastClose = Double.NaN
+        val filled = ArrayList<Double>(port.size)
+        for (p in port) {
+            val day = p.epochMs / dayMs
+            while (j < bench.size && bench[j].epochMs / dayMs <= day) { lastClose = bench[j].price; j++ }
+            filled.add(lastClose)
+        }
+        val base = filled.firstOrNull { !it.isNaN() } ?: return emptyList()
+        return port.mapIndexed { i, p ->
+            val c = filled[i]
+            PricePoint(p.epochMs, if (c.isNaN()) startValue else startValue * c / base)
+        }
+    }
+
+    /** Worst peak-to-trough decline of an equity curve, as a (<= 0) percent — same as Backtest's. */
+    private fun maxDrawdownPct(values: List<Double>): Double {
+        var peak = Double.NEGATIVE_INFINITY
+        var maxDd = 0.0
+        for (v in values) {
+            if (v > peak) peak = v
+            if (peak > 0.0) {
+                val dd = (v - peak) / peak
+                if (dd < maxDd) maxDd = dd
+            }
+        }
+        return maxDd * 100.0
     }
 }

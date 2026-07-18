@@ -26,10 +26,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.PriceChart
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
@@ -89,10 +91,36 @@ fun PortfolioScreen() {
                     fontWeight = FontWeight.Medium,
                 )
             }
+            // vs the same money in the S&P 500, and the worst peak-to-trough dip over the window.
+            if (state.vsSpyPct != null || state.maxDrawdownPct != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    state.vsSpyPct?.let { v ->
+                        Text(
+                            "vs S&P ${if (v >= 0) "+" else ""}${"%.1f".format(v)}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (v >= 0) GainGreen else LossRed,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    state.maxDrawdownPct?.let { d ->
+                        Text(
+                            "Max drawdown ${"%.1f".format(d)}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
 
-            // Reconstructed value-over-time chart
+            // Reconstructed value-over-time chart, with the S&P 500 overlaid (pink).
             val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
             val chartUp = chartPoints.size >= 2 && chartPoints.last().price >= chartPoints.first().price
+            val benchOverlay = if (state.benchmarkChart.size == state.chart.size && state.benchmarkChart.size >= 2) {
+                val bp = if (percentMode) state.benchmarkChart.asPercentChange() else state.benchmarkChart
+                listOf(ChartLineOverlay("S&P 500", Color(0xFFEC4899), bp.map { it.price }))
+            } else {
+                emptyList()
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -107,6 +135,7 @@ fun PortfolioScreen() {
                         modifier = Modifier.fillMaxSize(),
                         showHighLow = true,
                         showAxis = true,
+                        overlays = benchOverlay,
                         costLine = if (percentMode) null else state.totalCost.takeIf { state.hasCostBasis && it > 0.0 },
                         valueFormatter = {
                             if (percentMode) com.stocktracker.app.util.formatPercentChange(it)

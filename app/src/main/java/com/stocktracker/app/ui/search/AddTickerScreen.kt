@@ -1,6 +1,7 @@
 package com.stocktracker.app.ui.search
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -36,11 +38,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.data.model.AssetType
+import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.SearchResult
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.widget.WidgetRefreshScheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** Curated "watch for dips" starter list — core ETFs + wide-moat compounders. Added alert-only
+ *  (no shares) so they simply populate the watchlist for the buy-the-dip radar. */
+private val STARTER_WATCHLIST = listOf(
+    Asset("VOO", AssetType.STOCK, "Vanguard S&P 500 ETF"),
+    Asset("VTI", AssetType.STOCK, "Vanguard Total Stock Market ETF"),
+    Asset("VXUS", AssetType.STOCK, "Vanguard Total International Stock ETF"),
+    Asset("QQQM", AssetType.STOCK, "Invesco NASDAQ 100 ETF"),
+    Asset("MSFT", AssetType.STOCK, "Microsoft Corporation"),
+    Asset("AAPL", AssetType.STOCK, "Apple Inc."),
+    Asset("GOOGL", AssetType.STOCK, "Alphabet Inc."),
+    Asset("AMZN", AssetType.STOCK, "Amazon.com, Inc."),
+    Asset("NVDA", AssetType.STOCK, "NVIDIA Corporation"),
+    Asset("V", AssetType.STOCK, "Visa Inc."),
+    Asset("MA", AssetType.STOCK, "Mastercard Incorporated"),
+    Asset("COST", AssetType.STOCK, "Costco Wholesale"),
+    Asset("UNH", AssetType.STOCK, "UnitedHealth Group"),
+    Asset("LLY", AssetType.STOCK, "Eli Lilly and Company"),
+    Asset("HD", AssetType.STOCK, "The Home Depot"),
+    Asset("JNJ", AssetType.STOCK, "Johnson & Johnson"),
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +119,31 @@ fun AddTickerScreen(onBack: () -> Unit) {
 
             if (searching) {
                 CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+            }
+
+            // One-tap curated starter list when the search is empty — a ready-made "watch for dips" set.
+            if (query.isBlank()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                STARTER_WATCHLIST.forEach { ServiceLocator.watchlistStore.add(it) }
+                                WidgetRefreshScheduler.refreshNow(context)
+                                onBack()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("＋  Add starter watchlist (Core & Quality)") }
+                    Text(
+                        "16 core ETFs + wide-moat names to watch for dips: VOO, VTI, VXUS, QQQM, MSFT, " +
+                            "AAPL, GOOGL, AMZN, NVDA, V, MA, COST, UNH, LLY, HD, JNJ.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {

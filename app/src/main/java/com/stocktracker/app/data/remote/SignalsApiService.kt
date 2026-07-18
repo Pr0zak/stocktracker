@@ -410,6 +410,8 @@ data class ScanLatest(
     val flips: List<String> = emptyList(),
     /** Symbols that newly closed below their 200-week line since the prior scan (mungbeans' signal). */
     @SerialName("crossed_below_200wma") val crossedBelow200wma: List<String> = emptyList(),
+    /** Symbols that newly entered a "good time to add" dip tier this scan. */
+    @SerialName("dip_alerts") val dipAlerts: List<DipAlert> = emptyList(),
     /** Today/tomorrow key-date warnings (SI publication, OPEX, earnings, speculative T+35). */
     @SerialName("date_alerts") val dateAlerts: List<String> = emptyList(),
 )
@@ -427,6 +429,19 @@ data class ScanResult(
     /** Below its 200-week line this scan, and whether that's newly-crossed vs the prior scan. */
     @SerialName("below_200wma") val below200wma: Boolean? = null,
     @SerialName("crossed_below_200wma") val crossedBelow200wma: Boolean = false,
+    /** "Good time to add" tier: mega_dip | below_line | oversold | pullback_10 | pullback_5 | null. */
+    val dip: String? = null,
+    @SerialName("pct_off_recent_high") val pctOffRecentHigh: Double? = null,
+    @SerialName("pct_off_52w_high") val pctOff52wHigh: Double? = null,
+)
+
+/** A symbol that newly entered a dip tier this scan — the "good time to add" event. */
+@Serializable
+data class DipAlert(
+    val symbol: String = "",
+    val dip: String = "",
+    @SerialName("pct_off_recent_high") val pctOffRecentHigh: Double? = null,
+    @SerialName("pct_off_52w_high") val pctOff52wHigh: Double? = null,
 )
 
 @Serializable

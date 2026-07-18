@@ -27,10 +27,20 @@ data class WatchlistItemUi(
     val below200wma: Boolean? = null,
 )
 
+/** A "good time to add" entry for the dip strip atop the watchlist (from the nightly scan). */
+data class DipEntry(
+    val symbol: String,        // display form (crypto -USD stripped)
+    val tier: String,          // mega_dip | below_line | oversold | pullback_10 | pullback_5
+    val pctOffHigh: Double?,   // off the recent ~3-month high
+    val pctOff52w: Double?,    // off the 52-week high
+)
+
 data class WatchlistUiState(
     val items: List<WatchlistItemUi> = emptyList(),
     val loading: Boolean = true,
     val stocksEnabled: Boolean = true,
+    /** "Good time to add" dips from the latest scan, most-severe first — the buy-signal strip. */
+    val dips: List<DipEntry> = emptyList(),
 )
 
 class WatchlistViewModel : ViewModel() {
@@ -110,7 +120,17 @@ class WatchlistViewModel : ViewModel() {
         if (base.isBlank()) return
         val scan = runCatching { signalsApi.latestScan(base) }.getOrNull() ?: return
         belowLineMap = scan.results.mapNotNull { r -> r.below200wma?.let { r.symbol.uppercase() to it } }.toMap()
-        _state.update { st -> st.copy(items = st.items.map { it.copy(below200wma = belowLineMap[scanKey(it.asset)]) }) }
+        // "Good time to add" dips, most-severe first, for the strip atop the watchlist.
+        val order = listOf("mega_dip", "below_line", "oversold", "pullback_10", "pullback_5")
+        val dips = scan.results.mapNotNull { r ->
+            r.dip?.let { DipEntry(r.symbol.removeSuffix("-USD"), it, r.pctOffRecentHigh, r.pctOff52wHigh) }
+        }.sortedBy { order.indexOf(it.tier).let { i -> if (i < 0) 99 else i } }
+        _state.update { st ->
+            st.copy(
+                items = st.items.map { it.copy(below200wma = belowLineMap[scanKey(it.asset)]) },
+                dips = dips,
+            )
+        }
     }
 
     // Set by a real drag; guards persistOrder() from firing on initial composition (which would

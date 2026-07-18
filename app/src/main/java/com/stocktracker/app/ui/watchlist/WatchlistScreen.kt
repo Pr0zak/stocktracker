@@ -2,10 +2,17 @@ package com.stocktracker.app.ui.watchlist
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -170,6 +177,10 @@ fun WatchlistScreen(
                     }
                 }
 
+                if (state.dips.isNotEmpty()) {
+                    item(key = "hdr:dips") { GoodTimeToAddSection(state.dips) }
+                }
+
                 if (showMarketStatus) {
                     item(key = "hdr:timeline") { SessionTimelineBar(marketState) }
                 }
@@ -284,4 +295,72 @@ fun WatchlistScreen(
             dismissButton = { TextButton(onClick = { confirmDeleteGroup = null }) { Text("Cancel") } },
         )
     }
+}
+
+/**
+ * "Good time to add" strip atop the watchlist — the dips from the latest scan, most-severe first, in
+ * plain language. A cue to add EXTRA on weakness, deliberately NOT a "buy now" signal.
+ */
+@Composable
+private fun GoodTimeToAddSection(dips: List<DipEntry>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Good time to add", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        dips.take(6).forEach { d ->
+            val (label, color) = dipMeta(d.tier)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    d.symbol,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.width(58.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .background(color.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color)
+                }
+                Text(
+                    dipBlurb(d),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+        if (dips.size > 6) {
+            Text(
+                "+${dips.size - 6} more",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            "A cue to add EXTRA on weakness — not a “buy now” signal.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun dipMeta(tier: String): Pair<String, Color> = when (tier) {
+    "mega_dip" -> "MEGA DIP" to Color(0xFFB0543D)
+    "below_line" -> "BELOW LINE" to Color(0xFF4666CF)
+    "oversold" -> "OVERSOLD" to Color(0xFF0F8A7E)
+    "pullback_10" -> "DIP" to Color(0xFFD29922)
+    else -> "SMALL DIP" to Color(0xFFD29922)
+}
+
+private fun dipBlurb(d: DipEntry): String = when (d.tier) {
+    "mega_dip" -> "down %.0f%% from its high — a rare deep dip".format(kotlin.math.abs(d.pctOff52w ?: d.pctOffHigh ?: 0.0))
+    "below_line" -> "below its 200-week line — long-term cheap"
+    "oversold" -> "oversold (weekly RSI)"
+    else -> "%.0f%% off its recent high".format(d.pctOffHigh ?: 0.0)
 }

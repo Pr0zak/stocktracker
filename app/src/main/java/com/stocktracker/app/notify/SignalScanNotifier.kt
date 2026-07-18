@@ -51,6 +51,23 @@ object SignalScanNotifier {
                 scan.crossedBelow200wma.joinToString(", "),
             )
         }
+        // "Good time to add" dip alerts — a cue to add EXTRA cash on weakness, framed as such (never
+        // "the bottom is in"). Deep dips get a distinct, more urgent title.
+        if (scan.dipAlerts.isNotEmpty()) {
+            val hasMega = scan.dipAlerts.any { it.dip == "mega_dip" }
+            val body = scan.dipAlerts.take(6).joinToString("\n") { a ->
+                val tier = when (a.dip) {
+                    "mega_dip" -> "rare deep dip"
+                    "below_line" -> "below its 200-week line"
+                    "oversold" -> "oversold"
+                    "pullback_10" -> "−10% pullback"
+                    else -> "small dip"
+                }
+                "${a.symbol.removeSuffix("-USD")}: $tier"
+            }
+            val title = if (hasMega) "📉 Deep dip — a moment to add extra" else "Good time to add"
+            AlertNotifier.notify(context, "dip_alerts".hashCode(), title, body)
+        }
         // Key-date warnings get their own notification so they don't drown in signal noise.
         if (scan.dateAlerts.isNotEmpty()) {
             AlertNotifier.notify(

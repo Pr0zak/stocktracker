@@ -3,6 +3,7 @@ package com.stocktracker.app.ui.watchlist
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.width
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Refresh
@@ -50,7 +52,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.VixQuote
+import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
+import kotlinx.coroutines.flow.first
 import com.stocktracker.app.ui.components.AssetRow
 import com.stocktracker.app.ui.components.FearGauge
 import com.stocktracker.app.ui.components.SessionTimelineBar
@@ -74,6 +78,7 @@ fun WatchlistScreen(
     onAdd: () -> Unit,
     onOpenVix: () -> Unit = {},
     onOpenCalendar: () -> Unit = {},
+    onOpenDips: () -> Unit = {},
 ) {
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsState()
@@ -178,7 +183,7 @@ fun WatchlistScreen(
                 }
 
                 if (state.dips.isNotEmpty()) {
-                    item(key = "hdr:dips") { GoodTimeToAddSection(state.dips) }
+                    item(key = "hdr:dips") { GoodTimeToAddSection(state.dips, onOpenDips) }
                 }
 
                 if (showMarketStatus) {
@@ -302,51 +307,45 @@ fun WatchlistScreen(
  * plain language. A cue to add EXTRA on weakness, deliberately NOT a "buy now" signal.
  */
 @Composable
-private fun GoodTimeToAddSection(dips: List<DipEntry>) {
+private fun GoodTimeToAddSection(dips: List<DipEntry>, onOpenAll: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))
+            .clickable { onOpenAll() }
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("Good time to add", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        dips.take(6).forEach { d ->
-            val (label, color) = dipMeta(d.tier)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    d.symbol,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.width(58.dp),
-                )
-                Box(
-                    modifier = Modifier
-                        .background(color.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                ) {
-                    Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color)
-                }
-                Text(
-                    dipBlurb(d),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-        }
-        if (dips.size > 6) {
-            Text(
-                "+${dips.size - 6} more",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        dips.take(6).forEach { DipRow(it) }
         Text(
-            "A cue to add EXTRA on weakness — not a “buy now” signal.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (dips.size > 6) "See all ${dips.size} →" else "See all →",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
         )
+    }
+}
+
+/** One dip row: symbol · tier chip · the dip percent (kept deliberately terse). */
+@Composable
+private fun DipRow(d: DipEntry) {
+    val (label, color) = dipMeta(d.tier)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            d.symbol,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.width(64.dp),
+        )
+        Box(
+            modifier = Modifier
+                .background(color.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+        ) {
+            Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color)
+        }
+        Text(dipPct(d), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = color)
     }
 }
 
@@ -358,9 +357,51 @@ private fun dipMeta(tier: String): Pair<String, Color> = when (tier) {
     else -> "SMALL DIP" to Color(0xFFD29922)
 }
 
-private fun dipBlurb(d: DipEntry): String = when (d.tier) {
-    "mega_dip" -> "down %.0f%% from its high — a rare deep dip".format(kotlin.math.abs(d.pctOff52w ?: d.pctOffHigh ?: 0.0))
-    "below_line" -> "below its 200-week line — long-term cheap"
-    "oversold" -> "oversold (weekly RSI)"
-    else -> "%.0f%% off its recent high".format(d.pctOffHigh ?: 0.0)
+/** The dip as a plain signed percent off the year's high (negative), e.g. "-29%". */
+private fun dipPct(d: DipEntry): String =
+    (d.pctOff52w ?: d.pctOffHigh)?.let { "%.0f%%".format(it) } ?: ""
+
+/** Full "Good time to add" list — every current dip, most-severe first. Reached by tapping the
+ *  watchlist strip. Fetches the latest scan itself so it stays a lightweight standalone screen. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DipListScreen(onBack: () -> Unit) {
+    val dips by produceState(initialValue = emptyList<DipEntry>()) {
+        val base = ServiceLocator.settingsStore.signalsApiUrl.first()
+        val scan = runCatching { SignalsApiService().latestScan(base) }.getOrNull()
+        val order = listOf("mega_dip", "below_line", "oversold", "pullback_10", "pullback_5")
+        value = scan?.results?.mapNotNull { r ->
+            r.dip?.let { DipEntry(r.symbol.removeSuffix("-USD"), it, r.pctOffRecentHigh, r.pctOff52wHigh) }
+        }?.sortedBy { order.indexOf(it.tier).let { i -> if (i < 0) 99 else i } } ?: emptyList()
+    }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Good time to add") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (dips.isEmpty()) {
+                item {
+                    Text(
+                        "No dips right now — nothing you track is notably off its highs.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(dips) { DipRow(it) }
+        }
+    }
 }

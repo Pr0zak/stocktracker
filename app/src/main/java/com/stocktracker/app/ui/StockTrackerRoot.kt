@@ -35,6 +35,7 @@ import com.stocktracker.app.ui.ideas.IdeasScreen
 import com.stocktracker.app.ui.portfolio.PortfolioScreen
 import com.stocktracker.app.ui.search.AddTickerScreen
 import com.stocktracker.app.ui.settings.SettingsScreen
+import com.stocktracker.app.ui.watchlist.DipListScreen
 import com.stocktracker.app.ui.watchlist.WatchlistScreen
 import com.stocktracker.app.update.UpdateDialog
 import com.stocktracker.app.update.rememberUpdateController
@@ -102,9 +103,11 @@ fun StockTrackerRoot() {
                     onAdd = { nav.navigate("add") },
                     onOpenVix = { nav.navigate("vix") },
                     onOpenCalendar = { nav.navigate("calendar") },
+                    onOpenDips = { nav.navigate("dips") },
                 )
             }
             composable("vix") { VixDetailScreen(onBack = { nav.popBackStack() }) }
+            composable("dips") { DipListScreen(onBack = { nav.popBackStack() }) }
             composable(
                 route = "calendar?symbol={symbol}",
                 arguments = listOf(navArgument("symbol") { type = NavType.StringType; defaultValue = "" }),

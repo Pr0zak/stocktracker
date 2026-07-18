@@ -233,7 +233,16 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     private var signalInputs: Triple<List<PricePoint>, List<PricePoint>?, Double?>? = null
 
     private suspend fun loadSignal() {
-        val daily = runCatching { repo.history(asset, ChartRange.YEAR) }.getOrDefault(emptyList())
+        var daily = runCatching { repo.history(asset, ChartRange.YEAR) }.getOrDefault(emptyList())
+        // Warrant/OTC symbols Yahoo can't serve → pull daily bars from the signals service's
+        // Webull-backed /history so the rule signal + backtest still compute.
+        if (daily.size < 30 && asset.type == AssetType.STOCK) {
+            val base = settings.signalsApiUrl.first()
+            if (base.isNotBlank()) {
+                val fb = runCatching { signalsApi.history(base, asset.symbol) }.getOrNull()?.bars.orEmpty()
+                if (fb.size >= 30) daily = fb.map { PricePoint(it.t, it.c, volume = it.v) }
+            }
+        }
         if (daily.size < 30) return
         // Benchmark and VIX are equity-market context — scope both to stocks (crypto trades a
         // different calendar and isn't governed by the S&P's volatility index).

@@ -40,6 +40,17 @@ object SignalScanNotifier {
             val title = if (n == 1) "1 signal changed overnight" else "$n signals changed overnight"
             AlertNotifier.notify(context, "signal_scan".hashCode(), title, parts.joinToString(", "))
         }
+        // 200-week-line crosses — a stance-neutral "heads up" (below the line is long-term
+        // mean-reversion context, NOT a buy signal); its own notification so it doesn't muddy flips.
+        if (scan.crossedBelow200wma.isNotEmpty()) {
+            val n = scan.crossedBelow200wma.size
+            AlertNotifier.notify(
+                context,
+                "wma_cross".hashCode(),
+                if (n == 1) "1 name crossed below its 200-week line" else "$n names crossed below their 200-week line",
+                scan.crossedBelow200wma.joinToString(", "),
+            )
+        }
         // Key-date warnings get their own notification so they don't drown in signal noise.
         if (scan.dateAlerts.isNotEmpty()) {
             AlertNotifier.notify(
@@ -76,11 +87,13 @@ object SignalScanNotifier {
         val buys = scan.results.filter { it.signal.contains("buy") }.sortedByDescending { it.conviction }
         val sells = scan.results.filter { it.signal.contains("sell") }.sortedByDescending { it.conviction }
         val hot = scan.results.filter { it.squeeze == "ignition" || it.squeeze == "fuel" }
+        val belowLine = scan.results.filter { it.below200wma == true }
         val lines = buildList {
             add("${scan.results.size} tracked · ${buys.size} buy · ${sells.size} sell")
             if (buys.isNotEmpty()) add("Buy: " + buys.take(3).joinToString(", ") { "${it.symbol} ${it.conviction}" })
             if (sells.isNotEmpty()) add("Sell: " + sells.take(3).joinToString(", ") { "${it.symbol} ${it.conviction}" })
             if (hot.isNotEmpty()) add("Short pressure: " + hot.joinToString(", ") { "${it.symbol} ${it.squeeze?.uppercase()}" })
+            if (belowLine.isNotEmpty()) add("Below 200-week line: " + belowLine.take(4).joinToString(", ") { it.symbol })
         }
         AlertNotifier.notify(context, "weekly_digest".hashCode(), "Weekly watchlist digest", lines.joinToString("\n"))
         store.setLastDigestAt(now)

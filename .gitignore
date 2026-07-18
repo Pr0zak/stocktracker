@@ -27,3 +27,6 @@ key.properties
 # Misc
 *.log
 local.env
+
+# Local session task tracker (rehydration scratch, not for the public repo)
+/docs/TODO.md

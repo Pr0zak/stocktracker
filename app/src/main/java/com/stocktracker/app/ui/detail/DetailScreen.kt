@@ -79,6 +79,8 @@ import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.ShortPressureResponse
+import com.stocktracker.app.data.remote.TouchStudyResponse
+import com.stocktracker.app.data.remote.TrendResponse
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.signals.BacktestResult
 import com.stocktracker.app.signals.SignalLabel
@@ -384,6 +386,7 @@ fun DetailScreen(
             }
             state.shortPressure?.let { ShortPressureCard(it) }
             state.cycleInfo?.let { HalvingCycleCard(it) }
+            state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
 
             if (state.aiEnabled) {
                 EntryPlanCard(
@@ -1072,6 +1075,136 @@ private fun HalvingCycleCard(ci: CycleResponse) {
             Text(
                 "Cycle context, not timing — enable “Halving markers” in Indicators to see past " +
                     "halvings on the 3Y/ALL chart · not advice",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+    }
+}
+
+/**
+ * Below-the-200-week-line card (stocks): the equity mirror of the crypto cycle card. Where price
+ * sits vs its 200-week SMA (the mungbeans "line"), the below-line zone + recovering/deepening
+ * direction, a 14-week RSI oversold read, and — when the name has history below the line — what
+ * happened the last N times it was there (forward returns vs the S&P). Long-term mean-reversion
+ * CONTEXT, deliberately not folded into the momentum signal. Free data, auto-loaded, collapsed.
+ */
+@Composable
+private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val below = tr.belowLine == true
+    // Amber = below the line (a heads-up, not a buy); neutral otherwise — keeps the stance neutral.
+    val accent = if (below) Color(0xFFD29922) else neutral
+    var open by remember { mutableStateOf(false) }
+
+    val zoneLabel = tr.zone?.replace('_', ' ')?.replaceFirstChar { it.uppercase() }
+    val dirLabel = when (tr.direction) {
+        "recovering" -> "↑ Recovering"
+        "deepening" -> "↓ Deepening"
+        "approaching" -> "↓ Approaching"
+        "moving_away" -> "↑ Moving away"
+        else -> null
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("200-week line", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                tr.priceVs200wSmaPct?.let { pct ->
+                    Box(
+                        modifier = Modifier
+                            .background(accent.copy(alpha = 0.16f), RoundedCornerShape(50))
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            "%+.1f%%".format(pct),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = accent,
+                        )
+                    }
+                }
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse trend" else "Expand trend",
+                    tint = neutral,
+                )
+            }
+        }
+        if (!open) {
+            val parts = listOfNotNull(
+                tr.priceVs200wSmaPct?.let {
+                    "%+.1f%% %s the 200-week line".format(it, if (below) "below" else "above")
+                },
+                zoneLabel,
+                dirLabel,
+                tr.weeklyOversold?.takeIf { it }?.let { "14w RSI oversold" },
+            )
+            Text(
+                (parts.joinToString(" · ").ifBlank { "long-term trend" }) + " · tap for detail",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+        if (open) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                tr.sma200w?.let {
+                    StatCell("200w SMA", "%.2f".format(it), modifier = Modifier.weight(1f))
+                }
+                tr.priceVs200wSmaPct?.let {
+                    StatCell("vs 200w line", "%+.1f%%".format(it), valueColor = accent, modifier = Modifier.weight(1f))
+                }
+                tr.rsi14w?.let {
+                    StatCell(
+                        "14-wk RSI",
+                        "%.0f".format(it),
+                        valueColor = if (tr.weeklyOversold == true) Color(0xFFD29922) else Color.Unspecified,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                zoneLabel?.let { StatCell("Zone", it, modifier = Modifier.weight(1f)) }
+                dirLabel?.let { StatCell("Direction", it, modifier = Modifier.weight(1f)) }
+                tr.pctOffAllTimeHigh?.let {
+                    StatCell("Off ATH", "%.1f%%".format(it), modifier = Modifier.weight(1f))
+                }
+            }
+            tr.cagr3yPct?.let {
+                Text(
+                    "3-year CAGR %+.1f%% over %.0f years of history".format(it, tr.historyYears ?: 0.0),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = neutral,
+                )
+            }
+            // Historical touch study — evidence, not a signal. Only when the name has been below before.
+            touch?.takeIf { it.touchCount > 0 && it.medianFwd12mPct != null }?.let { t ->
+                val body = buildString {
+                    append("Last ${t.touchCount} time")
+                    if (t.touchCount != 1) append("s")
+                    append(" below its 200-week line: median ")
+                    append("%+.1f%%".format(t.medianFwd12mPct))
+                    append(" over the next 12 months")
+                    t.pctPositive12m?.let { append(" (${it}% higher)") }
+                    t.spyAvgFwd12mPct?.let { append(" · S&P %+.1f%% over the same windows".format(it)) }
+                    append(".")
+                    if (t.measured12m < 3) append(" Small sample (${t.measured12m}) — anecdote, not a rule.")
+                }
+                Text(body, style = MaterialTheme.typography.bodySmall)
+            }
+            Text(
+                "Long-term mean-reversion context — a low reading isn't a buy signal on its own · not advice",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )

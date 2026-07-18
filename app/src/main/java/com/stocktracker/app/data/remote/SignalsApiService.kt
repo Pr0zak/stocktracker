@@ -77,6 +77,23 @@ class SignalsApiService {
         return Http.json.decodeFromString<CycleResponse>(body)
     }
 
+    /** Below-the-200-week-line trend for a STOCK — the equity mirror of the crypto cycle card:
+     *  200w SMA, %-from-line, below-line zone, recovering/deepening direction, 14-week RSI. Free, no
+     *  LLM. Null (404) for names with under ~4 years of weekly history. */
+    suspend fun trend(baseUrl: String, symbol: String): TrendResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = Http.getString("${baseUrl.trimEnd('/')}/trend/${symbol.uppercase()}", slow = true)
+        return Http.json.decodeFromString<TrendResponse>(body)
+    }
+
+    /** Historical 200-week-line touch study — forward 12/24-month returns after past dips below the
+     *  line, vs the S&P 500. Evidence context, not a signal. Free, no LLM. Null (404) if too new. */
+    suspend fun touchStudy(baseUrl: String, symbol: String): TouchStudyResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = Http.getString("${baseUrl.trimEnd('/')}/touches/${symbol.uppercase()}", slow = true)
+        return Http.json.decodeFromString<TouchStudyResponse>(body)
+    }
+
     /** Catalyst calendar (SI dates, OPEX, earnings, speculative T+35 echoes). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
@@ -185,6 +202,41 @@ data class LongTermTrend(
     @SerialName("pct_off_all_time_high") val pctOffAllTimeHigh: Double? = null,
     @SerialName("cagr_3y_pct") val cagr3yPct: Double? = null,
     @SerialName("mayer_multiple") val mayerMultiple: Double? = null,
+)
+
+/** Flat response of GET /trend/{symbol} — the stock 200-week-line block. */
+@Serializable
+data class TrendResponse(
+    val symbol: String = "",
+    val close: Double? = null,
+    @SerialName("history_years") val historyYears: Double? = null,
+    @SerialName("sma_200w") val sma200w: Double? = null,
+    @SerialName("price_vs_200w_sma_pct") val priceVs200wSmaPct: Double? = null,
+    @SerialName("below_line") val belowLine: Boolean? = null,
+    val zone: String? = null,
+    @SerialName("price_vs_200w_wow_pp") val priceVs200wWowPp: Double? = null,
+    val direction: String? = null, // recovering | deepening | approaching | moving_away
+    @SerialName("rsi_14w") val rsi14w: Double? = null,
+    @SerialName("weekly_oversold") val weeklyOversold: Boolean? = null,
+    @SerialName("pct_off_all_time_high") val pctOffAllTimeHigh: Double? = null,
+    @SerialName("cagr_3y_pct") val cagr3yPct: Double? = null,
+    @SerialName("mayer_multiple") val mayerMultiple: Double? = null,
+)
+
+/** GET /touches/{symbol} — "what happened the last N times it was below its 200-week line". */
+@Serializable
+data class TouchStudyResponse(
+    val symbol: String = "",
+    @SerialName("touch_count") val touchCount: Int = 0,
+    @SerialName("measured_12m") val measured12m: Int = 0,
+    @SerialName("currently_below") val currentlyBelow: Boolean? = null,
+    @SerialName("median_fwd_12m_pct") val medianFwd12mPct: Double? = null,
+    @SerialName("avg_fwd_12m_pct") val avgFwd12mPct: Double? = null,
+    @SerialName("pct_positive_12m") val pctPositive12m: Int? = null,
+    @SerialName("spy_avg_fwd_12m_pct") val spyAvgFwd12mPct: Double? = null,
+    @SerialName("median_fwd_24m_pct") val medianFwd24mPct: Double? = null,
+    @SerialName("pct_positive_24m") val pctPositive24m: Int? = null,
+    @SerialName("spy_avg_fwd_24m_pct") val spyAvgFwd24mPct: Double? = null,
 )
 
 @Serializable
@@ -299,6 +351,8 @@ data class ScanLatest(
     @SerialName("generated_at") val generatedAt: Double? = null,
     val results: List<ScanResult> = emptyList(),
     val flips: List<String> = emptyList(),
+    /** Symbols that newly closed below their 200-week line since the prior scan (mungbeans' signal). */
+    @SerialName("crossed_below_200wma") val crossedBelow200wma: List<String> = emptyList(),
     /** Today/tomorrow key-date warnings (SI publication, OPEX, earnings, speculative T+35). */
     @SerialName("date_alerts") val dateAlerts: List<String> = emptyList(),
 )
@@ -313,6 +367,9 @@ data class ScanResult(
     /** Short-pressure state (quiet/fuel/ignition) and whether it changed vs the prior scan. */
     val squeeze: String? = null,
     @SerialName("squeeze_changed") val squeezeChanged: Boolean = false,
+    /** Below its 200-week line this scan, and whether that's newly-crossed vs the prior scan. */
+    @SerialName("below_200wma") val below200wma: Boolean? = null,
+    @SerialName("crossed_below_200wma") val crossedBelow200wma: Boolean = false,
 )
 
 @Serializable

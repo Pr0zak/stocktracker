@@ -15,6 +15,8 @@ import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.HttpStatusException
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.SignalsApiService
+import com.stocktracker.app.data.remote.TouchStudyResponse
+import com.stocktracker.app.data.remote.TrendResponse
 import com.stocktracker.app.data.remote.analystErrorDetail
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.signals.Backtest
@@ -68,6 +70,10 @@ data class DetailUiState(
     val shortPressure: ShortPressureResponse? = null,
     /** Halving-cycle + multi-year trend — free data, auto-fetched for crypto. */
     val cycleInfo: CycleResponse? = null,
+    /** Below-the-200-week-line trend (SMA, zone, direction, weekly RSI) — free, auto-fetched for stocks. */
+    val stockTrend: TrendResponse? = null,
+    /** Historical touch / forward-return study — free, auto-fetched for stocks below-line-eligible. */
+    val touchStudy: TouchStudyResponse? = null,
 )
 
 class DetailViewModel(private val asset: Asset) : ViewModel() {
@@ -137,6 +143,16 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     _state.update { it.copy(shortPressure = sp) }
                     applyDtcTilt(sp.daysToCover) // fold high days-to-cover into the rule score
                 }
+            }
+            // Below-the-200-week-line context (the equity mirror of crypto's cycle card) + the touch
+            // study — both free, no LLM. 404s for names with under ~4 years of weekly history → stay null.
+            viewModelScope.launch {
+                val base = settings.signalsApiUrl.first()
+                if (base.isBlank()) return@launch
+                val tr = runCatching { signalsApi.trend(base, asset.symbol) }.getOrNull()
+                if (tr != null) _state.update { it.copy(stockTrend = tr) }
+                val ts = runCatching { signalsApi.touchStudy(base, asset.symbol) }.getOrNull()
+                if (ts != null) _state.update { it.copy(touchStudy = ts) }
             }
         }
         // Crypto gets the halving-cycle / long-term-trend context instead (also free).

@@ -237,6 +237,9 @@ data class TrendResponse(
     @SerialName("pct_off_all_time_high") val pctOffAllTimeHigh: Double? = null,
     @SerialName("cagr_3y_pct") val cagr3yPct: Double? = null,
     @SerialName("mayer_multiple") val mayerMultiple: Double? = null,
+    @SerialName("volume_signal") val volumeSignal: String? = null, // quiet_accumulation | capitulation | breakout_volume | distribution | accumulation | neutral
+    @SerialName("rvol_14") val rvol14: Double? = null,
+    @SerialName("accumulation_ratio") val accumulationRatio: Double? = null,
 )
 
 /** GET /touches/{symbol} — "what happened the last N times it was below its 200-week line". */

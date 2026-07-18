@@ -1154,6 +1154,7 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
                 zoneLabel,
                 dirLabel,
                 tr.weeklyOversold?.takeIf { it }?.let { "14w RSI oversold" },
+                tr.volumeSignal?.takeIf { it != "neutral" }?.replace('_', ' '),
             )
             Text(
                 (parts.joinToString(" · ").ifBlank { "long-term trend" }) + " · tap for detail",
@@ -1188,6 +1189,13 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
             tr.cagr3yPct?.let {
                 Text(
                     "3-year CAGR %+.1f%% over %.0f years of history".format(it, tr.historyYears ?: 0.0),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = neutral,
+                )
+            }
+            tr.volumeSignal?.takeIf { it != "neutral" }?.let { vs ->
+                Text(
+                    "Weekly volume: ${vs.replace('_', ' ')}" + (tr.rvol14?.let { " · RVOL %.1f".format(it) } ?: ""),
                     style = MaterialTheme.typography.labelSmall,
                     color = neutral,
                 )

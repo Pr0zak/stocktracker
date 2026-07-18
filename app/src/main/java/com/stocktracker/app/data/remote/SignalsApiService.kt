@@ -61,6 +61,14 @@ class SignalsApiService {
         return Http.json.decodeFromString<ShortPressureResponse>(body)
     }
 
+    /** Daily history fallback (Yahoo → Webull on the server) for symbols the app's own Yahoo fetch
+     *  can't chart — e.g. warrants/OTC. Returns bars + the source used, or null. */
+    suspend fun history(baseUrl: String, symbol: String): HistoryResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = Http.getString("${baseUrl.trimEnd('/')}/history/${symbol.uppercase()}", slow = true)
+        return Http.json.decodeFromString<HistoryResponse>(body)
+    }
+
     /** Crypto long-term context: halving-cycle position (BTC), multi-year trend, halving dates. */
     suspend fun cycleInfo(baseUrl: String, symbol: String): CycleResponse? {
         if (baseUrl.isBlank()) return null
@@ -146,6 +154,20 @@ data class FtdPoint(val date: String, val qty: Long)
 
 @Serializable
 data class SiPoint(val date: String, val dtc: Double? = null)
+
+@Serializable
+data class HistoryResponse(
+    val symbol: String = "",
+    val source: String = "", // "yahoo" | "webull"
+    val bars: List<HistoryBar> = emptyList(),
+)
+
+@Serializable
+data class HistoryBar(
+    val t: Long,          // epoch ms
+    val c: Double,        // close
+    val v: Double = 0.0,  // volume
+)
 
 @Serializable
 data class CycleResponse(

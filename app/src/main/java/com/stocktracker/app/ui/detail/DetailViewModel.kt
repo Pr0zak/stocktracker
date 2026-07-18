@@ -39,6 +39,8 @@ data class DetailUiState(
     val chartError: Boolean = false,
     /** True when this symbol has no historical data at all (404/empty) — a retry can't help. */
     val chartNoData: Boolean = false,
+    /** Where the chart data came from — "yahoo" normally, "webull" for the warrant/OTC fallback. */
+    val chartSource: String = "yahoo",
     val inWatchlist: Boolean = false,
     val shares: Double? = null,
     val avgCost: Double? = null,
@@ -273,19 +275,45 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             // runCatching also swallows CancellationException, so a cancelled (superseded) load would
             // otherwise fall through and write stale state; ensureActive() bails it out first.
             ensureActive()
-            val data = result.getOrDefault(emptyList())
-            // A 404 (symbol has no chart on Yahoo, e.g. an expired warrant) or an empty success is
-            // permanent — offer no retry. A 429/5xx/network error is transient — offer a retry.
+            var data = result.getOrDefault(emptyList())
+            var source = "yahoo"
+            // A 404 (symbol has no chart on Yahoo, e.g. a warrant) or an empty success is permanent
+            // FOR YAHOO — but the signals service can still fall back to Webull for warrants/OTC.
             val permanent = (result.exceptionOrNull() as? HttpStatusException)?.code in setOf(400, 404, 410)
+            if (data.isEmpty() && asset.type == AssetType.STOCK) {
+                val base = settings.signalsApiUrl.first()
+                if (base.isNotBlank()) {
+                    val fb = runCatching { signalsApi.history(base, asset.symbol) }.getOrNull()
+                    val bars = fb?.bars.orEmpty()
+                    if (bars.isNotEmpty()) {
+                        val cutoff = System.currentTimeMillis() - rangeDays(range) * 86_400_000L
+                        val windowed = bars.filter { it.t >= cutoff }.ifEmpty { bars.takeLast(2) }
+                        data = windowed.map { PricePoint(it.t, it.c, volume = it.v) }
+                        source = fb?.source ?: "webull"
+                    }
+                }
+            }
             _state.update {
                 it.copy(
                     chart = data,
+                    chartSource = source,
                     loadingChart = false,
-                    chartError = result.isFailure && !permanent,
-                    chartNoData = permanent || (result.isSuccess && data.isEmpty()),
+                    chartError = result.isFailure && !permanent && data.isEmpty(),
+                    chartNoData = data.isEmpty() && (permanent || result.isSuccess),
                 )
             }
         }
+    }
+
+    /** Approx. calendar-day window for a range — used to slice the daily fallback bars. */
+    private fun rangeDays(r: ChartRange): Long = when (r) {
+        ChartRange.DAY -> 2
+        ChartRange.WEEK -> 8
+        ChartRange.MONTH -> 32
+        ChartRange.QUARTER -> 95
+        ChartRange.YEAR -> 370
+        ChartRange.THREE_YEAR -> 1100
+        ChartRange.ALL -> 100_000
     }
 
     fun toggleWatchlist() {

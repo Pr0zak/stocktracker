@@ -326,6 +326,16 @@ fun DetailScreen(
                 }
             }
 
+            // Warrant/OTC symbols Yahoo doesn't carry are charted from the signals service's Webull
+            // fallback — say so, since it's an unofficial source.
+            if (state.chartSource == "webull" && state.chart.size >= 2) {
+                Text(
+                    "History via Webull (Yahoo has none for this symbol)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

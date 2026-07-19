@@ -292,9 +292,17 @@ data class QualityResponse(
     @SerialName("wide_moat") val wideMoat: Boolean = false,
     @SerialName("buffett_quality") val buffettQuality: Boolean = false,
     @SerialName("dividend_aristocrat") val dividendAristocrat: Boolean = false,
+    // FCF-trend (MB-13) + share-count-trend (MB-14) from Finnhub's as-reported 10-K financials.
+    @SerialName("fcf_latest") val fcfLatest: Long? = null,
+    @SerialName("fcf_trend") val fcfTrend: String? = null, // rising | flat | falling
+    @SerialName("fcf_positive_years") val fcfPositiveYears: Int? = null,
+    @SerialName("fcf_years") val fcfYears: Int? = null,
+    @SerialName("shares_change_pct") val sharesChangePct: Double? = null, // + dilution / − buybacks
+    @SerialName("shares_years") val sharesYears: Int? = null,
 ) {
     val hasAnyFlag: Boolean get() = highRoe || lowDebt || wideMoat || buffettQuality || dividendAristocrat
     val hasMetrics: Boolean get() = roe != null || grossMargin != null || debtToEquity != null
+    val hasFundamentals: Boolean get() = fcfTrend != null || sharesChangePct != null
 }
 
 @Serializable

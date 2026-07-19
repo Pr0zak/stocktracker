@@ -1656,6 +1656,27 @@ private fun QualityCard(q: QualityResponse) {
                         if (it < 0.5) Color(0xFF2E9E57) else Color(0xFFD29922), thresholdFraction = 0.5f / 2f)
                 }
             }
+            // Free cash flow trend (MB-13) — rising green, falling clay.
+            q.fcfTrend?.let { trend ->
+                val fcfColor = when (trend) {
+                    "rising" -> Color(0xFF2E9E57)
+                    "falling" -> Color(0xFFB0543D)
+                    else -> neutral
+                }
+                val latest = q.fcfLatest?.let { " · ${fmtUsdCompact(it)}/yr" } ?: ""
+                val pos = if (q.fcfPositiveYears != null && q.fcfYears != null)
+                    " · positive ${q.fcfPositiveYears}/${q.fcfYears}y" else ""
+                Text("Free cash flow: $trend$latest$pos", style = MaterialTheme.typography.labelSmall, color = fcfColor)
+            }
+            // Share count (MB-14) — falling = buybacks (green), rising = dilution (clay).
+            q.sharesChangePct?.let { chg ->
+                val back = chg < 0
+                Text(
+                    "Share count: ${"%+.1f".format(chg)}% / ${q.sharesYears ?: 5}y · ${if (back) "buybacks" else "dilution"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (back) Color(0xFF2E9E57) else Color(0xFFB0543D),
+                )
+            }
             if (q.hasAnyFlag) {
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),

@@ -1417,6 +1417,20 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
             dirLabel?.let { d ->
                 Text("Direction: $d", style = MaterialTheme.typography.labelSmall, color = neutral)
             }
+            // Dislocation: how unusual today's drawdown is vs this name's own history (z-score).
+            tr.drawdownZ?.let { z ->
+                val (word, zColor) = when {
+                    z <= -2.0 -> "unusually deep" to Color(0xFF2E9E57)
+                    z <= -1.0 -> "below typical" to Color(0xFFD29922)
+                    z >= 1.0 -> "near highs" to neutral
+                    else -> "typical range" to neutral
+                }
+                Text(
+                    "Dislocation: ${"%+.1f".format(z)}σ · $word",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = zColor,
+                )
+            }
             // RSI as a mini gauge — green when oversold (<30), red when overbought (>70).
             tr.rsi14w?.let { rsi ->
                 val rsiColor = when {

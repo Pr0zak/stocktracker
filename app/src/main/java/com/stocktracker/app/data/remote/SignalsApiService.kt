@@ -235,6 +235,7 @@ data class TrendResponse(
     @SerialName("rsi_14w") val rsi14w: Double? = null,
     @SerialName("weekly_oversold") val weeklyOversold: Boolean? = null,
     @SerialName("pct_off_all_time_high") val pctOffAllTimeHigh: Double? = null,
+    @SerialName("drawdown_z") val drawdownZ: Double? = null, // today's drawdown-from-peak, standardized vs the symbol's own history (very negative = unusually deep)
     @SerialName("cagr_3y_pct") val cagr3yPct: Double? = null,
     @SerialName("mayer_multiple") val mayerMultiple: Double? = null,
     @SerialName("volume_signal") val volumeSignal: String? = null, // quiet_accumulation | capitulation | breakout_volume | distribution | accumulation | neutral

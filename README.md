@@ -7,8 +7,9 @@ as you like and configure each independently.
 
 Built with Kotlin, Jetpack Compose (Material 3 / Material You), and Jetpack Glance. The core app —
 widgets, watchlist, charts, portfolio, alerts, backup — is **pure on-device, no backend required**. An
-**optional self-hosted signals service** adds the analyst layer (the Snapshot rollup, 200-week value
-context, dip radar, and a Claude verdict); leave it unset and everything else still works. Design
+**optional [self-hosted signals service](https://github.com/Pr0zak/stocktracker-signals)** adds the
+analyst layer (the Snapshot rollup, 200-week value context, dip radar, and a Claude verdict); leave it
+unset and everything else still works. Design
 mockups in `.stitch-mockups/` (Google Stitch, not committed).
 
 ## Screenshots
@@ -38,7 +39,8 @@ mockups in `.stitch-mockups/` (Google Stitch, not committed).
 
 ### Signals &amp; long-term value <sub>(optional self-hosted signals service)</sub>
 
-Point the app at a self-hosted signals service and each stock's detail opens with a **Snapshot** — a
+Point the app at the [self-hosted signals service](https://github.com/Pr0zak/stocktracker-signals) and
+each stock's detail opens with a **Snapshot** — a
 one-glance rollup of momentum, value (vs. its 200-week line), business quality, insider buying, and
 short pressure, with a headline that calls out when the reads *agree* or *conflict* ("MIXED" here:
 bullish momentum but an extended valuation). Each lens then expands into its own card — a **200-week
@@ -111,7 +113,8 @@ RSI, MACD, Stochastic, ex-dividend markers, and an S&P 500 comparison line — a
 
 > **Signals service (optional, self-hosted):** the Snapshot rollup, 200-week value context, insider /
 > quality / short-pressure cards, the "Good time to add" dip radar, and the Claude analyst verdict are
-> served by a small companion service you run yourself (set its URL in **Settings → AI analyst**).
+> served by a small [companion service](https://github.com/Pr0zak/stocktracker-signals) you run
+> yourself (set its URL in **Settings → AI analyst**).
 > Without it, the core app — widgets, watchlist, charts, portfolio, alerts, backup — works exactly as
 > described above.
 

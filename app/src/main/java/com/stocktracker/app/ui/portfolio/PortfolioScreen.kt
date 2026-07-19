@@ -8,7 +8,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,7 +30,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -181,12 +189,68 @@ fun PortfolioScreen() {
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 8.dp),
             )
-            state.holdings.forEach { h ->
+            // Allocation donut — how the book is split, one colour per position, echoed in the rows.
+            val sortedHoldings = state.holdings.sortedByDescending { it.value }
+            val sliceColor = sortedHoldings
+                .mapIndexed { i, h -> h.asset.symbol to DONUT_COLORS[i % DONUT_COLORS.size] }
+                .toMap()
+            if (sortedHoldings.size >= 2 && state.totalValue > 0) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AllocationDonut(
+                        slices = sortedHoldings.map {
+                            (sliceColor[it.asset.symbol] ?: DONUT_COLORS[0]) to (it.value / state.totalValue).toFloat()
+                        },
+                        modifier = Modifier.size(96.dp),
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        sortedHoldings.take(5).forEach { h ->
+                            val pct = h.value / state.totalValue * 100.0
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(9.dp)
+                                        .background(sliceColor[h.asset.symbol] ?: DONUT_COLORS[0], RoundedCornerShape(50)),
+                                )
+                                Text(h.asset.symbol, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "${String.format(java.util.Locale.US, "%.0f", pct)}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        if (sortedHoldings.size > 5) {
+                            Text(
+                                "+${sortedHoldings.size - 5} more",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            sortedHoldings.forEach { h ->
                 val pct = if (state.totalValue > 0) h.value / state.totalValue * 100.0 else 0.0
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    Box(
+                        Modifier
+                            .size(9.dp)
+                            .background(sliceColor[h.asset.symbol] ?: DONUT_COLORS[0], RoundedCornerShape(50)),
+                    )
                     Column(Modifier.weight(1f)) {
                         Text(h.asset.symbol, fontWeight = FontWeight.Bold)
                         Text(
@@ -216,6 +280,37 @@ fun PortfolioScreen() {
             }
 
             Box(Modifier.height(8.dp))
+        }
+    }
+}
+
+/** Distinct slice colours for the allocation donut, cycled by position rank (largest first). */
+private val DONUT_COLORS = listOf(
+    Color(0xFF7C6BD6), Color(0xFF4666CF), Color(0xFF0F8A7E), Color(0xFFD29922),
+    Color(0xFFB0543D), Color(0xFFC2477E), Color(0xFF2E9E57), Color(0xFF8A6BB0),
+)
+
+/** A thin allocation donut — one arc per position, swept by its share of the book, drawn on Canvas. */
+@Composable
+private fun AllocationDonut(slices: List<Pair<Color, Float>>, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val stroke = size.minDimension * 0.18f
+        val d = size.minDimension - stroke
+        val tl = Offset((size.width - d) / 2f, (size.height - d) / 2f)
+        val arc = Size(d, d)
+        var start = -90f
+        slices.forEach { (color, frac) ->
+            val sweep = frac * 360f
+            drawArc(
+                color = color,
+                startAngle = start,
+                sweepAngle = sweep,
+                useCenter = false,
+                topLeft = tl,
+                size = arc,
+                style = Stroke(width = stroke, cap = StrokeCap.Butt),
+            )
+            start += sweep
         }
     }
 }

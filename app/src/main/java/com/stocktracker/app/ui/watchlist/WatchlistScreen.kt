@@ -3,9 +3,11 @@ package com.stocktracker.app.ui.watchlist
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
@@ -47,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
@@ -162,23 +165,39 @@ fun WatchlistScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item(key = "hdr:tabs") {
+                    val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
+                    val tabs = listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) + belowTab + groups
+                    val faint = MaterialTheme.colorScheme.onSurfaceVariant
+                    val primary = MaterialTheme.colorScheme.primary
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
-                        (listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) + belowTab + groups).forEach { tab ->
-                            FilterChip(
+                        tabs.forEach { tab ->
+                            val count = when (tab) {
+                                TAB_ALL -> state.items.size
+                                TAB_STOCKS -> state.items.count { it.asset.type == AssetType.STOCK }
+                                TAB_CRYPTO -> state.items.count { it.asset.type == AssetType.CRYPTO }
+                                TAB_BELOW -> state.items.count { it.below200wma == true }
+                                else -> state.items.count { it.asset.groups.contains(tab) }
+                            }
+                            val dot = when (tab) {
+                                TAB_ALL -> null
+                                TAB_STOCKS -> faint
+                                TAB_CRYPTO -> Color(0xFFF7A928)
+                                TAB_BELOW -> Color(0xFF4666CF)
+                                else -> primary
+                            }
+                            ListChip(
+                                label = tab,
+                                count = count,
+                                dotColor = dot,
                                 selected = selected == tab,
                                 onClick = { selected = tab },
-                                label = { Text(tab) },
                             )
                         }
-                        FilterChip(
-                            selected = false,
-                            onClick = { showNewListDialog = true },
-                            label = { Text("＋ List") },
-                        )
+                        NewListChip(onClick = { showNewListDialog = true })
                     }
                 }
 
@@ -367,6 +386,54 @@ private fun dipMeta(tier: String): Pair<String, Color> = when (tier) {
 /** The dip as a plain signed percent off the year's high (negative), e.g. "-29%". */
 private fun dipPct(d: DipEntry): String =
     (d.pctOff52w ?: d.pctOffHigh)?.let { "%.0f%%".format(it) } ?: ""
+
+/** One list tab as a soft card: a colour dot (list identity), the name, and its live count. Selected
+ *  gets the primary tint. Replaces the flat Material filter-chips with something that scales to many
+ *  custom lists and calls out the value-signal "Below 200w" tab in its own colour. */
+@Composable
+private fun ListChip(label: String, count: Int, dotColor: Color?, selected: Boolean, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val bg = if (selected) scheme.primary.copy(alpha = 0.16f) else scheme.surfaceVariant
+    val fg = if (selected) scheme.primary else scheme.onSurface
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        dotColor?.let { Box(Modifier.size(8.dp).background(it, RoundedCornerShape(50))) }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = fg,
+        )
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = fg.copy(alpha = 0.6f),
+        )
+    }
+}
+
+/** The ghost "＋ New list" tab — a dashed-feel outlined card that sits at the end of the tab row. */
+@Composable
+private fun NewListChip(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("＋ New list", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
 
 /** Full "Good time to add" list — every current dip, most-severe first. Reached by tapping the
  *  watchlist strip. Fetches the latest scan itself so it stays a lightweight standalone screen. */

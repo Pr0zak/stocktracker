@@ -17,7 +17,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Star
@@ -379,6 +383,28 @@ fun DetailScreen(
                 )
             }
 
+            // Snapshot — one-glance rollup of the lenses below (stocks only, when ≥2 are available).
+            if (!isCrypto) {
+                val snapCount = listOf(
+                    state.signal != null || state.aiVerdict != null,
+                    state.stockTrend != null,
+                    state.quality?.let { it.hasAnyFlag || it.hasMetrics } == true,
+                    state.insider?.let { it.buyCount12m > 0 } == true,
+                    state.shortPressure != null,
+                ).count { it }
+                if (snapCount >= 2) {
+                    SnapshotCard(
+                        signal = state.signal,
+                        verdict = state.aiVerdict,
+                        aiEnabled = state.aiEnabled,
+                        trend = state.stockTrend,
+                        quality = state.quality,
+                        insider = state.insider,
+                        shortPressure = state.shortPressure,
+                    )
+                }
+            }
+
             if (state.signal != null || state.aiEnabled) {
                 SignalsCard(
                     signal = state.signal,
@@ -401,6 +427,7 @@ fun DetailScreen(
             if (state.aiEnabled) {
                 EntryPlanCard(
                     plan = state.plan,
+                    currentPrice = quote?.price,
                     loading = state.planLoading,
                     error = state.planError,
                     onPlan = { cash -> vm.requestPlan(cash) },
@@ -408,6 +435,7 @@ fun DetailScreen(
             }
 
             HoldingsAndAlertsSection(
+                symbol = asset.symbol,
                 quote = quote,
                 hideZeroCents = hideZeroCents,
                 shares = state.shares,
@@ -705,6 +733,211 @@ private fun aiBucket(signal: String): Int = when {
     signal.contains("buy") -> 1
     signal.contains("sell") -> -1
     else -> 0
+}
+
+/** One row of the Snapshot rollup: a lens, its plain read, a detail sub-line, a sentiment bucket
+ *  (+1 bullish / 0 neutral / -1 bearish) and the colour that read paints in. */
+private data class SnapFactor(
+    val name: String,
+    val read: String,
+    val sub: String,
+    val bucket: Int,
+    val color: androidx.compose.ui.graphics.Color,
+)
+
+/**
+ * "Snapshot" — the top-of-detail rollup of every lens below (momentum, value, quality, smart money,
+ * short pressure) into one glance. The headline word calls out whether the reads AGREE or CONFLICT —
+ * "Mixed" whenever at least one lens is bullish and another bearish (NKE's classic case: bearish
+ * momentum but cheap + insiders buying) — rather than averaging a real disagreement into one number.
+ * Each factor is a coloured one-liner; tap to expand the sub-detail. Context, not advice; the detailed
+ * cards remain below for the drill-down.
+ */
+@Composable
+private fun SnapshotCard(
+    signal: SignalResult?,
+    verdict: AiVerdict?,
+    aiEnabled: Boolean,
+    trend: TrendResponse?,
+    quality: QualityResponse?,
+    insider: InsiderResponse?,
+    shortPressure: ShortPressureResponse?,
+) {
+    val buy = Color(0xFF16A34A)
+    val sell = Color(0xFFDC2626)
+    val amber = Color(0xFFD97706)
+    val value = Color(0xFFD29922)
+    val moat = Color(0xFF4666CF)
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+
+    val factors = buildList {
+        // Momentum — the rule engine + (if run) the Claude read, same consensus logic as Signals.
+        val rb = signal?.let { ruleBucket(it.label) }
+        val ab = verdict?.let { aiBucket(it.signal) }
+        if (rb != null || ab != null) {
+            val diverging = rb != null && ab != null && rb != ab
+            val bucket = when {
+                diverging -> 0
+                ab != null -> ab
+                else -> rb ?: 0
+            }
+            val word = when {
+                diverging -> "Mixed"
+                bucket > 0 -> "Bullish"
+                bucket < 0 -> "Bearish"
+                else -> "Neutral"
+            }
+            val color = when {
+                diverging -> amber
+                bucket > 0 -> buy
+                bucket < 0 -> sell
+                else -> neutral
+            }
+            val sub = listOfNotNull(
+                signal?.let { "Rules ${it.label.display} ${it.score}" },
+                when {
+                    verdict != null -> "AI ${verdict.signal.replace('_', ' ')}"
+                    aiEnabled -> "AI not run"
+                    else -> null
+                },
+            ).joinToString(" · ")
+            add(SnapFactor("Momentum", word, sub, bucket, color))
+        }
+
+        // Value — where price sits vs its 200-week line.
+        trend?.let { t ->
+            val below = t.belowLine == true
+            val pct = t.priceVs200wSmaPct
+            val deep = t.zone?.let { it.contains("deep") || it.contains("extreme") } == true
+            val (word, bucket, color) = when {
+                below -> Triple(if (deep) "Deep value" else "Cheap", 1, value)
+                pct != null && pct > 20.0 -> Triple("Extended", -1, sell)
+                else -> Triple("Fair value", 0, neutral)
+            }
+            val sub = listOfNotNull(
+                pct?.let { "%+.0f%% vs 200-wk line".format(it) },
+                if (t.weeklyOversold == true) "weekly oversold" else null,
+            ).joinToString(" · ")
+            add(SnapFactor("Value", word, sub, bucket, color))
+        }
+
+        // Quality — durability flags + the headline metrics.
+        quality?.let { q ->
+            if (q.hasAnyFlag || q.hasMetrics) {
+                val word = when {
+                    q.wideMoat || q.buffettQuality -> "Wide moat"
+                    q.dividendAristocrat -> "Div. aristocrat"
+                    q.highRoe -> "High ROE"
+                    q.lowDebt -> "Low debt"
+                    else -> "Mixed"
+                }
+                val sub = listOfNotNull(
+                    q.roe?.let { "ROE ${it.roundToInt()}%" },
+                    q.grossMargin?.let { "gross ${it.roundToInt()}%" },
+                    q.debtToEquity?.let { "D/E ${"%.2f".format(it)}" },
+                ).joinToString(" · ")
+                add(SnapFactor("Quality", word, sub, if (q.hasAnyFlag) 1 else 0, if (q.hasAnyFlag) moat else neutral))
+            }
+        }
+
+        // Smart money — open-market insider buying (bullish informed money).
+        insider?.let { ins ->
+            if (ins.buyCount12m > 0) {
+                val word = if (ins.hasConvictionBuy || ins.hasClusterBuy) "Buying" else "Some buying"
+                val sub = listOfNotNull(
+                    "${ins.buyCount12m} buys",
+                    fmtUsdCompact(ins.buyTotal12m),
+                    if (ins.hasClusterBuy) "cluster" else null,
+                ).joinToString(" · ")
+                add(SnapFactor("Smart money", word, sub, 1, buy))
+            }
+        }
+
+        // Short pressure — informational; only Ignition weighs on the headline as a risk.
+        shortPressure?.let { sp ->
+            val (word, bucket, color) = when (sp.state) {
+                "ignition" -> Triple("Ignition", -1, sell)
+                "fuel" -> Triple("Building", 0, amber)
+                else -> Triple("Quiet", 0, neutral)
+            }
+            val sub = listOfNotNull(
+                sp.daysToCover?.let { "DTC ${"%.1f".format(it)}" },
+                sp.ftdTrend?.let { "FTDs $it" },
+            ).joinToString(" · ")
+            add(SnapFactor("Short pressure", word, sub, bucket, color))
+        }
+    }
+
+    if (factors.size < 2) return
+
+    val hasBull = factors.any { it.bucket > 0 }
+    val hasBear = factors.any { it.bucket < 0 }
+    val (headline, headColor) = when {
+        hasBull && hasBear -> "MIXED" to amber
+        hasBull -> "BULLISH" to buy
+        hasBear -> "BEARISH" to sell
+        else -> "NEUTRAL" to neutral
+    }
+
+    var open by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Snapshot", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .background(headColor.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(headline, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = headColor)
+                }
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse snapshot" else "Expand snapshot",
+                    tint = neutral,
+                )
+            }
+        }
+
+        factors.forEach { f ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(Modifier.size(9.dp).background(f.color, RoundedCornerShape(50)))
+                Text(f.name, modifier = Modifier.width(100.dp), style = MaterialTheme.typography.labelMedium, color = neutral)
+                Text(f.read, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = f.color)
+            }
+            if (open && f.sub.isNotBlank()) {
+                Text(
+                    f.sub,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = neutral,
+                    modifier = Modifier.padding(start = 19.dp),
+                )
+            }
+        }
+
+        if (open) {
+            Text(
+                "Rolls up the cards below · context, not advice",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+    }
 }
 
 /**
@@ -1622,6 +1855,7 @@ private fun ShortPressureCard(sp: ShortPressureResponse) {
 @Composable
 private fun EntryPlanCard(
     plan: EntryPlan?,
+    currentPrice: Double?,
     loading: Boolean,
     error: String?,
     onPlan: (Double) -> Unit,
@@ -1689,16 +1923,27 @@ private fun EntryPlanCard(
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
         if (plan != null) {
             val c = planActionColor(plan.action, neutral)
+            val blue = Color(0xFF4666CF)
+            val dipAmber = Color(0xFFD29922)
+            val deploy = plan.allocationUsd
+            // Stage the allocation ACROSS the entry zone — average in on weakness rather than one lump
+            // entry. Levels step down from the top of the zone (or current price, if already in it).
+            val hi = currentPrice?.takeIf { it in plan.entryLow..plan.entryHigh } ?: plan.entryHigh
+            val levels = listOf(hi, (hi + plan.entryLow) / 2.0, plan.entryLow)
+                .filter { it > 0.0 }
+                .distinct()
+            val perTranche = if (levels.isNotEmpty()) deploy / levels.size else 0.0
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Conviction ${plan.conviction}/100", style = MaterialTheme.typography.labelMedium, color = neutral)
                 Text(
-                    "${sharesText(plan.suggestedShares)} sh · ${usd(plan.allocationUsd)}",
+                    if (deploy > 0.0) "Deploy ${usd(deploy)} · ${levels.size} buys" else "No allocation now",
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
+                    color = neutral,
                 )
+                Text("Conviction ${plan.conviction}/100", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, color = c)
             }
             Box(
                 modifier = Modifier
@@ -1713,10 +1958,41 @@ private fun EntryPlanCard(
                         .background(c, RoundedCornerShape(3.dp)),
                 )
             }
-            Text(
-                "Entry ${usd(plan.entryLow)}–${usd(plan.entryHigh)} · stop ${usd(plan.stop)} · target ${usd(plan.target)}",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            if (deploy > 0.0) {
+                levels.forEachIndexed { i, price ->
+                    val dropPct = if (hi > 0.0) (price / hi - 1.0) * 100.0 else 0.0
+                    val near = i == 0 || dropPct > -1.0
+                    val badge = if (near) "Now" else "%.0f%%".format(dropPct)
+                    val badgeColor = when {
+                        near -> c
+                        dropPct <= -8.0 -> blue
+                        else -> dipAmber
+                    }
+                    val shares = if (price > 0.0) perTranche / price else 0.0
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(104.dp)
+                                .background(badgeColor.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        ) {
+                            Text("$badge · ${usd(price)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = badgeColor)
+                        }
+                        Text(
+                            if (i == 0) "buy first" else "add on dip",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = neutral,
+                        )
+                        Text("${sharesText(shares)} sh · ${usd(perTranche)}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+            Text("Stop ${usd(plan.stop)} · target ${usd(plan.target)}", style = MaterialTheme.typography.bodySmall, color = neutral)
             if (plan.timing.isNotBlank()) {
                 Text("When: ${plan.timing}", style = MaterialTheme.typography.bodySmall, color = neutral)
             }
@@ -1724,7 +2000,7 @@ private fun EntryPlanCard(
                 Text(plan.thesis, style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("Scenario planner · decision support, not advice", style = MaterialTheme.typography.labelSmall, color = neutral)
+        Text("Scenario planner · staged buy, not advice", style = MaterialTheme.typography.labelSmall, color = neutral)
     }
 }
 
@@ -1739,6 +2015,7 @@ private fun numText(v: Double): String = if (v % 1.0 == 0.0) v.toLong().toString
 
 @Composable
 private fun HoldingsAndAlertsSection(
+    symbol: String,
     quote: Quote?,
     hideZeroCents: Boolean,
     shares: Double?,
@@ -1746,107 +2023,112 @@ private fun HoldingsAndAlertsSection(
     alerts: AssetAlerts,
     onSave: (Double?, Double?, AssetAlerts) -> Unit,
 ) {
-    var sharesText by remember(shares) { mutableStateOf(shares?.let { numText(it) } ?: "") }
-    var costText by remember(avgCost) { mutableStateOf(avgCost?.let { numText(it) } ?: "") }
-    var above by remember(alerts) { mutableStateOf(alerts.priceAbove?.let { numText(it) } ?: "") }
-    var below by remember(alerts) { mutableStateOf(alerts.priceBelow?.let { numText(it) } ?: "") }
-    var pctUp by remember(alerts) { mutableStateOf(alerts.percentUp?.let { numText(it) } ?: "") }
-    var pctDown by remember(alerts) { mutableStateOf(alerts.percentDown?.let { numText(it) } ?: "") }
-
-    val decimal = KeyboardOptions(keyboardType = KeyboardType.Decimal)
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val sh = sharesText.toDoubleOrNull()
-    val cost = costText.toDoubleOrNull()
+    val owns = shares != null && shares > 0.0
+    var showSheet by remember { mutableStateOf(false) }
 
-    // ----- Holdings card -----
+    // ----- Your position (display-first; edit via the pencil) -----
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
             .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Holdings", style = MaterialTheme.typography.labelLarge, color = neutral)
-            // Live return pill — the position's health at a glance, styled like the signal pill.
-            if (sh != null && sh > 0.0 && cost != null && cost > 0.0 && quote != null) {
-                val gainPct = (quote.price - cost) / cost * 100.0
-                val gUp = gainPct >= 0.0
-                val pc = if (gUp) GainGreen else LossRed
-                Box(
-                    modifier = Modifier
-                        .background(pc.copy(alpha = 0.16f), RoundedCornerShape(50))
-                        .padding(horizontal = 10.dp, vertical = 3.dp),
-                ) {
-                    Text(
-                        "${if (gUp) "+" else ""}${"%.1f".format(gainPct)}%",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = pc,
-                    )
+            Text("Your position", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (owns && avgCost != null && avgCost > 0.0 && quote != null) {
+                    val gainPct = (quote.price - avgCost) / avgCost * 100.0
+                    val gUp = gainPct >= 0.0
+                    val pc = if (gUp) GainGreen else LossRed
+                    val mag = if (gainPct < 0) -gainPct else gainPct
+                    Box(
+                        modifier = Modifier
+                            .background(pc.copy(alpha = 0.16f), RoundedCornerShape(50))
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            "${if (gUp) "▲" else "▼"} ${"%.1f".format(mag)}%",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = pc,
+                        )
+                    }
+                }
+                IconButton(onClick = { showSheet = true }) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Edit position", tint = neutral)
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = sharesText,
-                onValueChange = { sharesText = it },
-                label = { Text("Shares owned") },
-                singleLine = true,
-                keyboardOptions = decimal,
-                modifier = Modifier.weight(1f),
+        if (owns && quote != null) {
+            Text(
+                Formatting.price(shares!! * quote.price, quote.currency, hideZeroCents),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
             )
-            OutlinedTextField(
-                value = costText,
-                onValueChange = { costText = it },
-                label = { Text("Avg cost / sh") },
-                singleLine = true,
-                keyboardOptions = decimal,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        if (sh != null && sh > 0.0 && quote != null) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                StatCell(
-                    "Position value",
-                    Formatting.price(sh * quote.price, quote.currency, hideZeroCents),
-                    modifier = Modifier.weight(1f),
-                )
-                if (cost != null && cost > 0.0) {
-                    val gain = sh * (quote.price - cost)
-                    val gainPct = (quote.price - cost) / cost * 100.0
-                    val gUp = gain >= 0.0
-                    StatCell(
-                        "Total return",
-                        Formatting.changeLine(gain, gainPct, gUp, hideZeroCents),
-                        valueColor = if (gUp) GainGreen else LossRed,
-                        modifier = Modifier.weight(1f),
-                    )
+            val line = buildString {
+                append("${Formatting.shares(shares)} sh")
+                if (avgCost != null && avgCost > 0.0) {
+                    append(" @ ${Formatting.price(avgCost, quote.currency, hideZeroCents)} avg")
                 }
             }
-            if (cost != null && cost > 0.0) {
+            Text(line, style = MaterialTheme.typography.labelMedium, color = neutral)
+            if (avgCost != null && avgCost > 0.0) {
+                val gain = shares * (quote.price - avgCost)
+                val gUp = gain >= 0.0
                 Text(
-                    "Now ${Formatting.price(quote.price, quote.currency, hideZeroCents)} vs your " +
-                        "${Formatting.price(cost, quote.currency, hideZeroCents)} average",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = neutral,
+                    "${Formatting.change(gain, hideZeroCents)} total return",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = if (gUp) GainGreen else LossRed,
                 )
+                CostVsNowBar(avgCost, quote.price, quote.currency, hideZeroCents)
             }
+        } else {
+            TextButton(onClick = { showSheet = true }) { Text("＋ Add position") }
         }
     }
 
-    // ----- Alerts card -----
-    val activeAlerts = listOf(above, below, pctUp, pctDown).count { it.toDoubleOrNull() != null }
+    // ----- Alerts (toggle rows; arm/disarm live, set the numbers in the sheet) -----
+    val activeAlerts = listOfNotNull(alerts.priceAbove, alerts.priceBelow, alerts.percentUp, alerts.percentDown).size
+
+    @Composable
+    fun AlertRow(label: String, valueText: String?, valueColor: androidx.compose.ui.graphics.Color, cleared: AssetAlerts) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Switch(
+                checked = valueText != null,
+                onCheckedChange = { checked -> if (!checked) onSave(shares, avgCost, cleared) else showSheet = true },
+            )
+            Text(
+                label,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (valueText != null) MaterialTheme.colorScheme.onSurface else neutral,
+            )
+            Text(
+                valueText ?: "tap ✎",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = if (valueText != null) valueColor else neutral.copy(alpha = 0.6f),
+            )
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
             .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1861,7 +2143,7 @@ private fun HoldingsAndAlertsSection(
                         .padding(horizontal = 10.dp, vertical = 3.dp),
                 ) {
                     Text(
-                        "$activeAlerts active",
+                        "$activeAlerts on",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
@@ -1869,38 +2151,136 @@ private fun HoldingsAndAlertsSection(
                 }
             }
         }
-        Text("Price crosses", style = MaterialTheme.typography.labelMedium, color = neutral)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(above, { above = it }, label = { Text("Above $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
-            OutlinedTextField(below, { below = it }, label = { Text("Below $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
-        }
-        Text("Daily move", style = MaterialTheme.typography.labelMedium, color = neutral)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(pctUp, { pctUp = it }, label = { Text("Up ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
-            OutlinedTextField(pctDown, { pctDown = it }, label = { Text("Down ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
-        }
+        AlertRow(
+            "Crosses above", alerts.priceAbove?.let { "$" + numText(it) }, GainGreen,
+            AssetAlerts(priceAbove = null, priceBelow = alerts.priceBelow, percentUp = alerts.percentUp, percentDown = alerts.percentDown),
+        )
+        AlertRow(
+            "Falls below", alerts.priceBelow?.let { "$" + numText(it) }, LossRed,
+            AssetAlerts(priceAbove = alerts.priceAbove, priceBelow = null, percentUp = alerts.percentUp, percentDown = alerts.percentDown),
+        )
+        AlertRow(
+            "Jumps in a day", alerts.percentUp?.let { "≥ " + numText(it) + "%" }, GainGreen,
+            AssetAlerts(priceAbove = alerts.priceAbove, priceBelow = alerts.priceBelow, percentUp = null, percentDown = alerts.percentDown),
+        )
+        AlertRow(
+            "Drops in a day", alerts.percentDown?.let { "≥ " + numText(it) + "%" }, LossRed,
+            AssetAlerts(priceAbove = alerts.priceAbove, priceBelow = alerts.priceBelow, percentUp = alerts.percentUp, percentDown = null),
+        )
         Text(
-            "Get notified when the price crosses a level, or the day's move exceeds a percentage.",
+            "Flip a switch to disarm; tap ✎ to set or change a level.",
             style = MaterialTheme.typography.labelSmall,
             color = neutral,
         )
     }
 
-    Button(
-        onClick = {
-            onSave(
-                sharesText.toDoubleOrNull()?.takeIf { it > 0.0 },
-                costText.toDoubleOrNull()?.takeIf { it > 0.0 },
-                AssetAlerts(
-                    priceAbove = above.toDoubleOrNull(),
-                    priceBelow = below.toDoubleOrNull(),
-                    percentUp = pctUp.toDoubleOrNull(),
-                    percentDown = pctDown.toDoubleOrNull(),
-                ),
+    if (showSheet) {
+        EditPositionSheet(
+            symbol = symbol,
+            shares = shares,
+            avgCost = avgCost,
+            alerts = alerts,
+            onDismiss = { showSheet = false },
+            onSave = { s, c, a -> onSave(s, c, a); showSheet = false },
+        )
+    }
+}
+
+/** "How does price sit vs your average cost?" — a position bar with your cost fixed at centre; the
+ *  marker sits right (green) when you're up, left (red) when under water. Clamped to ±25%. */
+@Composable
+private fun CostVsNowBar(avgCost: Double, price: Double, currency: String, hideZeroCents: Boolean) {
+    val gainPct = (price - avgCost) / avgCost * 100.0
+    val up = price >= avgCost
+    val mark = if (up) GainGreen else LossRed
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val surface = MaterialTheme.colorScheme.surface
+    val frac = ((gainPct.coerceIn(-25.0, 25.0) + 25.0) / 50.0).toFloat()
+    Column(Modifier.fillMaxWidth()) {
+        BoxWithConstraints(Modifier.fillMaxWidth().height(14.dp)) {
+            val dot = 12.dp
+            val dotX = (maxWidth - dot) * frac
+            Box(
+                Modifier.align(Alignment.CenterStart).fillMaxWidth().height(6.dp)
+                    .background(neutral.copy(alpha = 0.16f), RoundedCornerShape(50)),
             )
-        },
-        modifier = Modifier.fillMaxWidth(),
-    ) { Text("Save holdings & alerts") }
+            Box(Modifier.align(Alignment.Center).width(2.dp).height(14.dp).background(neutral.copy(alpha = 0.55f)))
+            Box(
+                Modifier.align(Alignment.CenterStart).offset(x = dotX).size(dot)
+                    .background(surface, RoundedCornerShape(50)).padding(2.dp).background(mark, RoundedCornerShape(50)),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("cost ${Formatting.price(avgCost, currency, hideZeroCents)}", style = MaterialTheme.typography.labelSmall, color = neutral)
+            Text("now ${Formatting.price(price, currency, hideZeroCents)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium, color = mark)
+        }
+    }
+}
+
+/** Bottom sheet to enter/edit shares, average cost, and alert levels — one atomic Save (shares +
+ *  alerts written together, avoiding the two-write race). Reached from the ✎ or "＋ Add position". */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditPositionSheet(
+    symbol: String,
+    shares: Double?,
+    avgCost: Double?,
+    alerts: AssetAlerts,
+    onDismiss: () -> Unit,
+    onSave: (Double?, Double?, AssetAlerts) -> Unit,
+) {
+    var sharesText by remember { mutableStateOf(shares?.let { numText(it) } ?: "") }
+    var costText by remember { mutableStateOf(avgCost?.let { numText(it) } ?: "") }
+    var above by remember { mutableStateOf(alerts.priceAbove?.let { numText(it) } ?: "") }
+    var below by remember { mutableStateOf(alerts.priceBelow?.let { numText(it) } ?: "") }
+    var pctUp by remember { mutableStateOf(alerts.percentUp?.let { numText(it) } ?: "") }
+    var pctDown by remember { mutableStateOf(alerts.percentDown?.let { numText(it) } ?: "") }
+    val decimal = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Edit position · $symbol", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Holdings", style = MaterialTheme.typography.labelMedium, color = neutral)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(sharesText, { sharesText = it }, label = { Text("Shares owned") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+                OutlinedTextField(costText, { costText = it }, label = { Text("Avg cost / sh") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+            }
+            Text("Alerts", style = MaterialTheme.typography.labelMedium, color = neutral)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(above, { above = it }, label = { Text("Above $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+                OutlinedTextField(below, { below = it }, label = { Text("Below $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(pctUp, { pctUp = it }, label = { Text("Up ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+                OutlinedTextField(pctDown, { pctDown = it }, label = { Text("Down ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
+            }
+            Button(
+                onClick = {
+                    onSave(
+                        sharesText.toDoubleOrNull()?.takeIf { it > 0.0 },
+                        costText.toDoubleOrNull()?.takeIf { it > 0.0 },
+                        AssetAlerts(
+                            priceAbove = above.toDoubleOrNull(),
+                            priceBelow = below.toDoubleOrNull(),
+                            percentUp = pctUp.toDoubleOrNull(),
+                            percentDown = pctDown.toDoubleOrNull(),
+                        ),
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Save") }
+        }
+    }
 }
 
 /** Small labeled stat: caption above a bold value — used inside the Holdings card. */

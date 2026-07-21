@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +42,7 @@ fun AssetRow(
     isCrypto: Boolean = false,
     isEtf: Boolean = false,
     belowLine: Boolean = false,
+    showDragHandle: Boolean = false,
 ) {
     // Crypto takes precedence over ETF; equities get no accent.
     val accent: Color? = if (isCrypto) CryptoAccent else if (isEtf) EtfAccent else null
@@ -121,6 +125,16 @@ fun AssetRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = if (up) GainGreen else LossRed,
                     fontWeight = FontWeight.Medium,
+                )
+            }
+            // Drag-to-reorder affordance, shown only in the reorderable "All" tab. The whole row is
+            // the long-press-drag handle; this icon makes that discoverable.
+            if (showDragHandle) {
+                Spacer12()
+                Icon(
+                    Icons.Default.DragHandle,
+                    contentDescription = "Drag to reorder",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

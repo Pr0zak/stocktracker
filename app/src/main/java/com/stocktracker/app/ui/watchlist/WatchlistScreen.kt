@@ -263,6 +263,7 @@ fun WatchlistScreen(
                                     isEtf = item.quote?.isEtf == true,
                                     belowLine = item.below200wma == true,
                                     onClick = { onOpenDetail(item.asset) },
+                                    showDragHandle = reorderEnabled,
                                 )
                             }
                         }

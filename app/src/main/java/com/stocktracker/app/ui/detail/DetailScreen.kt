@@ -455,6 +455,32 @@ fun DetailScreen(
             // the AI switch (all free server-side math). Calls = a bullish directional bet; the wheel
             // pair below it = accumulate cheaply (cash-secured put) then earn income (covered call).
             if (!isCrypto && state.signalsConfigured) {
+                // The options cards are tall and only matter if you actually trade options, so keep the
+                // whole section COLLAPSED BY DEFAULT behind a tappable "Options" header.
+                var optionsOpen by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                        .clickable { optionsOpen = !optionsOpen }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Options", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Calls · cash-secured puts · covered calls",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Icon(
+                        if (optionsOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (optionsOpen) "Collapse options" else "Expand options",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (optionsOpen) {
                 // "Play with calls" — a beginner-first long-call suggester.
                 PlayWithCallsCard(
                     symbol = asset.symbol,
@@ -491,6 +517,7 @@ fun DetailScreen(
                         onSuggest = { target -> vm.requestCoveredCall(heldShares, target) },
                     )
                 }
+                } // if (optionsOpen)
             }
 
             HoldingsAndAlertsSection(

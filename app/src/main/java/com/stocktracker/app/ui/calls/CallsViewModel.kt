@@ -3,6 +3,10 @@ package com.stocktracker.app.ui.calls
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.CallPosition
+import com.stocktracker.app.data.model.ClosedCallPosition
+import com.stocktracker.app.data.model.asExercised
+import com.stocktracker.app.data.model.asExpiredWorthless
+import com.stocktracker.app.data.model.asSold
 import com.stocktracker.app.data.remote.OptionQuoteResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
@@ -11,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import kotlin.math.roundToInt
 
 /** A tracked call plus its most recent live re-price (if any), and the load/error status for it. */
@@ -44,6 +49,8 @@ data class CallRow(
 
 data class CallsUiState(
     val rows: List<CallRow> = emptyList(),
+    /** Closed-out positions (OC-5), newest first for display. */
+    val closed: List<ClosedCallPosition> = emptyList(),
     /** A Signals service URL is configured — required to re-price. Positions still persist without it. */
     val configured: Boolean = false,
     val loaded: Boolean = false,
@@ -57,6 +64,7 @@ data class CallsUiState(
 class CallsViewModel : ViewModel() {
 
     private val store = ServiceLocator.callPositionStore
+    private val closedStore = ServiceLocator.closedCallPositionStore
     private val settings = ServiceLocator.settingsStore
     private val api = SignalsApiService()
 
@@ -64,6 +72,12 @@ class CallsViewModel : ViewModel() {
     val state = _state.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            // Newest close first — the store appends to the tail.
+            closedStore.closed.collect { closed ->
+                _state.update { it.copy(closed = closed.asReversed()) }
+            }
+        }
         viewModelScope.launch {
             store.positions.collect { positions ->
                 // Carry any quotes we already have so the list doesn't flash to "—" on an edit/add.
@@ -112,4 +126,30 @@ class CallsViewModel : ViewModel() {
     fun add(position: CallPosition) { viewModelScope.launch { store.add(position) } }
 
     fun delete(id: String) { viewModelScope.launch { store.delete(id) } }
+
+    /** Sold to close: record the realized P/L at [exitPricePerShare] and remove from the open list. */
+    fun closeSold(position: CallPosition, exitPricePerShare: Double) {
+        viewModelScope.launch {
+            closedStore.add(position.asSold(exitPricePerShare, today()))
+            store.delete(position.id)
+        }
+    }
+
+    /** Exercised: record the outcome (no option P/L — value rolls into the shares) and remove from open. */
+    fun markExercised(position: CallPosition) {
+        viewModelScope.launch {
+            closedStore.add(position.asExercised(today()))
+            store.delete(position.id)
+        }
+    }
+
+    /** Expired worthless: record the full loss (−100%) and remove from open. */
+    fun markExpiredWorthless(position: CallPosition) {
+        viewModelScope.launch {
+            closedStore.add(position.asExpiredWorthless(today()))
+            store.delete(position.id)
+        }
+    }
+
+    private fun today(): String = LocalDate.now().toString()
 }

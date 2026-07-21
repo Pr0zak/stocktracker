@@ -4,6 +4,7 @@ import android.content.Context
 import com.stocktracker.app.BuildConfig
 import com.stocktracker.app.data.MarketRepository
 import com.stocktracker.app.data.prefs.CallPositionStore
+import com.stocktracker.app.data.prefs.ClosedCallPositionStore
 import com.stocktracker.app.data.prefs.PriceCache
 import com.stocktracker.app.data.prefs.SettingsStore
 import com.stocktracker.app.data.prefs.WatchlistStore
@@ -30,6 +31,8 @@ object ServiceLocator {
         private set
     lateinit var callPositionStore: CallPositionStore
         private set
+    lateinit var closedCallPositionStore: ClosedCallPositionStore
+        private set
 
     /** User-entered Finnhub key from Settings; blank means use the build-time key. */
     @Volatile
@@ -51,6 +54,7 @@ object ServiceLocator {
         settingsStore = SettingsStore(app)
         priceCache = PriceCache(app)
         callPositionStore = CallPositionStore(app)
+        closedCallPositionStore = ClosedCallPositionStore(app)
 
         // Seed the override synchronously so the first refresh (incl. a widget worker on cold
         // start) already has the persisted key, then keep it in sync with Settings.

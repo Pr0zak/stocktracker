@@ -67,7 +67,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -83,6 +85,8 @@ import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.InsiderResponse
+import com.stocktracker.app.data.remote.OptionCandidate
+import com.stocktracker.app.data.remote.OptionsResponse
 import com.stocktracker.app.data.remote.QualityResponse
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.TouchStudyResponse
@@ -107,6 +111,9 @@ import com.stocktracker.app.widget.WidgetRefreshScheduler
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceLarge
+import com.stocktracker.app.ui.theme.TrafficAmber
+import com.stocktracker.app.ui.theme.TrafficGreen
+import com.stocktracker.app.ui.theme.TrafficRed
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.asPercentChange
 import com.stocktracker.app.util.bollingerBands
@@ -431,6 +438,18 @@ fun DetailScreen(
                     loading = state.planLoading,
                     error = state.planError,
                     onPlan = { cash -> vm.requestPlan(cash) },
+                )
+            }
+
+            // "Play with calls" — a beginner-first long-call suggester. Stocks/ETFs only (options
+            // aren't offered for crypto), gated on the Signals URL — NOT the AI switch (it's free math).
+            if (!isCrypto && state.signalsConfigured) {
+                PlayWithCallsCard(
+                    symbol = asset.symbol,
+                    options = state.options,
+                    loading = state.optionsLoading,
+                    error = state.optionsError,
+                    onSuggest = { budget, style -> vm.requestOptions(budget, style) },
                 )
             }
 
@@ -2316,6 +2335,278 @@ private fun EditPositionSheet(
             ) { Text("Save") }
         }
     }
+}
+
+/**
+ * "Play with calls" (OC-2) — a beginner-first long-call suggester. Leads with the money: cost, then
+ * the max loss in RED, then break-even; a green/amber/red go-light with one plain sentence; warnings;
+ * and a copy-pasteable Fidelity order ticket. Stocks/ETFs only (never crypto). Free server-side math,
+ * no LLM — gated on the Signals URL, not the AI switch. Lazy: nothing fetched until "Suggest a call".
+ * Not investment advice.
+ */
+@Composable
+private fun PlayWithCallsCard(
+    symbol: String,
+    options: OptionsResponse?,
+    loading: Boolean,
+    error: String?,
+    onSuggest: (Double, String) -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val savedCash by ServiceLocator.settingsStore.investableCash.collectAsState(initial = 0.0)
+
+    // Risk budget = the MOST you're OK losing (a bought call's max loss IS the whole premium). Default
+    // to the saved investable cash if present, else $1000. Deliberately NOT persisted back — "money I'll
+    // lose entirely" is a different quantity from the Ideas screen's deployable cash.
+    var budgetText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(savedCash) {
+        if (budgetText == null) budgetText = formatCashPlain(if (savedCash > 0) savedCash else 1000.0)
+    }
+    var style by remember { mutableStateOf("balanced") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Play with calls", style = MaterialTheme.typography.labelLarge, color = neutral)
+        Text(
+            "A call is the right to buy 100 shares at a set price before it expires. Only spend what " +
+                "you're 100% OK losing entirely.",
+            style = MaterialTheme.typography.bodySmall,
+            color = neutral,
+        )
+
+        // Risk-budget input — labelled plainly as the max loss, not a target allocation.
+        OutlinedTextField(
+            value = budgetText ?: "",
+            onValueChange = { budgetText = it },
+            label = { Text("Most you're OK losing (max loss)") },
+            prefix = { Text("$") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        // 3-way style toggle: Safer (higher delta, pricier) · Balanced · Cheaper (lower delta).
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("safer" to "Safer", "balanced" to "Balanced", "cheaper" to "Cheaper").forEach { (key, label) ->
+                FilterChip(selected = style == key, onClick = { style = key }, label = { Text(label) })
+            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    val budget = (budgetText ?: "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                    onSuggest(budget, style)
+                },
+                enabled = !loading,
+            ) { Text("Suggest a call") }
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = neutral)
+            }
+        }
+
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
+
+        if (options != null) {
+            // Primary = the candidate matching the chosen style; fall back to the first offered.
+            val primary = options.candidates.firstOrNull { it.profile == style }
+                ?: options.candidates.firstOrNull()
+            if (primary != null) {
+                CallCandidateBlock(
+                    symbol = symbol, options = options, c = primary,
+                    onCopy = {
+                        clipboard.setText(AnnotatedString(primary.orderTicket))
+                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                    },
+                )
+                val others = options.candidates.filter { it !== primary }
+                if (others.isNotEmpty()) {
+                    Text("Other picks", style = MaterialTheme.typography.labelMedium, color = neutral)
+                    others.forEach { alt -> CallCandidateCompact(alt) }
+                }
+            } else {
+                Text("No suitable contract for that budget.", style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
+
+            // Go/no-go traffic light + one plain sentence.
+            val (lightColor, lightWord) = when (options.light.lowercase()) {
+                "green" -> TrafficGreen to "GO"
+                "yellow" -> TrafficAmber to "CAUTION"
+                "red" -> TrafficRed to "NO-GO"
+                else -> neutral to "—"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .background(lightColor.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(lightWord, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = lightColor)
+                }
+                if (options.lightReason.isNotBlank()) {
+                    Text(options.lightReason, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                }
+            }
+
+            // Earnings-before-expiry heads-up (IV-crush trap).
+            options.earnings?.takeIf { it.inWindow }?.let { e ->
+                Text(
+                    "Earnings ${e.date ?: "soon"} falls before expiry — expect an IV drop after, even if the stock moves your way.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TrafficAmber,
+                )
+            }
+
+            // Any server warnings as a caution list.
+            options.warnings.forEach { w ->
+                Text("⚠ $w", style = MaterialTheme.typography.labelSmall, color = TrafficAmber)
+            }
+
+            if (options.quoteDelayed) {
+                Text(
+                    "Delayed · market closed — prices are indicative; confirm the live quote on Fidelity.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = neutral,
+                )
+            }
+
+            Text(
+                "You buy on Fidelity — this is a suggestion, not a trade.",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = neutral,
+            )
+        }
+
+        Text(
+            "Long calls only · sell to close, don't exercise · not investment advice",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
+    }
+}
+
+/** The full "four numbers first" block for the leading call candidate, with the Copy-ticket button. */
+@Composable
+private fun CallCandidateBlock(
+    symbol: String,
+    options: OptionsResponse,
+    c: OptionCandidate,
+    onCopy: () -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val n = c.contracts ?: 1
+    val total = c.maxLoss ?: c.cost?.let { it * n }
+
+    // Contract line: "UNH  Sep 17 '26  $420 Call"
+    Text(
+        "$symbol  ${fmtCallExpiry(options.expiry?.iso)}  ${c.strike?.let { usd(it) } ?: "—"} Call",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+    )
+
+    // You pay ~$670/contract · N contracts = $X
+    Text(
+        buildString {
+            append("You pay ~${c.cost?.let { usd(it) } ?: "—"}/contract")
+            append(" · $n contract${if (n != 1) "s" else ""}")
+            total?.let { append(" = ${usd(it)}") }
+        },
+        style = MaterialTheme.typography.bodyMedium,
+    )
+
+    // Most you can lose — LOUD, in red.
+    Text(
+        "Most you can lose: ${total?.let { usd(it) } ?: "—"}",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = TrafficRed,
+    )
+
+    // Break-even $426.70 (+1.4%) · Δ0.55 · IV 33% · θ −$4/day
+    val greeks = listOfNotNull(
+        c.breakeven?.let { be ->
+            "Break-even ${usd(be)}" + (c.breakevenPct?.let { " (%+.1f%%)".format(it) } ?: "")
+        },
+        c.delta?.let { "Δ%.2f".format(it) },
+        c.iv?.let { "IV %.0f%%".format(it * 100) },
+        c.theta?.let { fmtTheta(it) },
+    )
+    if (greeks.isNotEmpty()) {
+        Text(greeks.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = neutral)
+    }
+
+    (options.expectedMove ?: c.expectedMove)?.let { em ->
+        Text("Expected move ±${usd(em)} to expiry", style = MaterialTheme.typography.bodySmall, color = neutral)
+    }
+    options.structureNote.takeIf { it.isNotBlank() }?.let {
+        Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+    }
+
+    // The order ticket to paste into Fidelity, shown then copied.
+    if (c.orderTicket.isNotBlank()) {
+        Text(
+            c.orderTicket,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+        )
+    }
+    Button(onClick = onCopy, enabled = c.orderTicket.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+        Text("Copy order ticket")
+    }
+}
+
+/** A one-line compact read of an alternative candidate — profile, strike, cost, and max loss (red). */
+@Composable
+private fun CallCandidateCompact(c: OptionCandidate) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val n = c.contracts ?: 1
+    val total = c.maxLoss ?: c.cost?.let { it * n }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "${c.profile.replaceFirstChar { it.uppercase() }} · ${c.strike?.let { usd(it) } ?: "—"} Call" +
+                (c.cost?.let { " · pay ${usd(it)}" } ?: ""),
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "max loss ${total?.let { usd(it) } ?: "—"}",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = TrafficRed,
+        )
+    }
+}
+
+/** ISO date ("2026-09-17" or a full timestamp) → "Sep 17 '26" for the contract line. */
+private fun fmtCallExpiry(iso: String?): String {
+    if (iso.isNullOrBlank()) return "—"
+    return runCatching {
+        java.time.LocalDate.parse(iso.take(10))
+            .format(java.time.format.DateTimeFormatter.ofPattern("MMM d ''yy", java.util.Locale.US))
+    }.getOrDefault(iso)
+}
+
+/** Theta ($/day per contract, usually negative) → "θ −$4/day". */
+private fun fmtTheta(theta: Double): String {
+    val sign = if (theta < 0) "−" else "+"
+    return "θ $sign${usd(kotlin.math.abs(theta))}/day"
 }
 
 /** Small labeled stat: caption above a bold value — used inside the Holdings card. */

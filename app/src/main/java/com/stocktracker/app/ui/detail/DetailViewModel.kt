@@ -14,6 +14,7 @@ import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.HttpStatusException
 import com.stocktracker.app.data.remote.InsiderResponse
+import com.stocktracker.app.data.remote.OptionsResponse
 import com.stocktracker.app.data.remote.QualityResponse
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.SignalsApiService
@@ -64,6 +65,13 @@ data class DetailUiState(
     val aiEnabled: Boolean = false,
     val aiLoading: Boolean = false,
     val aiError: String? = null,
+    /** True when a Signals service URL is configured — gates the free (no-LLM) cards regardless of
+     *  the AI kill-switch. The "Play with calls" card is one of these. */
+    val signalsConfigured: Boolean = false,
+    /** "Play with calls" suggester result (on-demand, no LLM). Null until the user taps Suggest. */
+    val options: OptionsResponse? = null,
+    val optionsLoading: Boolean = false,
+    val optionsError: String? = null,
     /** "What if I put $cash into this?" entry plan (on-demand, from the signals service). */
     val plan: EntryPlan? = null,
     val planLoading: Boolean = false,
@@ -136,7 +144,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
         viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
             val on = settings.aiAnalystEnabled.first()
-            _state.update { it.copy(aiEnabled = base.isNotBlank() && on) }
+            // signalsConfigured gates the free/no-LLM cards (calls suggester) on just the URL; aiEnabled
+            // additionally requires the AI kill-switch for the token-spending Claude cards.
+            _state.update { it.copy(aiEnabled = base.isNotBlank() && on, signalsConfigured = base.isNotBlank()) }
         }
         // Short-pressure data IS auto-fetched for stocks: it's free (FINRA/SEC data, no model call)
         // and gated only on the service URL, not the AI switch.
@@ -244,6 +254,41 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     planLoading = false,
                     planError = if (resp == null) {
                         analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't reach the analyst service"
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
+
+    private var optionsJob: Job? = null
+
+    /**
+     * "Play with calls" (OC-2): fetch a suggested long-call contract for this stock/ETF. [budget] is
+     * the MAX LOSS the user is OK with; [style] is safer | balanced | cheaper. No LLM — works even
+     * with the AI kill-switch off. Lazy: only runs when the user taps Suggest. Crypto / no-chain
+     * symbols come back HTTP 400 → surface the server's detail message.
+     */
+    fun requestOptions(budget: Double, style: String) {
+        if (budget <= 0) {
+            _state.update { it.copy(optionsError = "Enter a risk budget first") }
+            return
+        }
+        optionsJob?.cancel()
+        optionsJob = viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) return@launch
+            _state.update { it.copy(optionsLoading = true, optionsError = null) }
+            val res = runCatching { signalsApi.options(base, asset.symbol, budget = budget, style = style) }
+            ensureActive() // runCatching swallows cancellation; don't apply a superseded result
+            val resp = res.getOrNull()
+            _state.update {
+                it.copy(
+                    options = resp ?: it.options, // keep the prior suggestion on a failed refresh
+                    optionsLoading = false,
+                    optionsError = if (resp == null) {
+                        analystErrorDetail(res.exceptionOrNull()) ?: "No options chain for this symbol"
                     } else {
                         null
                     },

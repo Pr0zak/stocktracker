@@ -144,6 +144,21 @@ class SignalsApiService {
     }
 
     /**
+     * "Play with calls" suggester (OC-2): a beginner-friendly long-call structuring read for a STOCK.
+     * Pure math on the server (Yahoo options chain + Black-Scholes) — NO LLM, so it works even with the
+     * AI kill-switch off. [budget] is the max loss the user is OK with (caps the contract count);
+     * [style] is safer | balanced | cheaper (which delta bucket to lead with). Throws
+     * [HttpStatusException] (HTTP 400) for crypto / symbols with no options chain — the caller surfaces
+     * [analystErrorDetail]. Quotes are ~15-min delayed and stale outside market hours (quote_delayed).
+     */
+    suspend fun options(baseUrl: String, symbol: String, budget: Double, style: String): OptionsResponse? {
+        if (baseUrl.isBlank()) return null
+        val url = "${baseUrl.trimEnd('/')}/options/${symbol.uppercase()}?budget=$budget&style=$style"
+        val body = Http.getString(url, slow = true) // chain fetch + greeks, not a quote endpoint
+        return Http.json.decodeFromString<OptionsResponse>(body)
+    }
+
+    /**
      * Rank the synced watchlist for NEW money: top 2-4 picks with the cash spread across them.
      * Holdings ride along transiently so the analyst can weigh existing exposure — never stored.
      */
@@ -390,6 +405,62 @@ data class PlanResponse(
     val plan: EntryPlan,
     val cached: Boolean = false,
     val usage: AiUsage? = null,
+)
+
+/**
+ * GET /options/{symbol}?budget=&style= — the "Play with calls" suggester (OC-2). Every numeric field
+ * is nullable on purpose: options quotes go stale/zero outside market hours, so the card must degrade
+ * gracefully rather than crash. No LLM — pure server-side math.
+ */
+@Serializable
+data class OptionsResponse(
+    val symbol: String = "",
+    val spot: Double? = null,
+    @SerialName("as_of") val asOf: String? = null,
+    @SerialName("quote_delayed") val quoteDelayed: Boolean = false,
+    val light: String = "", // green | yellow | red
+    @SerialName("light_reason") val lightReason: String = "",
+    val expiry: OptionExpiry? = null,
+    @SerialName("expected_move") val expectedMove: Double? = null,
+    val structure: String = "long_call",
+    @SerialName("structure_note") val structureNote: String = "",
+    val candidates: List<OptionCandidate> = emptyList(),
+    val warnings: List<String> = emptyList(),
+    val earnings: OptionEarnings? = null,
+)
+
+@Serializable
+data class OptionExpiry(
+    val ts: Long? = null,
+    val iso: String? = null,
+    val dte: Int? = null,
+    val rationale: String = "",
+)
+
+@Serializable
+data class OptionCandidate(
+    val profile: String = "", // safer | balanced | cheaper
+    @SerialName("contract_symbol") val contractSymbol: String = "",
+    val strike: Double? = null,
+    @SerialName("limit_price") val limitPrice: Double? = null,
+    val cost: Double? = null,               // premium × 100 per contract
+    @SerialName("max_loss") val maxLoss: Double? = null, // total premium at risk (cost × contracts)
+    val contracts: Int? = null,
+    val breakeven: Double? = null,
+    @SerialName("breakeven_pct") val breakevenPct: Double? = null,
+    val delta: Double? = null,
+    val theta: Double? = null,              // $/day per contract (typically negative)
+    val iv: Double? = null,                 // implied vol as a fraction (0.33 = 33%)
+    @SerialName("spread_pct") val spreadPct: Double? = null,
+    @SerialName("open_interest") val openInterest: Long? = null,
+    @SerialName("expected_move") val expectedMove: Double? = null,
+    @SerialName("order_ticket") val orderTicket: String = "",
+)
+
+@Serializable
+data class OptionEarnings(
+    val date: String? = null,
+    @SerialName("in_window") val inWindow: Boolean = false,
 )
 
 @Serializable

@@ -11,6 +11,12 @@ val OnIndigo = Color(0xFF341E77)
 val GainGreen = Color(0xFF4ADE80)
 val LossRed = Color(0xFFF87171)
 
+// Traffic-light semantics for the "Play with calls" suggester — go / caution / no-go.
+// Match the buy/mixed/sell colours already used inline across the detail cards.
+val TrafficGreen = Color(0xFF16A34A)
+val TrafficAmber = Color(0xFFD97706)
+val TrafficRed = Color(0xFFDC2626)
+
 // Crypto accent — visually separates crypto rows/charts from equities (amber, à la Bitcoin)
 val CryptoAccent = Color(0xFFF7A928)
 

@@ -72,6 +72,37 @@ class YahooFinanceService {
     }
 
     /**
+     * Crypto price history from Yahoo (BTC-USD, ETH-USD, …). Used for the long ranges (3Y / ALL)
+     * that CoinGecko's free API now rejects — it returns HTTP 401 for `days` > 365. Yahoo keys
+     * crypto as "<TICKER>-USD", carries full history, and needs no key.
+     *
+     * [ticker] is the crypto ticker (e.g. "BTC"); "-USD" is appended here.
+     */
+    suspend fun cryptoHistory(ticker: String, range: ChartRange): List<PricePoint> {
+        val enc = yahooSymbol("$ticker-USD")
+        val now = System.currentTimeMillis() / 1000
+        val params = when (range) {
+            // Yahoo's range=max&interval=1wk silently truncates crypto to ~3y (verified), so pin
+            // period1 well before any coin's inception (2010-01-01) to pull the full weekly series.
+            ChartRange.ALL -> "period1=1262304000&period2=$now&interval=1wk"
+            // Explicit 3-year daily window (Yahoo has no "3y" range literal).
+            else -> "period1=${now - 3L * 365 * 86_400}&period2=$now&interval=1d"
+        }
+        val path = "v8/finance/chart/$enc?$params"
+        val result = fetchChart(path).chart.result?.firstOrNull() ?: return emptyList()
+        val timestamps = result.timestamp ?: return emptyList()
+        val quote0 = result.indicators?.quote?.firstOrNull()
+        val closes = quote0?.close ?: return emptyList()
+        val volumes = quote0.volume
+        val out = ArrayList<PricePoint>(timestamps.size)
+        for (i in timestamps.indices) {
+            val close = closes.getOrNull(i) ?: continue // Yahoo pads gaps with null
+            out.add(PricePoint(timestamps[i] * 1000L, close, false, volumes?.getOrNull(i)?.toDouble()))
+        }
+        return out
+    }
+
+    /**
      * GET a chart-endpoint [path] and parse it, failing over query1 → query2. The failover also
      * triggers when query1 returns a 200 whose body isn't the JSON we expect (Yahoo serves HTML
      * consent / rate-limit pages that way), because the parse happens *inside* the failover. A
@@ -173,6 +204,7 @@ class YahooFinanceService {
             volume = meta.regularMarketVolume?.toDouble(),
             currency = meta.currency ?: "USD",
             asOfEpochMs = System.currentTimeMillis(),
+            isEtf = meta.instrumentType.equals("ETF", ignoreCase = true),
         )
     }
 
@@ -252,6 +284,7 @@ data class YahooDividend(val amount: Double = 0.0, val date: Long = 0L)
 @Serializable
 data class YahooMeta(
     val exchangeTimezoneName: String? = null,
+    val instrumentType: String? = null, // "EQUITY" | "ETF" | "CRYPTOCURRENCY" | "INDEX"
     val fiftyTwoWeekHigh: Double? = null,
     val fiftyTwoWeekLow: Double? = null,
     val regularMarketPrice: Double? = null,

@@ -14,6 +14,9 @@ val LossRed = Color(0xFFF87171)
 // Crypto accent — visually separates crypto rows/charts from equities (amber, à la Bitcoin)
 val CryptoAccent = Color(0xFFF7A928)
 
+// ETF accent — teal, mirrors the crypto accent so funds read distinctly from single stocks
+val EtfAccent = Color(0xFF14B8A6)
+
 // Dark scheme (design DNA)
 val SurfaceDark = Color(0xFF141318)
 val SurfaceContainerDark = Color(0xFF1C1B21)

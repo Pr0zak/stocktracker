@@ -260,6 +260,7 @@ fun WatchlistScreen(
                                     sparkline = item.sparkline,
                                     holdingsText = holdingsText,
                                     isCrypto = item.asset.type == AssetType.CRYPTO,
+                                    isEtf = item.quote?.isEtf == true,
                                     belowLine = item.below200wma == true,
                                     onClick = { onOpenDetail(item.asset) },
                                 )

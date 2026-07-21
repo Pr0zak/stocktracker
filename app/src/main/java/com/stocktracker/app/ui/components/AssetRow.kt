@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.ui.theme.CryptoAccent
+import com.stocktracker.app.ui.theme.EtfAccent
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceMedium
@@ -36,8 +37,11 @@ fun AssetRow(
     onClick: () -> Unit,
     holdingsText: String? = null,
     isCrypto: Boolean = false,
+    isEtf: Boolean = false,
     belowLine: Boolean = false,
 ) {
+    // Crypto takes precedence over ETF; equities get no accent.
+    val accent: Color? = if (isCrypto) CryptoAccent else if (isEtf) EtfAccent else null
     Card(
         onClick = onClick,
         shape = RoundedCornerShape(20.dp),
@@ -50,13 +54,14 @@ fun AssetRow(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Leading accent stripe marks crypto rows for quick visual separation from equities.
-            if (isCrypto) {
+            // Leading accent stripe marks crypto (amber) and ETF (teal) rows for quick visual
+            // separation from single equities.
+            if (accent != null) {
                 Box(
                     modifier = Modifier
                         .width(4.dp)
                         .height(36.dp)
-                        .background(CryptoAccent, RoundedCornerShape(2.dp)),
+                        .background(accent, RoundedCornerShape(2.dp)),
                 )
                 Spacer12()
             }
@@ -66,7 +71,7 @@ fun AssetRow(
                         symbol,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium,
-                        color = if (isCrypto) CryptoAccent else MaterialTheme.colorScheme.onSurface,
+                        color = accent ?: MaterialTheme.colorScheme.onSurface,
                     )
                     // Amber "below its 200-week line" marker — long-term value context, not a buy flag.
                     if (belowLine) {

@@ -92,7 +92,24 @@ class MarketRepository(
         return cached("h:${asset.id}:$range:$includeExtended", ttl) {
             when (asset.type) {
                 AssetType.CRYPTO ->
-                    coinGecko.history(asset.coinGeckoId ?: asset.symbol.lowercase(), range.toCoinGeckoDays())
+                    if (range == ChartRange.THREE_YEAR || range == ChartRange.ALL) {
+                        // CoinGecko's free API now 401s for windows > 365 days, so long crypto
+                        // ranges come from Yahoo (<TICKER>-USD) — full history, no key. If Yahoo
+                        // has nothing for this coin (obscure alts don't all list as <TICKER>-USD),
+                        // degrade to CoinGecko's 365-day window rather than a blank chart.
+                        val yh = try {
+                            yahoo.cryptoHistory(asset.symbol, range)
+                        } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+                            throw ce
+                        } catch (_: Throwable) {
+                            emptyList()
+                        }
+                        yh.ifEmpty {
+                            coinGecko.history(asset.coinGeckoId ?: asset.symbol.lowercase(), "365")
+                        }
+                    } else {
+                        coinGecko.history(asset.coinGeckoId ?: asset.symbol.lowercase(), range.toCoinGeckoDays())
+                    }
                 AssetType.STOCK -> yahoo.history(asset.symbol, range, includeExtended)
             }
         }

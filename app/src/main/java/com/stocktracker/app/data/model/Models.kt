@@ -53,6 +53,8 @@ data class Quote(
     val volume: Double? = null,   // stocks: shares traded today; crypto: 24h USD volume
     val currency: String = "USD",
     val asOfEpochMs: Long = 0L,
+    /** Yahoo classifies the symbol as an ETF (meta.instrumentType == "ETF") — drives the row accent. */
+    val isEtf: Boolean = false,
 ) {
     val isUp: Boolean get() = change >= 0.0
 }

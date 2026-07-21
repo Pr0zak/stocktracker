@@ -83,11 +83,14 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiVerdict
+import com.stocktracker.app.data.remote.CoveredCallResponse
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.InsiderResponse
 import com.stocktracker.app.data.remote.OptionCandidate
 import com.stocktracker.app.data.remote.OptionsResponse
+import com.stocktracker.app.data.remote.PutCandidate
+import com.stocktracker.app.data.remote.PutsResponse
 import com.stocktracker.app.data.remote.QualityResponse
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.TouchStudyResponse
@@ -447,9 +450,11 @@ fun DetailScreen(
                 )
             }
 
-            // "Play with calls" — a beginner-first long-call suggester. Stocks/ETFs only (options
-            // aren't offered for crypto), gated on the Signals URL — NOT the AI switch (it's free math).
+            // The options cards — stocks/ETFs only (no chain for crypto), gated on the Signals URL, NOT
+            // the AI switch (all free server-side math). Calls = a bullish directional bet; the wheel
+            // pair below it = accumulate cheaply (cash-secured put) then earn income (covered call).
             if (!isCrypto && state.signalsConfigured) {
+                // "Play with calls" — a beginner-first long-call suggester.
                 PlayWithCallsCard(
                     symbol = asset.symbol,
                     options = state.options,
@@ -458,6 +463,29 @@ fun DetailScreen(
                     onSuggest = { budget, style -> vm.requestOptions(budget, style) },
                     onTrack = { draft -> callDraft = draft },
                 )
+
+                // OC-8 wheel · buy side: "Get paid to buy" cash-secured put — acquire shares cheaply.
+                CashSecuredPutCard(
+                    symbol = asset.symbol,
+                    puts = state.puts,
+                    loading = state.putsLoading,
+                    error = state.putsError,
+                    onSuggest = { cash, style -> vm.requestPuts(cash, style) },
+                )
+
+                // OC-8 wheel · income side: "Sell covered calls" — only once the user holds ≥100 shares
+                // of THIS symbol (one contract covers 100). Share count comes from the holdings store.
+                val heldShares = state.shares?.toInt() ?: 0
+                if (heldShares >= 100) {
+                    CoveredCallCard(
+                        symbol = asset.symbol,
+                        sharesHeld = heldShares,
+                        coveredCall = state.coveredCall,
+                        loading = state.coveredCallLoading,
+                        error = state.coveredCallError,
+                        onSuggest = { target -> vm.requestCoveredCall(heldShares, target) },
+                    )
+                }
             }
 
             HoldingsAndAlertsSection(
@@ -2619,6 +2647,415 @@ private fun CallCandidateCompact(c: OptionCandidate) {
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = TrafficRed,
+        )
+    }
+}
+
+/**
+ * "Get paid to buy" (OC-8) — a cash-secured put suggester: the acquire-shares-cheaply half of the
+ * wheel. You're paid now to promise to buy 100 shares at a strike; if it dips there you own them below
+ * today's price, if not you keep the premium. Money-first, plain language, honest downside framing.
+ * Stocks/ETFs only (never crypto). Free server-side math, no LLM — gated on the Signals URL, not the
+ * AI switch. Lazy: nothing fetched until "Suggest puts". Not investment advice.
+ */
+@Composable
+private fun CashSecuredPutCard(
+    symbol: String,
+    puts: PutsResponse?,
+    loading: Boolean,
+    error: String?,
+    onSuggest: (Double, String) -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val savedCash by ServiceLocator.settingsStore.investableCash.collectAsState(initial = 0.0)
+
+    // Collateral to set aside = the cash the broker locks against the put. Default to the saved
+    // investable cash if present, else $2000. NOT persisted back — this is a per-trade reservation.
+    var cashText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(savedCash) {
+        if (cashText == null) cashText = formatCashPlain(if (savedCash > 0) savedCash else 2000.0)
+    }
+    var style by remember { mutableStateOf("balanced") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Get paid to buy (cash-secured put)", style = MaterialTheme.typography.labelLarge, color = neutral)
+        Text(
+            "You're paid up front to promise to buy 100 shares at a set price. If it dips there, you " +
+                "own them cheaper than today; if not, you keep the cash. Only do this on a name you'd " +
+                "happily own.",
+            style = MaterialTheme.typography.bodySmall,
+            color = neutral,
+        )
+
+        OutlinedTextField(
+            value = cashText ?: "",
+            onValueChange = { cashText = it },
+            label = { Text("Cash to set aside") },
+            prefix = { Text("$") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        // 3-way style toggle: Aggressive (strike near spot) · Balanced · Conservative (deeper OTM).
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("aggressive" to "Aggressive", "balanced" to "Balanced", "conservative" to "Conservative")
+                .forEach { (key, label) ->
+                    FilterChip(selected = style == key, onClick = { style = key }, label = { Text(label) })
+                }
+        }
+        Text(
+            "Aggressive picks a strike closer to today's price: more premium, and more likely you end up " +
+                "with the shares.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
+
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    val cash = (cashText ?: "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                    onSuggest(cash, style)
+                },
+                enabled = !loading,
+            ) { Text("Suggest puts") }
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = neutral)
+            }
+        }
+
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
+
+        if (puts != null) {
+            // Requested style first; the rest laddered compactly below.
+            val primary = puts.candidates.firstOrNull { it.profile == style }
+                ?: puts.candidates.firstOrNull()
+            if (primary != null) {
+                PutCandidateBlock(
+                    symbol = symbol, puts = puts, c = primary,
+                    onCopy = {
+                        clipboard.setText(AnnotatedString(primary.orderTicket))
+                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                    },
+                )
+                val others = puts.candidates.filter { it !== primary }
+                if (others.isNotEmpty()) {
+                    Text("Other strikes", style = MaterialTheme.typography.labelMedium, color = neutral)
+                    others.forEach { alt -> PutCandidateCompact(alt) }
+                }
+            } else {
+                Text("No suitable put for that cash.", style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
+
+            // Earnings-before-expiry heads-up (assignment risk spikes around the print).
+            puts.earnings?.takeIf { it.inWindow }?.let { e ->
+                Text(
+                    "Earnings ${e.date ?: "soon"} falls before expiry — the shares can gap through your " +
+                        "strike on the print.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TrafficAmber,
+                )
+            }
+
+            puts.warnings.forEach { w ->
+                Text("⚠ $w", style = MaterialTheme.typography.labelSmall, color = TrafficAmber)
+            }
+
+            if (puts.quoteDelayed) {
+                Text(
+                    "Delayed · market closed — prices are indicative; confirm the live quote on Fidelity.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = neutral,
+                )
+            }
+
+            if (puts.note.isNotBlank()) {
+                Text(puts.note, style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
+        }
+
+        Text(
+            "You carry the full downside below the strike — only sell puts on a name you'd happily own " +
+                "at that strike. Not investment advice.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
+    }
+}
+
+/** The full "money-first" block for the leading put candidate, with the Copy-ticket button. */
+@Composable
+private fun PutCandidateBlock(
+    symbol: String,
+    puts: PutsResponse,
+    c: PutCandidate,
+    onCopy: () -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val n = c.contracts ?: 1
+
+    // Contract line: "SELL 1 BLZE Aug 21 '26  $12.50 Put"
+    Text(
+        "SELL $n $symbol  ${fmtCallExpiry(puts.expiry?.iso)}  ${c.strike?.let { usd(it) } ?: "—"} Put",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+    )
+
+    // If assigned: buy at $10.85/share — 17.6% below today
+    Text(
+        buildString {
+            append("If assigned: buy at ${c.netCostPerShare?.let { usd(it) } ?: "—"}/share")
+            c.discountVsSpotPct?.let { append(" — %.1f%% below today".format(kotlin.math.abs(it))) }
+        },
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = GainGreen,
+    )
+
+    // Cash to reserve: $1,250 · Premium now: +$165
+    Text(
+        buildString {
+            append("Cash to reserve: ${c.cashToReserve?.let { usd(it) } ?: "—"}")
+            append(" · Premium now: +${c.premiumIncome?.let { usd(it) } ?: "—"}")
+        },
+        style = MaterialTheme.typography.bodyMedium,
+    )
+
+    // If NOT assigned: +12.7% in 32d (~155% annualized) · ≈37% chance you're assigned
+    val yieldLine = buildString {
+        append("If NOT assigned: ")
+        append(c.staticYieldPct?.let { "%+.1f%%".format(it) } ?: "—")
+        puts.expiry?.dte?.let { append(" in ${it}d") }
+        c.annualizedYieldPct?.let { append(" (~%.0f%% annualized)".format(it)) }
+    }
+    Text(yieldLine, style = MaterialTheme.typography.bodyMedium)
+    c.assignmentProbPct?.let {
+        Text(
+            "≈%.0f%% chance you're assigned".format(it),
+            style = MaterialTheme.typography.bodySmall,
+            color = neutral,
+        )
+    }
+
+    // Break-even $10.85 · Δ−0.34 · IV 62% · θ +$3/day · OI 1,240
+    val greeks = listOfNotNull(
+        c.breakeven?.let { "Break-even ${usd(it)}" },
+        c.delta?.let { "Δ%.2f".format(it) },
+        c.iv?.let { "IV %.0f%%".format(it * 100) },
+        c.theta?.let { fmtTheta(it) },
+        c.openInterest?.let { "OI %,d".format(it) },
+    )
+    if (greeks.isNotEmpty()) {
+        Text(greeks.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = neutral)
+    }
+
+    // The order ticket to paste into Fidelity, shown then copied.
+    if (c.orderTicket.isNotBlank()) {
+        Text(
+            c.orderTicket,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+        )
+    }
+    OutlinedButton(onClick = onCopy, enabled = c.orderTicket.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+        Text("Copy order ticket")
+    }
+}
+
+/** A one-line compact read of an alternative put strike — profile, strike, net cost, discount, premium. */
+@Composable
+private fun PutCandidateCompact(c: PutCandidate) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            buildString {
+                append(c.profile.replaceFirstChar { it.uppercase() })
+                append(" · ${c.strike?.let { usd(it) } ?: "—"} Put")
+                c.netCostPerShare?.let { append(" · net ${usd(it)}") }
+                c.discountVsSpotPct?.let { append(" (−%.0f%%)".format(kotlin.math.abs(it))) }
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "+${c.premiumIncome?.let { usd(it) } ?: "—"}",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = GainGreen,
+        )
+    }
+}
+
+/**
+ * "Sell covered calls" (OC-8) — the income-on-shares-you-hold half of the wheel. Shown only when the
+ * user holds ≥100 shares of this symbol (one contract covers 100). You're paid now for agreeing to
+ * sell at a set price if it rises there; you keep the premium either way, but your upside is capped
+ * above the strike. Stocks/ETFs only. Free server-side math, no LLM. Not investment advice.
+ */
+@Composable
+private fun CoveredCallCard(
+    symbol: String,
+    sharesHeld: Int,
+    coveredCall: CoveredCallResponse?,
+    loading: Boolean,
+    error: String?,
+    onSuggest: (Double?) -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+
+    // Optional target sell price — blank hands the strike choice to the server (~0.30 delta).
+    var targetText by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Sell covered calls (income)", style = MaterialTheme.typography.labelLarge, color = neutral)
+        Text(
+            "You hold %,d shares. Sell a call and you're paid now for agreeing to sell 100 of them at a "
+                .format(sharesHeld) +
+                "set price if it rises there. You keep the premium either way.",
+            style = MaterialTheme.typography.bodySmall,
+            color = neutral,
+        )
+
+        OutlinedTextField(
+            value = targetText,
+            onValueChange = { targetText = it },
+            label = { Text("Target sell price (optional)") },
+            prefix = { Text("$") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    val target = targetText.replace(",", "").trim().toDoubleOrNull()
+                    onSuggest(target)
+                },
+                enabled = !loading,
+            ) { Text("Suggest a call") }
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = neutral)
+            }
+        }
+
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
+
+        val c = coveredCall?.candidate
+        if (c != null) {
+            val n = coveredCall.contracts ?: (sharesHeld / 100)
+
+            // Contract line: "SELL 2 AAPL Aug 28 '26 $345 Call"
+            Text(
+                "SELL $n $symbol  ${fmtCallExpiry(coveredCall.expiry?.iso)}  ${c.strike?.let { usd(it) } ?: "—"} Call",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+
+            // Premium now: +$1,150 — the income, loud and green.
+            Text(
+                "Premium now: +${c.premiumIncome?.let { usd(it) } ?: "—"}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = GainGreen,
+            )
+
+            // Yield: 1.8% (~16.9% annualized)
+            Text(
+                buildString {
+                    append("Yield: ${c.premiumYieldPct?.let { "%.1f%%".format(it) } ?: "—"}")
+                    c.annualizedYieldPct?.let { append(" (~%.1f%% annualized)".format(it)) }
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            // If called away from here: +$4,832
+            c.calledAwayGainFromHere?.let { g ->
+                val sign = if (g >= 0) "+" else "−"
+                Text(
+                    "If called away from here: $sign${usd(kotlin.math.abs(g))}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            // ≈32% chance called away · Δ0.30 · IV 28% · θ +$2/day · OI 3,410
+            val stats = listOfNotNull(
+                c.assignmentProbPct?.let { "≈%.0f%% chance called away".format(it) },
+                c.delta?.let { "Δ%.2f".format(it) },
+                c.iv?.let { "IV %.0f%%".format(it * 100) },
+                c.theta?.let { fmtTheta(it) },
+                c.openInterest?.let { "OI %,d".format(it) },
+            )
+            if (stats.isNotEmpty()) {
+                Text(stats.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
+
+            if (c.orderTicket.isNotBlank()) {
+                Text(
+                    c.orderTicket,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            }
+            OutlinedButton(
+                onClick = {
+                    clipboard.setText(AnnotatedString(c.orderTicket))
+                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                },
+                enabled = c.orderTicket.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Copy order ticket") }
+        }
+
+        coveredCall?.warnings?.forEach { w ->
+            Text("⚠ $w", style = MaterialTheme.typography.labelSmall, color = TrafficAmber)
+        }
+
+        if (coveredCall?.quoteDelayed == true) {
+            Text(
+                "Delayed · market closed — prices are indicative; confirm the live quote on Fidelity.",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+
+        coveredCall?.note?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = neutral)
+        }
+
+        Text(
+            "Capped upside above the strike; you keep the premium either way. Not investment advice.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
         )
     }
 }

@@ -10,11 +10,13 @@ import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
+import com.stocktracker.app.data.remote.CoveredCallResponse
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.HttpStatusException
 import com.stocktracker.app.data.remote.InsiderResponse
 import com.stocktracker.app.data.remote.OptionsResponse
+import com.stocktracker.app.data.remote.PutsResponse
 import com.stocktracker.app.data.remote.QualityResponse
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.SignalsApiService
@@ -72,6 +74,14 @@ data class DetailUiState(
     val options: OptionsResponse? = null,
     val optionsLoading: Boolean = false,
     val optionsError: String? = null,
+    /** "Get paid to buy" cash-secured put suggester result (OC-8, on-demand, no LLM). */
+    val puts: PutsResponse? = null,
+    val putsLoading: Boolean = false,
+    val putsError: String? = null,
+    /** "Sell covered calls" income suggester result (OC-8, on-demand, no LLM; needs ≥100 shares held). */
+    val coveredCall: CoveredCallResponse? = null,
+    val coveredCallLoading: Boolean = false,
+    val coveredCallError: String? = null,
     /** "What if I put $cash into this?" entry plan (on-demand, from the signals service). */
     val plan: EntryPlan? = null,
     val planLoading: Boolean = false,
@@ -289,6 +299,76 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     optionsLoading = false,
                     optionsError = if (resp == null) {
                         analystErrorDetail(res.exceptionOrNull()) ?: "No options chain for this symbol"
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
+
+    private var putsJob: Job? = null
+
+    /**
+     * "Get paid to buy" cash-secured put suggester (OC-8): the acquire-shares-cheaply half of the
+     * wheel. [cash] is the collateral the user will set aside; [style] is aggressive | balanced |
+     * conservative. No LLM — works with the AI kill-switch off. Lazy: only runs on tap. Crypto /
+     * no-chain symbols come back HTTP 400 → surface the server's detail message.
+     */
+    fun requestPuts(cash: Double, style: String) {
+        if (cash <= 0) {
+            _state.update { it.copy(putsError = "Enter the cash to set aside first") }
+            return
+        }
+        putsJob?.cancel()
+        putsJob = viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) return@launch
+            _state.update { it.copy(putsLoading = true, putsError = null) }
+            val res = runCatching { signalsApi.puts(base, asset.symbol, cash = cash, style = style) }
+            ensureActive() // runCatching swallows cancellation; don't apply a superseded result
+            val resp = res.getOrNull()
+            _state.update {
+                it.copy(
+                    puts = resp ?: it.puts, // keep the prior suggestion on a failed refresh
+                    putsLoading = false,
+                    putsError = if (resp == null) {
+                        analystErrorDetail(res.exceptionOrNull()) ?: "No options chain for this symbol"
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
+
+    private var coveredCallJob: Job? = null
+
+    /**
+     * "Sell covered calls" income suggester (OC-8): the income-on-shares-you-hold half of the wheel.
+     * [shares] comes from the user's holdings (gated on ≥100 in the UI); [target] is an optional
+     * target sell price (null → the server picks ~0.30 delta). No LLM. Lazy: only runs on tap. The
+     * server returns HTTP 400 for crypto / no chain / under 100 shares → surface the detail message.
+     */
+    fun requestCoveredCall(shares: Int, target: Double? = null) {
+        if (shares < 100) {
+            _state.update { it.copy(coveredCallError = "You need at least 100 shares to sell a covered call") }
+            return
+        }
+        coveredCallJob?.cancel()
+        coveredCallJob = viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) return@launch
+            _state.update { it.copy(coveredCallLoading = true, coveredCallError = null) }
+            val res = runCatching { signalsApi.coveredCall(base, asset.symbol, shares = shares, target = target) }
+            ensureActive() // runCatching swallows cancellation; don't apply a superseded result
+            val resp = res.getOrNull()
+            _state.update {
+                it.copy(
+                    coveredCall = resp ?: it.coveredCall, // keep the prior suggestion on a failed refresh
+                    coveredCallLoading = false,
+                    coveredCallError = if (resp == null) {
+                        analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't build a covered call for this symbol"
                     } else {
                         null
                     },

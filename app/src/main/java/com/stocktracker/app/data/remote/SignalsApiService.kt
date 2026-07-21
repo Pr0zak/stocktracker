@@ -159,6 +159,42 @@ class SignalsApiService {
     }
 
     /**
+     * "Get paid to buy" cash-secured put suggester (OC-8) — the acquire-shares-cheaply half of the
+     * wheel. Pure server-side math (Yahoo chain + Black-Scholes), NO LLM, so it works even with the AI
+     * kill-switch off. [cash] is what the user will set aside as collateral; [style] is
+     * aggressive | balanced | conservative (aggressive = a strike closer to spot, so more premium and
+     * more likely you're assigned the shares). Throws [HttpStatusException] (HTTP 400) for crypto /
+     * symbols with no options chain — the caller surfaces [analystErrorDetail]. Quotes are ~15-min
+     * delayed and stale outside market hours (quote_delayed).
+     */
+    suspend fun puts(baseUrl: String, symbol: String, cash: Double, style: String): PutsResponse? {
+        if (baseUrl.isBlank()) return null
+        val url = "${baseUrl.trimEnd('/')}/puts/${symbol.uppercase()}?cash=$cash&style=$style"
+        val body = Http.getString(url, slow = true) // chain fetch + greeks, not a quote endpoint
+        return Http.json.decodeFromString<PutsResponse>(body)
+    }
+
+    /**
+     * "Sell covered calls" income suggester (OC-8) — the income-on-shares-you-hold half of the wheel.
+     * Only valid at ≥100 shares (the server returns HTTP 400 below that, and for crypto / no chain).
+     * [shares] comes from the user's holdings; [target] is an optional target sell price (null → the
+     * server picks a ~0.30-delta strike). No LLM. Throws [HttpStatusException] (HTTP 400) so the caller
+     * can surface [analystErrorDetail]. Quotes are ~15-min delayed (quote_delayed).
+     */
+    suspend fun coveredCall(
+        baseUrl: String,
+        symbol: String,
+        shares: Int,
+        target: Double? = null,
+    ): CoveredCallResponse? {
+        if (baseUrl.isBlank()) return null
+        val t = target?.let { "&target=$it" } ?: ""
+        val url = "${baseUrl.trimEnd('/')}/covered_call/${symbol.uppercase()}?shares=$shares$t"
+        val body = Http.getString(url, slow = true) // chain fetch + greeks, not a quote endpoint
+        return Http.json.decodeFromString<CoveredCallResponse>(body)
+    }
+
+    /**
      * Re-price ONE specific option contract for the manual call tracker (OC-3). GET
      * /option_quote/{SYMBOL}?expiry_ts=&strike=&type=call — the live (~15-min delayed) quote used to
      * show a tracked position's unrealized P/L. Uses the slow client (the server fetches the chain).
@@ -488,6 +524,86 @@ data class OptionCandidate(
 data class OptionEarnings(
     val date: String? = null,
     @SerialName("in_window") val inWindow: Boolean = false,
+)
+
+/**
+ * GET /puts/{symbol}?cash=&style= — the "Get paid to buy" cash-secured put suggester (OC-8). Every
+ * numeric field is nullable on purpose: options quotes go stale/zero outside market hours, so the card
+ * must degrade gracefully rather than crash. No LLM — pure server-side math. [note] is the honest
+ * risk-framing sentence to surface verbatim; [earnings] flags an earnings date inside the option's life.
+ */
+@Serializable
+data class PutsResponse(
+    val symbol: String = "",
+    val spot: Double? = null,
+    @SerialName("as_of") val asOf: String? = null,
+    @SerialName("quote_delayed") val quoteDelayed: Boolean = false,
+    val expiry: OptionExpiry? = null,
+    val candidates: List<PutCandidate> = emptyList(),
+    val warnings: List<String> = emptyList(),
+    val earnings: OptionEarnings? = null,
+    val note: String = "",
+)
+
+@Serializable
+data class PutCandidate(
+    val profile: String = "", // aggressive | balanced | conservative
+    @SerialName("contract_symbol") val contractSymbol: String = "",
+    val strike: Double? = null,
+    @SerialName("limit_price") val limitPrice: Double? = null,
+    @SerialName("premium_income") val premiumIncome: Double? = null,        // total premium collected now
+    @SerialName("net_cost_per_share") val netCostPerShare: Double? = null,  // strike − premium/share, if assigned
+    @SerialName("discount_vs_spot_pct") val discountVsSpotPct: Double? = null, // how far net cost sits below spot
+    @SerialName("cash_to_reserve") val cashToReserve: Double? = null,       // collateral to set aside
+    val contracts: Int? = null,
+    @SerialName("static_yield_pct") val staticYieldPct: Double? = null,     // premium ÷ collateral, over the hold
+    @SerialName("annualized_yield_pct") val annualizedYieldPct: Double? = null,
+    @SerialName("assignment_prob_pct") val assignmentProbPct: Double? = null, // chance you're put the shares
+    val breakeven: Double? = null,
+    val delta: Double? = null,
+    val theta: Double? = null,              // $/day per contract (a short put's theta is positive to you)
+    val iv: Double? = null,                 // implied vol as a fraction (0.33 = 33%)
+    @SerialName("open_interest") val openInterest: Long? = null,
+    @SerialName("spread_pct") val spreadPct: Double? = null,
+    @SerialName("order_ticket") val orderTicket: String = "",
+)
+
+/**
+ * GET /covered_call/{symbol}?shares=&target= — the "Sell covered calls" income suggester (OC-8).
+ * Returns a single [candidate] (unlike /puts which ladders several). Every numeric field is nullable
+ * on purpose (stale/zero quotes outside market hours). No LLM. [shares]/[contracts] echo the position
+ * the server sized the call against.
+ */
+@Serializable
+data class CoveredCallResponse(
+    val symbol: String = "",
+    val spot: Double? = null,
+    @SerialName("as_of") val asOf: String? = null,
+    @SerialName("quote_delayed") val quoteDelayed: Boolean = false,
+    val shares: Int? = null,
+    val contracts: Int? = null,
+    val expiry: OptionExpiry? = null,
+    val candidate: CoveredCallCandidate? = null,
+    val warnings: List<String> = emptyList(),
+    val note: String = "",
+)
+
+@Serializable
+data class CoveredCallCandidate(
+    @SerialName("contract_symbol") val contractSymbol: String = "",
+    val strike: Double? = null,
+    @SerialName("limit_price") val limitPrice: Double? = null,
+    @SerialName("premium_income") val premiumIncome: Double? = null,        // total premium collected now
+    @SerialName("premium_yield_pct") val premiumYieldPct: Double? = null,   // premium ÷ position value
+    @SerialName("annualized_yield_pct") val annualizedYieldPct: Double? = null,
+    @SerialName("assignment_prob_pct") val assignmentProbPct: Double? = null, // chance you're called away
+    @SerialName("called_away_gain_from_here") val calledAwayGainFromHere: Double? = null, // $ gain if called at strike
+    val delta: Double? = null,
+    val theta: Double? = null,
+    val iv: Double? = null,
+    @SerialName("open_interest") val openInterest: Long? = null,
+    @SerialName("spread_pct") val spreadPct: Double? = null,
+    @SerialName("order_ticket") val orderTicket: String = "",
 )
 
 /**

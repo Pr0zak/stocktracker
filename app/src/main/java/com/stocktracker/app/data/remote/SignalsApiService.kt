@@ -159,6 +159,33 @@ class SignalsApiService {
     }
 
     /**
+     * Re-price ONE specific option contract for the manual call tracker (OC-3). GET
+     * /option_quote/{SYMBOL}?expiry_ts=&strike=&type=call — the live (~15-min delayed) quote used to
+     * show a tracked position's unrealized P/L. Uses the slow client (the server fetches the chain).
+     * Returns null on HTTP 404 (contract not found — e.g. expired/rolled) and HTTP 400 (crypto / no
+     * options chain) so the list degrades to a "—" instead of crashing; other failures propagate so
+     * the caller can tell a transient miss (retry / show last-known) from a genuine "gone".
+     */
+    suspend fun optionQuote(
+        baseUrl: String,
+        symbol: String,
+        expiryTs: Long,
+        strike: Double,
+        type: String = "call",
+    ): OptionQuoteResponse? {
+        if (baseUrl.isBlank()) return null
+        val url = "${baseUrl.trimEnd('/')}/option_quote/${symbol.uppercase()}" +
+            "?expiry_ts=$expiryTs&strike=$strike&type=$type"
+        val body = try {
+            Http.getString(url, slow = true) // chain fetch + greeks, not a quote endpoint
+        } catch (e: HttpStatusException) {
+            if (e.code == 404 || e.code == 400) return null
+            throw e
+        }
+        return Http.json.decodeFromString<OptionQuoteResponse>(body)
+    }
+
+    /**
      * Rank the synced watchlist for NEW money: top 2-4 picks with the cash spread across them.
      * Holdings ride along transiently so the analyst can weigh existing exposure — never stored.
      */
@@ -462,6 +489,43 @@ data class OptionEarnings(
     val date: String? = null,
     @SerialName("in_window") val inWindow: Boolean = false,
 )
+
+/**
+ * GET /option_quote/{symbol} — a live re-price of ONE tracked contract (OC-3). Every numeric field is
+ * nullable on purpose: quotes zero out / go stale outside market hours, so the My Calls list must show
+ * a "—" rather than crash. [dte] is days-to-expiry; [spot] the underlying's last price.
+ */
+@Serializable
+data class OptionQuoteResponse(
+    val symbol: String = "",
+    val spot: Double? = null,
+    @SerialName("as_of") val asOf: String? = null,
+    @SerialName("quote_delayed") val quoteDelayed: Boolean = false,
+    val dte: Double? = null,
+    val contract: OptionQuoteContract? = null,
+)
+
+@Serializable
+data class OptionQuoteContract(
+    @SerialName("contract_symbol") val contractSymbol: String = "",
+    val type: String = "call",
+    val strike: Double? = null,
+    val expiration: String? = null,
+    val bid: Double? = null,
+    val ask: Double? = null,
+    @SerialName("last_price") val lastPrice: Double? = null,
+    val mid: Double? = null,
+    @SerialName("limit_price") val limitPrice: Double? = null,
+    @SerialName("implied_volatility") val impliedVolatility: Double? = null,
+    val delta: Double? = null,
+    val theta: Double? = null,
+    @SerialName("open_interest") val openInterest: Long? = null,
+    @SerialName("in_the_money") val inTheMoney: Boolean? = null,
+    @SerialName("spread_pct") val spreadPct: Double? = null,
+) {
+    /** Best available current premium per share: the server's limit_price, else the mid, else last. */
+    val currentPrice: Double? get() = limitPrice ?: mid ?: lastPrice
+}
 
 @Serializable
 data class RecommendationsResponse(

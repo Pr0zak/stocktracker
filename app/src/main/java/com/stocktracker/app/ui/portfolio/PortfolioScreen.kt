@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.calls.MyCallsSection
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.PriceChart
 import com.stocktracker.app.ui.theme.GainGreen
@@ -76,6 +77,9 @@ fun PortfolioScreen() {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // Tracked call positions live here too — they don't need share holdings to exist.
+                MyCallsSection()
+                Box(Modifier.height(8.dp))
                 return@Column
             }
 
@@ -278,6 +282,9 @@ fun PortfolioScreen() {
                     }
                 }
             }
+
+            // Manually-tracked long-call positions (OC-3) — live P/L, DTE, ITM/OTM.
+            MyCallsSection()
 
             Box(Modifier.height(8.dp))
         }

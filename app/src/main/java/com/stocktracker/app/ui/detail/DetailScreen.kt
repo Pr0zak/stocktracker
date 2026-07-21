@@ -45,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -92,6 +93,9 @@ import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.TouchStudyResponse
 import com.stocktracker.app.data.remote.TrendResponse
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.calls.CallDraft
+import com.stocktracker.app.ui.calls.CallEntryDialog
+import com.stocktracker.app.ui.calls.callDraftFrom
 import com.stocktracker.app.signals.BacktestResult
 import com.stocktracker.app.signals.SignalLabel
 import com.stocktracker.app.signals.SignalResult
@@ -145,6 +149,8 @@ fun DetailScreen(
     var showIndicatorSheet by remember { mutableStateOf(false) }
     var showNewListDialog by remember { mutableStateOf(false) }
     var newListName by remember { mutableStateOf("") }
+    // Non-null while the OC-3 call-tracker entry form is open (pre-filled from a "Track this" tap).
+    var callDraft by remember { mutableStateOf<CallDraft?>(null) }
     val context = LocalContext.current
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val quote = state.quote
@@ -450,6 +456,7 @@ fun DetailScreen(
                     loading = state.optionsLoading,
                     error = state.optionsError,
                     onSuggest = { budget, style -> vm.requestOptions(budget, style) },
+                    onTrack = { draft -> callDraft = draft },
                 )
             }
 
@@ -540,6 +547,19 @@ fun DetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showNewListDialog = false; newListName = "" }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // OC-3 "Track this" — pre-filled call-tracker entry form; persists to the call-position store.
+    callDraft?.let { draft ->
+        CallEntryDialog(
+            prefill = draft,
+            onDismiss = { callDraft = null },
+            onSave = { position ->
+                scope.launch { ServiceLocator.callPositionStore.add(position) }
+                callDraft = null
+                Toast.makeText(context, "Tracking in Portfolio › My Calls", Toast.LENGTH_SHORT).show()
             },
         )
     }
@@ -2351,6 +2371,7 @@ private fun PlayWithCallsCard(
     loading: Boolean,
     error: String?,
     onSuggest: (Double, String) -> Unit,
+    onTrack: (CallDraft) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val context = LocalContext.current
@@ -2425,6 +2446,7 @@ private fun PlayWithCallsCard(
                         clipboard.setText(AnnotatedString(primary.orderTicket))
                         Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
                     },
+                    onTrack = { onTrack(callDraftFrom(symbol, options, primary)) },
                 )
                 val others = options.candidates.filter { it !== primary }
                 if (others.isNotEmpty()) {
@@ -2500,6 +2522,7 @@ private fun CallCandidateBlock(
     options: OptionsResponse,
     c: OptionCandidate,
     onCopy: () -> Unit,
+    onTrack: () -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val n = c.contracts ?: 1
@@ -2562,8 +2585,14 @@ private fun CallCandidateBlock(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
         )
     }
-    Button(onClick = onCopy, enabled = c.orderTicket.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-        Text("Copy order ticket")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = onCopy, enabled = c.orderTicket.isNotBlank(), modifier = Modifier.weight(1f)) {
+            Text("Copy order ticket")
+        }
+        // "Track this" — hand the shown suggestion to the OC-3 tracker (you still buy it on Fidelity).
+        Button(onClick = onTrack, modifier = Modifier.weight(1f)) {
+            Text("Track this")
+        }
     }
 }
 

@@ -77,6 +77,8 @@ fun SettingsScreen() {
     val savedSignalsUrl by settings.signalsApiUrl.collectAsState(initial = "")
     val aiOn by settings.aiAnalystEnabled.collectAsState(initial = true)
     val marketSummary by settings.marketSummaryEnabled.collectAsState(initial = true)
+    val marketSummaryAfterHours by settings.marketSummaryAfterHours.collectAsState(initial = true)
+    val marketSummaryMarketWide by settings.marketSummaryMarketWide.collectAsState(initial = false)
 
     var keyField by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedKey) { if (keyField == null) keyField = savedKey }
@@ -157,6 +159,36 @@ fun SettingsScreen() {
                     "A notification of your watchlist's top movers at the close and after hours",
                     marketSummary,
                 ) { scope.launch { settings.setMarketSummaryEnabled(it) } }
+
+                if (marketSummary) {
+                    Column(
+                        modifier = Modifier.padding(start = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        SwitchRow(
+                            "Include after-hours summary",
+                            "Also recap movers after the 8pm ET after-hours close",
+                            marketSummaryAfterHours,
+                        ) { scope.launch { settings.setMarketSummaryAfterHours(it) } }
+
+                        LabeledChips("Top movers") {
+                            FilterChip(
+                                selected = !marketSummaryMarketWide,
+                                onClick = { scope.launch { settings.setMarketSummaryMarketWide(false) } },
+                                label = { Text("Watchlist") },
+                            )
+                            FilterChip(
+                                selected = marketSummaryMarketWide,
+                                onClick = { scope.launch { settings.setMarketSummaryMarketWide(true) } },
+                                label = { Text("Whole market") },
+                            )
+                        }
+                        HelperText(
+                            "Your watchlist, or the whole market's biggest movers. Whole-market applies " +
+                                "to the close recap.",
+                        )
+                    }
+                }
             }
 
             SettingsSection("Chart") {

@@ -178,4 +178,68 @@ class MarketSummaryTest {
         assertTrue(body.contains("AAPL −2.1%"))
         assertTrue(!body.contains("BTC") && !body.contains("ETH"))
     }
+
+    // --- Market-wide close recap (marketWide = true) ---
+    // The whole-market variant of the close recap: the caller passes the market's top movers instead
+    // of the watchlist, so the recap re-titles and drops the "M/N up" overview it can't compute.
+
+    private fun closeWide(
+        movers: List<Mover> = watchlist,
+        sent: Boolean = false,
+    ) = MarketSummary.build(
+        phase = MarketPhase.AFTER,
+        etSecondsOfDay = closeEt,
+        isTradingDay = true,
+        movers = movers,
+        alreadySentClose = sent,
+        alreadySentAfterHours = false,
+        marketWide = true,
+    )
+
+    @Test fun `market-wide close recap uses the top-movers title`() {
+        assertEquals("Market close · top movers", closeWide()!!.title)
+    }
+
+    @Test fun `market-wide close recap omits the up-count overview and shows only the movers line`() {
+        val body = closeWide()!!.body
+        assertTrue("no tracked up-count overview", !body.contains("up on the day"))
+        assertTrue(body.contains("▲ NVDA +3.2% · MSFT +2.1% · V +1.4%"))
+        assertTrue(body.contains("▼ AAPL −2.1% · PFE −1.2%"))
+    }
+
+    @Test fun `market-wide close recap still fires as a CLOSE recap and honours dedup and empty`() {
+        assertEquals(MoverSummary.Kind.CLOSE, closeWide()!!.kind)
+        assertNull("dedup flag still suppresses it", closeWide(sent = true))
+        assertNull("empty movers still yields nothing", closeWide(movers = emptyList()))
+    }
+
+    @Test fun `market-wide close recap with no movement shows the market fallback line`() {
+        val flat = listOf(mover("AAA", 0.0), mover("BBB", -0.01))
+        val s = closeWide(movers = flat)
+        assertNotNull(s)
+        assertTrue(s!!.body.contains("Little movement across the market"))
+        assertTrue(!s.body.contains("up on the day"))
+    }
+
+    @Test fun `market-wide flag does not change the after-hours recap`() {
+        // After-hours has no market-wide source, so the notifier only passes marketWide in the close
+        // window. Assert build's after-hours path is byte-for-byte identical regardless of the flag.
+        val moved = listOf(mover("NVDA", 1.0, ah = 4.5), mover("AAPL", -0.5, ah = -3.0))
+        fun ah(wide: Boolean) = MarketSummary.build(
+            phase = MarketPhase.CLOSED,
+            etSecondsOfDay = afterEt,
+            isTradingDay = true,
+            movers = moved,
+            alreadySentClose = false,
+            alreadySentAfterHours = false,
+            marketWide = wide,
+        )
+        val plain = ah(false)
+        val wide = ah(true)
+        assertNotNull(plain)
+        assertNotNull(wide)
+        assertEquals(MoverSummary.Kind.AFTER_HOURS, wide!!.kind)
+        assertEquals(plain!!.title, wide.title)
+        assertEquals(plain.body, wide.body)
+    }
 }

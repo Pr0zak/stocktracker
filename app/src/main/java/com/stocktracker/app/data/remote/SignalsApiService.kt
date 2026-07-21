@@ -110,6 +110,17 @@ class SignalsApiService {
         return Http.json.decodeFromString<QualityResponse>(body)
     }
 
+    /** Whole-market top movers (biggest gainers + losers on the day) for the market-close recap. Free,
+     *  no LLM. Returns null on any failure (blank URL, network, parse) so the caller can fall back to
+     *  the watchlist; on the backend's own failure the lists come back empty. */
+    suspend fun movers(baseUrl: String, count: Int = 6): MoversResponse? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            val body = Http.getString("${baseUrl.trimEnd('/')}/movers?count=$count")
+            Http.json.decodeFromString<MoversResponse>(body)
+        }.getOrNull()
+    }
+
     /** Catalyst calendar (SI dates, OPEX, earnings). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
@@ -409,6 +420,20 @@ data class PastCycleAnalog(
     @SerialName("median_fwd_12mo_pct") val medianFwd12moPct: Double? = null,
     @SerialName("worst_fwd_12mo_pct") val worstFwd12moPct: Double? = null,
     @SerialName("best_fwd_12mo_pct") val bestFwd12moPct: Double? = null,
+)
+
+/** GET /movers?count= — the whole market's biggest gainers/losers on the day (market-wide close recap). */
+@Serializable
+data class MoversResponse(
+    val gainers: List<MoverQuote> = emptyList(),
+    val losers: List<MoverQuote> = emptyList(),
+)
+
+@Serializable
+data class MoverQuote(
+    val symbol: String = "",
+    @SerialName("change_percent") val changePercent: Double? = null,
+    val price: Double? = null,
 )
 
 @Serializable

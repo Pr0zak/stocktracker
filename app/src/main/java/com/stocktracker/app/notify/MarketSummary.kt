@@ -47,6 +47,9 @@ object MarketSummary {
      * @param movers            the watchlist's stocks/ETFs only (caller filters out crypto).
      * @param alreadySentClose  true if the close recap already fired today (dedup).
      * @param alreadySentAfterHours true if the after-hours recap already fired today (dedup).
+     * @param marketWide        true when [movers] is the whole market's top movers (not the watchlist):
+     *                          re-titles the close recap and drops the "M/N up on the day" overview,
+     *                          since there's no full tracked set to count. No effect on the after-hours path.
      * @return the recap to post, or null when nothing should fire right now.
      */
     fun build(
@@ -56,10 +59,11 @@ object MarketSummary {
         movers: List<Mover>,
         alreadySentClose: Boolean,
         alreadySentAfterHours: Boolean,
+        marketWide: Boolean = false,
     ): MoverSummary? = when {
         // Close recap: any time during the after-hours window (16:00–20:00 ET), once per day. The
         // AFTER phase already implies a trading day, so no extra guard is needed here.
-        phase == MarketPhase.AFTER && !alreadySentClose -> buildClose(movers)
+        phase == MarketPhase.AFTER && !alreadySentClose -> buildClose(movers, marketWide)
 
         // After-hours recap: after the post session ends (≥ 20:00 ET) on a trading day, once per day.
         phase == MarketPhase.CLOSED &&
@@ -70,17 +74,24 @@ object MarketSummary {
         else -> null
     }
 
-    private fun buildClose(movers: List<Mover>): MoverSummary? {
+    private fun buildClose(movers: List<Mover>, marketWide: Boolean): MoverSummary? {
         if (movers.isEmpty()) return null
 
         val ups = movers.filter { it.dayChangePct > FLAT_EPS }
             .sortedByDescending { it.dayChangePct }.take(TOP_N)
         val downs = movers.filter { it.dayChangePct < -FLAT_EPS }
             .sortedBy { it.dayChangePct }.take(TOP_N)
+        val moversLine = moversLine(ups, downs) { it.dayChangePct }
+
+        // Whole-market recap: just the market's top gainers/losers — no tracked set to count, so drop
+        // the "M/N up on the day" overview and show only the movers line.
+        if (marketWide) {
+            val body = if (moversLine.isEmpty()) "Little movement across the market" else moversLine
+            return MoverSummary(MoverSummary.Kind.CLOSE, "Market close · top movers", body)
+        }
 
         val upCount = movers.count { it.dayChangePct > 0 }
         val overview = "$upCount/${movers.size} up on the day"
-        val moversLine = moversLine(ups, downs) { it.dayChangePct }
         val body = if (moversLine.isEmpty()) "$overview · little movement" else "$overview\n$moversLine"
 
         return MoverSummary(

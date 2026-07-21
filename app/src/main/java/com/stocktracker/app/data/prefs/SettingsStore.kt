@@ -35,6 +35,8 @@ class SettingsStore(private val context: Context) {
     private val aiAnalystEnabledKey = booleanPreferencesKey("ai_analyst_enabled")
     private val lastDigestKey = longPreferencesKey("last_weekly_digest_at")
     private val marketSummaryEnabledKey = booleanPreferencesKey("market_summary_enabled")
+    private val marketSummaryAfterHoursKey = booleanPreferencesKey("market_summary_after_hours")
+    private val marketSummaryMarketWideKey = booleanPreferencesKey("market_summary_market_wide")
     private val lastCloseSummaryKey = stringPreferencesKey("last_close_summary_date")
     private val lastAfterHoursSummaryKey = stringPreferencesKey("last_after_hours_summary_date")
 
@@ -64,6 +66,16 @@ class SettingsStore(private val context: Context) {
     val marketSummaryEnabled: Flow<Boolean> = context.dataStore.data.map { it[marketSummaryEnabledKey] ?: true }
     suspend fun setMarketSummaryEnabled(enabled: Boolean) =
         context.dataStore.edit { it[marketSummaryEnabledKey] = enabled }
+
+    /** When true, also post the after-hours recap (≥8pm ET). Off keeps only the close recap. Default on. */
+    val marketSummaryAfterHours: Flow<Boolean> = context.dataStore.data.map { it[marketSummaryAfterHoursKey] ?: true }
+    suspend fun setMarketSummaryAfterHours(enabled: Boolean) =
+        context.dataStore.edit { it[marketSummaryAfterHoursKey] = enabled }
+
+    /** Close-recap source: true = the whole market's biggest movers, false (default) = your watchlist. */
+    val marketSummaryMarketWide: Flow<Boolean> = context.dataStore.data.map { it[marketSummaryMarketWideKey] ?: false }
+    suspend fun setMarketSummaryMarketWide(enabled: Boolean) =
+        context.dataStore.edit { it[marketSummaryMarketWideKey] = enabled }
 
     /** ET date (yyyy-MM-dd) the close recap last fired; "" = never. Dedups it to once per trading day. */
     val lastCloseSummaryDate: Flow<String> = context.dataStore.data.map { it[lastCloseSummaryKey] ?: "" }

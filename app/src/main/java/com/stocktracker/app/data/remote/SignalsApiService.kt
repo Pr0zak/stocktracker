@@ -110,7 +110,7 @@ class SignalsApiService {
         return Http.json.decodeFromString<QualityResponse>(body)
     }
 
-    /** Catalyst calendar (SI dates, OPEX, earnings, speculative T+35 echoes). Whole watchlist by
+    /** Catalyst calendar (SI dates, OPEX, earnings). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
         if (baseUrl.isBlank()) return null
@@ -701,7 +701,7 @@ data class ScanLatest(
     @SerialName("crossed_below_200wma") val crossedBelow200wma: List<String> = emptyList(),
     /** Symbols that newly entered a "good time to add" dip tier this scan. */
     @SerialName("dip_alerts") val dipAlerts: List<DipAlert> = emptyList(),
-    /** Today/tomorrow key-date warnings (SI publication, OPEX, earnings, speculative T+35). */
+    /** Today/tomorrow key-date warnings (SI publication, OPEX, earnings). */
     @SerialName("date_alerts") val dateAlerts: List<String> = emptyList(),
 )
 

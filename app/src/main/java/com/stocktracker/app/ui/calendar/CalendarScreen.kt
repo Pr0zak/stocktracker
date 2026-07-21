@@ -45,7 +45,7 @@ private sealed interface CalState {
 
 /**
  * Catalyst calendar: every upcoming date that matters for the watchlist in one timeline —
- * short-interest settlements/publications, OPEX, earnings, and speculative T+35 FTD echoes.
+ * short-interest settlements/publications, OPEX, and earnings.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,8 +95,7 @@ fun CalendarScreen(onBack: () -> Unit, symbol: String? = null) {
                 items(s.events) { e -> EventRow(e) }
                 item {
                     Text(
-                        "SI and FTD data publish with a lag; T+35 echo windows are a speculative " +
-                            "retail theory with weak evidence — shown for awareness, not timing. Not advice.",
+                        "SI and FTD data publish with a lag — shown for awareness, not timing. Not advice.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -121,7 +120,6 @@ private fun EventRow(e: CalendarEvent) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val kindColor = when (e.kind) {
         "earnings" -> Color(0xFF16A34A)
-        "t35_echo" -> Color(0xFFD97706) // amber — speculative, visually distinct
         "opex" -> MaterialTheme.colorScheme.primary
         else -> neutral // si_settlement / si_publication
     }

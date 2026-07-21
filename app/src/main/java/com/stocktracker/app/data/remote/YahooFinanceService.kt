@@ -182,7 +182,10 @@ class YahooFinanceService {
      */
     suspend fun quote(symbol: String): Quote? {
         val enc = yahooSymbol(symbol)
-        val path = "v8/finance/chart/$enc?range=1d&interval=1d"
+        // includePrePost=true so the meta carries postMarketPrice / marketState during & after the
+        // post session. With interval=1d the timestamp array is still a single daily bar, so the
+        // regular open/high/low read below is unaffected.
+        val path = "v8/finance/chart/$enc?range=1d&interval=1d&includePrePost=true"
         // fetchChart throws on a transient failure (so the repo can serve a stale quote) and returns
         // a null result only when Yahoo genuinely has no data for the symbol.
         val result = fetchChart(path).chart.result?.firstOrNull() ?: return null
@@ -192,6 +195,14 @@ class YahooFinanceService {
         val q0 = result.indicators?.quote?.firstOrNull()
         val change = if (prev != null) price - prev else 0.0
         val pct = if (prev != null && prev != 0.0) change / prev * 100.0 else 0.0
+        // After-hours move is measured against the regular-session close (regularMarketPrice). Prefer
+        // computing it ourselves for consistent units; the meta's postMarketChangePercent is only a
+        // fallback when the price is somehow absent.
+        val postPrice = meta.postMarketPrice
+        val postPct = when {
+            postPrice != null && price != 0.0 -> (postPrice - price) / price * 100.0
+            else -> meta.postMarketChangePercent
+        }
         return Quote(
             symbol = symbol.uppercase(),
             price = price,
@@ -205,6 +216,9 @@ class YahooFinanceService {
             currency = meta.currency ?: "USD",
             asOfEpochMs = System.currentTimeMillis(),
             isEtf = meta.instrumentType.equals("ETF", ignoreCase = true),
+            postMarketPrice = postPrice,
+            postMarketChangePercent = postPct,
+            marketState = meta.marketState,
         )
     }
 
@@ -294,6 +308,11 @@ data class YahooMeta(
     val regularMarketDayLow: Double? = null,
     val regularMarketVolume: Long? = null,
     val currency: String? = null,
+    // Post-market (after-hours) fields — present in the meta when includePrePost=true and the symbol
+    // is in/after the post session. Absent (null) during the regular session and overnight.
+    val postMarketPrice: Double? = null,
+    val postMarketChangePercent: Double? = null,
+    val marketState: String? = null, // "PRE" | "REGULAR" | "POST" | "POSTPOST" | "CLOSED" | …
 )
 
 @Serializable

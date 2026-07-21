@@ -17,28 +17,66 @@ import com.stocktracker.app.R
 object AlertNotifier {
 
     private const val CHANNEL_ID = "price_alerts"
+    private const val MARKET_CHANNEL_ID = "market_summary"
 
     fun ensureChannel(context: Context) {
+        ensureChannel(
+            context, CHANNEL_ID, "Price alerts",
+            "Alerts when a tracked price crosses your thresholds",
+            NotificationManager.IMPORTANCE_HIGH,
+        )
+    }
+
+    /** Separate, lower-key channel for the daily close / after-hours movers recap, so users can mute
+     *  it independently of price alerts. */
+    fun ensureMarketChannel(context: Context) {
+        ensureChannel(
+            context, MARKET_CHANNEL_ID, "Market summary",
+            "A recap of your watchlist's top movers at the close and after hours",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+    }
+
+    private fun ensureChannel(
+        context: Context,
+        id: String,
+        name: String,
+        desc: String,
+        importance: Int,
+    ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val mgr = context.getSystemService(NotificationManager::class.java) ?: return
-            if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
+            if (mgr.getNotificationChannel(id) == null) {
                 mgr.createNotificationChannel(
-                    NotificationChannel(CHANNEL_ID, "Price alerts", NotificationManager.IMPORTANCE_HIGH).apply {
-                        description = "Alerts when a tracked price crosses your thresholds"
-                    },
+                    NotificationChannel(id, name, importance).apply { description = desc },
                 )
             }
         }
     }
 
-    fun notify(context: Context, id: Int, title: String, text: String) {
+    /** Post a price-alert notification (high-importance channel). */
+    fun notify(context: Context, id: Int, title: String, text: String) =
+        post(context, CHANNEL_ID, NotificationCompat.PRIORITY_HIGH, id, title, text)
+
+    /** Post a market-summary notification (its own default-importance channel). */
+    fun notifyMarket(context: Context, id: Int, title: String, text: String) =
+        post(context, MARKET_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
+
+    private fun post(
+        context: Context,
+        channelId: String,
+        priority: Int,
+        id: Int,
+        title: String,
+        text: String,
+    ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
             return // no notification permission — silently skip
         }
-        ensureChannel(context)
+        if (channelId == MARKET_CHANNEL_ID) ensureMarketChannel(context) else ensureChannel(context)
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -47,12 +85,12 @@ object AlertNotifier {
             context, id, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_stat_alert)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(priority)
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()

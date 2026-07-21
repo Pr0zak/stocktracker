@@ -34,6 +34,9 @@ class SettingsStore(private val context: Context) {
     private val investableCashKey = doublePreferencesKey("investable_cash")
     private val aiAnalystEnabledKey = booleanPreferencesKey("ai_analyst_enabled")
     private val lastDigestKey = longPreferencesKey("last_weekly_digest_at")
+    private val marketSummaryEnabledKey = booleanPreferencesKey("market_summary_enabled")
+    private val lastCloseSummaryKey = stringPreferencesKey("last_close_summary_date")
+    private val lastAfterHoursSummaryKey = stringPreferencesKey("last_after_hours_summary_date")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
@@ -56,6 +59,20 @@ class SettingsStore(private val context: Context) {
     /** epoch-ms of the last weekly watchlist digest we posted (0 = never). */
     val lastDigestAt: Flow<Long> = context.dataStore.data.map { it[lastDigestKey] ?: 0L }
     suspend fun setLastDigestAt(value: Long) = context.dataStore.edit { it[lastDigestKey] = value }
+
+    /** Master switch for the market-close & after-hours movers recap notifications (default on). */
+    val marketSummaryEnabled: Flow<Boolean> = context.dataStore.data.map { it[marketSummaryEnabledKey] ?: true }
+    suspend fun setMarketSummaryEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[marketSummaryEnabledKey] = enabled }
+
+    /** ET date (yyyy-MM-dd) the close recap last fired; "" = never. Dedups it to once per trading day. */
+    val lastCloseSummaryDate: Flow<String> = context.dataStore.data.map { it[lastCloseSummaryKey] ?: "" }
+    suspend fun setLastCloseSummaryDate(date: String) = context.dataStore.edit { it[lastCloseSummaryKey] = date }
+
+    /** ET date (yyyy-MM-dd) the after-hours recap last fired; "" = never. Dedups it to once per day. */
+    val lastAfterHoursSummaryDate: Flow<String> = context.dataStore.data.map { it[lastAfterHoursSummaryKey] ?: "" }
+    suspend fun setLastAfterHoursSummaryDate(date: String) =
+        context.dataStore.edit { it[lastAfterHoursSummaryKey] = date }
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }

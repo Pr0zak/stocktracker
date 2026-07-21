@@ -55,6 +55,12 @@ data class Quote(
     val asOfEpochMs: Long = 0L,
     /** Yahoo classifies the symbol as an ETF (meta.instrumentType == "ETF") — drives the row accent. */
     val isEtf: Boolean = false,
+    /** Last post-market (after-hours) price; null unless the symbol is in/after the post session. */
+    val postMarketPrice: Double? = null,
+    /** After-hours % move vs the regular-session close; null outside post-market. */
+    val postMarketChangePercent: Double? = null,
+    /** Yahoo's session tag ("REGULAR" | "POST" | "POSTPOST" | "CLOSED" | "PRE" | "PREPRE"); null if absent. */
+    val marketState: String? = null,
 ) {
     val isUp: Boolean get() = change >= 0.0
 }

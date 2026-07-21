@@ -76,6 +76,7 @@ fun SettingsScreen() {
     val showVolume by settings.showVolume.collectAsState(initial = false)
     val savedSignalsUrl by settings.signalsApiUrl.collectAsState(initial = "")
     val aiOn by settings.aiAnalystEnabled.collectAsState(initial = true)
+    val marketSummary by settings.marketSummaryEnabled.collectAsState(initial = true)
 
     var keyField by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedKey) { if (keyField == null) keyField = savedKey }
@@ -148,6 +149,14 @@ fun SettingsScreen() {
                 SwitchRow("VIX fear gauge", null, showVix) {
                     scope.launch { settings.setShowVix(it) }
                 }
+            }
+
+            SettingsSection("Notifications") {
+                SwitchRow(
+                    "Market close & after-hours summary",
+                    "A notification of your watchlist's top movers at the close and after hours",
+                    marketSummary,
+                ) { scope.launch { settings.setMarketSummaryEnabled(it) } }
             }
 
             SettingsSection("Chart") {

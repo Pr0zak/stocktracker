@@ -24,6 +24,7 @@ class WidgetRefreshWorker(
         com.stocktracker.app.notify.AlertChecker.check(applicationContext)
         com.stocktracker.app.notify.SignalScanNotifier.check(applicationContext)
         com.stocktracker.app.notify.CallExitNotifier.check(applicationContext)
+        com.stocktracker.app.notify.MarketSummaryNotifier.check(applicationContext)
         Result.success()
     } catch (e: Exception) {
         Result.retry()

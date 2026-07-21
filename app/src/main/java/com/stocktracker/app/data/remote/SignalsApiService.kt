@@ -147,13 +147,22 @@ class SignalsApiService {
      * "Play with calls" suggester (OC-2): a beginner-friendly long-call structuring read for a STOCK.
      * Pure math on the server (Yahoo options chain + Black-Scholes) — NO LLM, so it works even with the
      * AI kill-switch off. [budget] is the max loss the user is OK with (caps the contract count);
-     * [style] is safer | balanced | cheaper (which delta bucket to lead with). Throws
-     * [HttpStatusException] (HTTP 400) for crypto / symbols with no options chain — the caller surfaces
-     * [analystErrorDetail]. Quotes are ~15-min delayed and stale outside market hours (quote_delayed).
+     * [style] is safer | balanced | cheaper (which delta bucket to lead with). [deep]=true asks the
+     * backend to attach an Opus-authored [analyst][OptionsResponse.analyst] paragraph (costs an LLM
+     * call — gate on the AI kill-switch). Throws [HttpStatusException] (HTTP 400) for crypto / symbols
+     * with no options chain — the caller surfaces [analystErrorDetail]. Quotes are ~15-min delayed and
+     * stale outside market hours (quote_delayed).
      */
-    suspend fun options(baseUrl: String, symbol: String, budget: Double, style: String): OptionsResponse? {
+    suspend fun options(
+        baseUrl: String,
+        symbol: String,
+        budget: Double,
+        style: String,
+        deep: Boolean = false,
+    ): OptionsResponse? {
         if (baseUrl.isBlank()) return null
-        val url = "${baseUrl.trimEnd('/')}/options/${symbol.uppercase()}?budget=$budget&style=$style"
+        val d = if (deep) "&deep=true" else ""
+        val url = "${baseUrl.trimEnd('/')}/options/${symbol.uppercase()}?budget=$budget&style=$style$d"
         val body = Http.getString(url, slow = true) // chain fetch + greeks, not a quote endpoint
         return Http.json.decodeFromString<OptionsResponse>(body)
     }
@@ -490,6 +499,26 @@ data class OptionsResponse(
     val candidates: List<OptionCandidate> = emptyList(),
     val warnings: List<String> = emptyList(),
     val earnings: OptionEarnings? = null,
+    // OC-6/OC-7 additive fields (all nullable — degrade gracefully on older responses):
+    @SerialName("iv_rank") val ivRank: Float? = null,                     // 0-100, null while "building"
+    @SerialName("recommend_alternative") val recommendAlternative: Boolean = false,
+    val alternative: DebitSpread? = null,                                 // cheaper debit call spread, or null
+    val analyst: String? = null,                                          // Opus paragraph, only when deep=true
+)
+
+/** The cheaper debit-call-spread alternative the server suggests when IV is rich (OC-6). Two legs, so
+ *  no single copy-pasteable order ticket — the card just shows the numbers. All numerics nullable. */
+@Serializable
+data class DebitSpread(
+    val structure: String = "debit_call_spread",
+    @SerialName("long_strike") val longStrike: Double? = null,
+    @SerialName("short_strike") val shortStrike: Double? = null,
+    @SerialName("net_debit") val netDebit: Double? = null,   // per-share debit
+    val cost: Double? = null,                                // total debit paid (net_debit × 100 × contracts)
+    @SerialName("max_profit") val maxProfit: Double? = null,
+    @SerialName("max_loss") val maxLoss: Double? = null,
+    val breakeven: Double? = null,
+    val note: String = "",
 )
 
 @Serializable

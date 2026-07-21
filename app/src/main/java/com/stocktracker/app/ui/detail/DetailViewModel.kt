@@ -74,6 +74,10 @@ data class DetailUiState(
     val options: OptionsResponse? = null,
     val optionsLoading: Boolean = false,
     val optionsError: String? = null,
+    /** Deep-dive (Opus) re-fetch of the SAME calls suggestion — costs an LLM call, gated on the AI
+     *  kill-switch. Merges the returned analyst paragraph into [options]. */
+    val optionsDeepLoading: Boolean = false,
+    val optionsDeepError: String? = null,
     /** "Get paid to buy" cash-secured put suggester result (OC-8, on-demand, no LLM). */
     val puts: PutsResponse? = null,
     val putsLoading: Boolean = false,
@@ -273,6 +277,10 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     }
 
     private var optionsJob: Job? = null
+    private var optionsDeepJob: Job? = null
+    // Remember the last suggest params so the deep-dive re-fetch targets the SAME contract set.
+    private var lastOptionsBudget: Double = 0.0
+    private var lastOptionsStyle: String = "balanced"
 
     /**
      * "Play with calls" (OC-2): fetch a suggested long-call contract for this stock/ETF. [budget] is
@@ -285,11 +293,16 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             _state.update { it.copy(optionsError = "Enter a risk budget first") }
             return
         }
+        lastOptionsBudget = budget
+        lastOptionsStyle = style
+        optionsDeepJob?.cancel() // a fresh scan supersedes any in-flight deep dive
         optionsJob?.cancel()
         optionsJob = viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
             if (base.isBlank()) return@launch
-            _state.update { it.copy(optionsLoading = true, optionsError = null) }
+            _state.update {
+                it.copy(optionsLoading = true, optionsError = null, optionsDeepLoading = false, optionsDeepError = null)
+            }
             val res = runCatching { signalsApi.options(base, asset.symbol, budget = budget, style = style) }
             ensureActive() // runCatching swallows cancellation; don't apply a superseded result
             val resp = res.getOrNull()
@@ -299,6 +312,41 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     optionsLoading = false,
                     optionsError = if (resp == null) {
                         analystErrorDetail(res.exceptionOrNull()) ?: "No options chain for this symbol"
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * Deep dive (OC-6): re-fetch the SAME calls suggestion (symbol/budget/style) with deep=true so the
+     * backend attaches an Opus-authored explanation, then merge just that [analyst][OptionsResponse.analyst]
+     * paragraph into the displayed suggestion. A real LLM call, so it respects the AI kill-switch — a
+     * no-op when the switch is off. Only meaningful after [requestOptions] has produced a suggestion.
+     */
+    fun requestOptionsDeep() {
+        val budget = lastOptionsBudget
+        val style = lastOptionsStyle
+        if (budget <= 0) return
+        optionsDeepJob?.cancel()
+        optionsDeepJob = viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            val on = settings.aiAnalystEnabled.first() // real Opus call — honor the kill-switch
+            if (base.isBlank() || !on) return@launch
+            _state.update { it.copy(optionsDeepLoading = true, optionsDeepError = null) }
+            val res = runCatching { signalsApi.options(base, asset.symbol, budget = budget, style = style, deep = true) }
+            ensureActive() // runCatching swallows cancellation; don't apply a superseded result
+            val resp = res.getOrNull()
+            val analyst = resp?.analyst
+            _state.update {
+                it.copy(
+                    // Merge only the analyst paragraph so the shown contract numbers don't visibly shift.
+                    options = if (!analyst.isNullOrBlank()) (it.options?.copy(analyst = analyst) ?: resp) else it.options,
+                    optionsDeepLoading = false,
+                    optionsDeepError = if (analyst.isNullOrBlank()) {
+                        analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't get the deep dive"
                     } else {
                         null
                     },

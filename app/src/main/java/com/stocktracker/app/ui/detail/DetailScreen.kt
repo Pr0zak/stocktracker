@@ -87,6 +87,7 @@ import com.stocktracker.app.data.remote.CoveredCallResponse
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.InsiderResponse
+import com.stocktracker.app.data.remote.DebitSpread
 import com.stocktracker.app.data.remote.OptionCandidate
 import com.stocktracker.app.data.remote.OptionsResponse
 import com.stocktracker.app.data.remote.PutCandidate
@@ -460,7 +461,11 @@ fun DetailScreen(
                     options = state.options,
                     loading = state.optionsLoading,
                     error = state.optionsError,
+                    aiEnabled = state.aiEnabled, // gates the "Deep dive (Opus)" LLM button on the kill-switch
+                    deepLoading = state.optionsDeepLoading,
+                    deepError = state.optionsDeepError,
                     onSuggest = { budget, style -> vm.requestOptions(budget, style) },
+                    onDeepDive = { vm.requestOptionsDeep() },
                     onTrack = { draft -> callDraft = draft },
                 )
 
@@ -2398,7 +2403,11 @@ private fun PlayWithCallsCard(
     options: OptionsResponse?,
     loading: Boolean,
     error: String?,
+    aiEnabled: Boolean,
+    deepLoading: Boolean,
+    deepError: String?,
     onSuggest: (Double, String) -> Unit,
+    onDeepDive: () -> Unit,
     onTrack: (CallDraft) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2483,6 +2492,45 @@ private fun PlayWithCallsCard(
                 }
             } else {
                 Text("No suitable contract for that budget.", style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
+
+            // Cheaper debit-call-spread alternative (OC-6) — an expandable secondary block, only when the
+            // server offered one. Two legs, so no single order ticket: just show the numbers clearly.
+            options.alternative?.let { spread ->
+                val primaryTotal = primary?.let { p -> p.maxLoss ?: p.cost?.let { it * (p.contracts ?: 1) } }
+                DebitSpreadBlock(spread = spread, primaryTotal = primaryTotal)
+            }
+
+            // Deep dive (OC-6) — a real Opus call, so ONLY when the AI kill-switch is on and there's a
+            // suggestion to explain. Tap fetches; result renders as a highlighted paragraph.
+            if (aiEnabled && primary != null) {
+                if (options.analyst.isNullOrBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onDeepDive, enabled = !deepLoading) { Text("Deep dive (Opus)") }
+                        if (deepLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = neutral)
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            "AI explanation · costs a few cents",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = neutral,
+                        )
+                        Text(options.analyst!!, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                deepError?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = TrafficAmber)
+                }
             }
 
             // Go/no-go traffic light + one plain sentence.
@@ -2601,6 +2649,21 @@ private fun CallCandidateBlock(
         Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
     }
 
+    // IV rank (OC-6) — where implied vol sits in its own 1-year range. Null while the server is still
+    // building the history; "rich" IV (high rank) is when the cheaper spread alternative shines.
+    Text(
+        "IV rank: " + (options.ivRank?.let { "%.0f".format(it) } ?: "building"),
+        style = MaterialTheme.typography.labelSmall,
+        color = neutral,
+    )
+    if (options.recommendAlternative) {
+        Text(
+            "IV is rich — the cheaper spread below may be the smarter structure.",
+            style = MaterialTheme.typography.labelSmall,
+            color = TrafficAmber,
+        )
+    }
+
     // The order ticket to paste into Fidelity, shown then copied.
     if (c.orderTicket.isNotBlank()) {
         Text(
@@ -2648,6 +2711,54 @@ private fun CallCandidateCompact(c: OptionCandidate) {
             fontWeight = FontWeight.Bold,
             color = TrafficRed,
         )
+    }
+}
+
+/**
+ * Cheaper debit-call-spread alternative (OC-6) — an expandable secondary block under the primary long
+ * call. A spread is two legs, so there's no single copy-pasteable order ticket; the block just lays the
+ * numbers out clearly. [primaryTotal] is the long call's cost, shown as the "(vs $X)" comparison.
+ */
+@Composable
+private fun DebitSpreadBlock(spread: DebitSpread, primaryTotal: Double?) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    var expanded by remember { mutableStateOf(false) }
+
+    val strikes = listOfNotNull(spread.longStrike, spread.shortStrike).joinToString("/") { usd(it) }
+    val title = "Cheaper alternative" + (if (strikes.isNotBlank()) " — $strikes debit spread" else " — debit spread")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+            .clickable { expanded = !expanded }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.labelMedium, color = neutral)
+            Text(
+                title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (expanded) {
+            val parts = listOfNotNull(
+                spread.cost?.let { c -> "Cost ${usd(c)}" + (primaryTotal?.let { " (vs ${usd(it)})" } ?: "") },
+                spread.maxProfit?.let { "max profit ${usd(it)}" },
+                spread.maxLoss?.let { "max loss ${usd(it)}" },
+                spread.breakeven?.let { "breakeven ${usd(it)}" },
+                spread.shortStrike?.let { "caps your gain at ${usd(it)}" },
+            )
+            if (parts.isNotEmpty()) {
+                Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+            }
+            spread.note.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+        }
     }
 }
 

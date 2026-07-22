@@ -81,12 +81,17 @@ class YahooFinanceService {
     suspend fun cryptoHistory(ticker: String, range: ChartRange): List<PricePoint> {
         val enc = yahooSymbol("$ticker-USD")
         val now = System.currentTimeMillis() / 1000
+        // Per-range Yahoo window + interval: intraday for short views, daily for medium, weekly for
+        // ALL. Yahoo has no "3y"/"2d" range literals, so pin period1 explicitly.
         val params = when (range) {
-            // Yahoo's range=max&interval=1wk silently truncates crypto to ~3y (verified), so pin
-            // period1 well before any coin's inception (2010-01-01) to pull the full weekly series.
+            ChartRange.DAY -> "period1=${now - 2L * 86_400}&period2=$now&interval=5m"
+            ChartRange.WEEK -> "period1=${now - 8L * 86_400}&period2=$now&interval=30m"
+            ChartRange.MONTH -> "period1=${now - 32L * 86_400}&period2=$now&interval=1d"
+            ChartRange.QUARTER -> "period1=${now - 95L * 86_400}&period2=$now&interval=1d"
+            ChartRange.YEAR -> "period1=${now - 370L * 86_400}&period2=$now&interval=1d"
+            ChartRange.THREE_YEAR -> "period1=${now - 3L * 365 * 86_400}&period2=$now&interval=1d"
+            // range=max&interval=1wk silently truncates crypto to ~3y (verified), so pin period1 to 2010.
             ChartRange.ALL -> "period1=1262304000&period2=$now&interval=1wk"
-            // Explicit 3-year daily window (Yahoo has no "3y" range literal).
-            else -> "period1=${now - 3L * 365 * 86_400}&period2=$now&interval=1d"
         }
         val path = "v8/finance/chart/$enc?$params"
         val result = fetchChart(path).chart.result?.firstOrNull() ?: return emptyList()

@@ -102,6 +102,17 @@ class SignalsApiService {
         return Http.json.decodeFromString<InsiderResponse>(body)
     }
 
+    /** Congressional / political trades in a stock over the last 12 months (House+Senate+cabinet, from
+     *  the free kadoa dataset). Free, no LLM. Lagging (~45-day STOCK Act window) — weak, debated
+     *  "smart money" context, never a signal. Returns null on any failure or when nobody traded it. */
+    suspend fun congress(baseUrl: String, symbol: String): CongressBlock? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            val body = Http.getString("${baseUrl.trimEnd('/')}/congress/${symbol.uppercase()}", slow = true)
+            Http.json.decodeFromString<CongressResponse>(body).congress
+        }.getOrNull()
+    }
+
     /** Quality tags (Finnhub basic-financials) — ROE/margins/D-E + Buffett/wide-moat/aristocrat flags.
      *  Stance-neutral business descriptors. Free. Null on 404. */
     suspend fun quality(baseUrl: String, symbol: String): QualityResponse? {
@@ -388,6 +399,37 @@ data class InsiderBuy(
     val date: String = "",
     val shares: Long = 0,
     val value: Long = 0,
+)
+
+/** GET /congress/{symbol} — congressional / political trades in the name. */
+@Serializable
+data class CongressResponse(val symbol: String = "", val congress: CongressBlock? = null)
+
+@Serializable
+data class CongressBlock(
+    @SerialName("window_months") val windowMonths: Int = 12,
+    @SerialName("trade_count") val tradeCount: Int = 0,
+    @SerialName("buy_count") val buyCount: Int = 0,
+    @SerialName("sell_count") val sellCount: Int = 0,
+    @SerialName("net_direction") val netDirection: String = "",      // buying | selling | mixed | neutral
+    @SerialName("distinct_filers") val distinctFilers: Int = 0,
+    @SerialName("cluster_buy") val clusterBuy: Boolean = false,      // 3+ distinct members buying within 30d
+    @SerialName("largest_buy_amount_high") val largestBuyAmountHigh: Long = 0,
+    val parties: Map<String, Int> = emptyMap(),                      // e.g. {"R":3,"D":6,"?":11}
+    val latest: List<CongressTrade> = emptyList(),
+    @SerialName("latest_filing_date") val latestFilingDate: String? = null,
+)
+
+@Serializable
+data class CongressTrade(
+    val filer: String = "",
+    val party: String? = null,
+    val chamber: String? = null,   // senate | house
+    val side: String = "",         // buy | sell | other
+    val amount: String? = null,    // the disclosure amount range label
+    @SerialName("transaction_date") val transactionDate: String? = null,
+    @SerialName("filed_days_after") val filedDaysAfter: Int? = null,
+    val late: Boolean = false,
 )
 
 /** GET /quality/{symbol} — business-quality descriptors (Finnhub basic-financials). */

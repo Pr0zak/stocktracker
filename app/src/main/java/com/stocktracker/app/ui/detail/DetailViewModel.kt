@@ -11,6 +11,7 @@ import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CoveredCallResponse
+import com.stocktracker.app.data.remote.CongressBlock
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.HttpStatusException
@@ -94,6 +95,8 @@ data class DetailUiState(
     val shortPressure: ShortPressureResponse? = null,
     /** Insider buying (Form 4 open-market purchases) — free, auto-fetched for stocks (only set when >0). */
     val insider: InsiderResponse? = null,
+    /** Congressional / political trades — free, auto-fetched for stocks (only set when any disclosed). */
+    val congress: CongressBlock? = null,
     /** Quality tags (ROE/margins/D-E + Buffett/wide-moat/aristocrat flags) — free, auto-fetched for stocks. */
     val quality: QualityResponse? = null,
     /** Halving-cycle + multi-year trend — free data, auto-fetched for crypto. */
@@ -176,6 +179,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 // Insider buying — the bullish informed-money mirror; only surface when buys exist.
                 val ins = runCatching { signalsApi.insider(base, asset.symbol) }.getOrNull()
                 if (ins != null && ins.buyCount12m > 0) _state.update { it.copy(insider = ins) }
+                // Congressional trades — public-official smart money; lagging/weak, shown as context.
+                val cg = runCatching { signalsApi.congress(base, asset.symbol) }.getOrNull()
+                if (cg != null && cg.tradeCount > 0) _state.update { it.copy(congress = cg) }
                 // Business-quality descriptors — stance-neutral context; show when there's anything to show.
                 val q = runCatching { signalsApi.quality(base, asset.symbol) }.getOrNull()
                 if (q != null && (q.hasAnyFlag || q.hasMetrics)) _state.update { it.copy(quality = q) }

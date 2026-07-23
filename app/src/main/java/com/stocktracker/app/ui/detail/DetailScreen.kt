@@ -86,6 +86,7 @@ import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CoveredCallResponse
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
+import com.stocktracker.app.data.remote.CongressBlock
 import com.stocktracker.app.data.remote.InsiderResponse
 import com.stocktracker.app.data.remote.DebitSpread
 import com.stocktracker.app.data.remote.OptionCandidate
@@ -437,6 +438,7 @@ fun DetailScreen(
             }
             state.shortPressure?.let { ShortPressureCard(it) }
             state.insider?.let { InsiderBuyingCard(it) }
+            state.congress?.let { CongressCard(it) }
             state.cycleInfo?.let { HalvingCycleCard(it) }
             state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
             state.quality?.let { QualityCard(it) }
@@ -1668,6 +1670,102 @@ private fun InsiderBuyingCard(ins: InsiderResponse) {
             }
             Text(
                 "Open-market Form 4 purchases — a modest bullish base rate; confirming context, not timing · not advice",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+    }
+}
+
+/**
+ * Congress-trades card (stocks): recent House/Senate/cabinet disclosures in the name (free kadoa data).
+ * WEAK, LAGGING context — STOCK Act filings lag up to ~45 days and the alpha is thin/debated; shown as
+ * color, never a signal. Only rendered when at least one trade was disclosed.
+ */
+@Composable
+private fun CongressCard(c: CongressBlock) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val amber = Color(0xFFB0872B)
+    var open by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Congress trades", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .background(amber.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        "${c.tradeCount} trade${if (c.tradeCount != 1) "s" else ""}",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = amber,
+                    )
+                }
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse congress" else "Expand congress",
+                    tint = neutral,
+                )
+            }
+        }
+        if (!open) {
+            val parts = listOfNotNull(
+                "${c.buyCount} buy / ${c.sellCount} sell (${c.windowMonths}mo)",
+                c.netDirection.ifBlank { null },
+                if (c.clusterBuy) "cluster" else null,
+            )
+            Text(
+                parts.joinToString(" · ") + " · tap for detail",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+        if (open) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                StatCell("Buys (${c.windowMonths}mo)", "${c.buyCount}", modifier = Modifier.weight(1f))
+                StatCell("Sells", "${c.sellCount}", modifier = Modifier.weight(1f))
+                StatCell("Members", "${c.distinctFilers}", modifier = Modifier.weight(1f))
+            }
+            if (c.clusterBuy || c.largestBuyAmountHigh > 0) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (c.clusterBuy) InsiderChip("Cluster buy (3+ in 30d)", amber)
+                    if (c.largestBuyAmountHigh > 0) InsiderChip("Top buy ≤${fmtUsdCompact(c.largestBuyAmountHigh)}", amber)
+                }
+            }
+            val party = c.parties.entries
+                .filter { it.key == "R" || it.key == "D" }
+                .sortedByDescending { it.value }
+            if (party.isNotEmpty()) {
+                Text(
+                    "By party: " + party.joinToString(" · ") { "${it.key} ${it.value}" },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = neutral,
+                )
+            }
+            c.latest.take(3).forEach { t ->
+                val who = t.filer.ifBlank { "Member" } + (t.party?.let { " ($it)" } ?: "")
+                val lag = t.filedDaysAfter?.let { " · filed +${it}d" + if (t.late) " late" else "" } ?: ""
+                Text(
+                    "${t.transactionDate ?: ""} · ${t.side} · $who" + (t.amount?.let { " · $it" } ?: "") + lag,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Text(
+                "STOCK Act filings lag up to ~45 days — weak, debated signal; cluster/size only, never timing · not advice",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )

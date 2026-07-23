@@ -121,6 +121,19 @@ class SignalsApiService {
         }.getOrNull()
     }
 
+    /**
+     * AIE-5 — an instant AI overview of what the markets are doing RIGHT NOW: US session phase, the
+     * major indices + VIX, sector rotation, and the user's watchlist movers, narrated by the analyst.
+     * One LLM call (the server caches it ~3 min, so repeated taps are instant). Gate on the AI switch.
+     * [deep]=true asks for the Opus read (slower, richer). Returns null on a blank URL.
+     */
+    suspend fun marketNow(baseUrl: String, deep: Boolean = false): MarketNowResponse? {
+        if (baseUrl.isBlank()) return null
+        val d = if (deep) "?deep=true" else ""
+        val body = Http.getString("${baseUrl.trimEnd('/')}/market_now$d", slow = true) // LLM latency
+        return Http.json.decodeFromString<MarketNowResponse>(body)
+    }
+
     /** Catalyst calendar (SI dates, OPEX, earnings). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
@@ -434,6 +447,42 @@ data class MoverQuote(
     val symbol: String = "",
     @SerialName("change_percent") val changePercent: Double? = null,
     val price: Double? = null,
+)
+
+/** GET /market_now — the instant AI market-pulse overview (AIE-5). [overview] is the paragraph to show;
+ *  [snapshot] backs a compact header (indices/VIX/session). Numeric fields nullable — degrade gracefully. */
+@Serializable
+data class MarketNowResponse(
+    val overview: String = "",
+    val session: String = "",   // PRE | REGULAR | AFTER | CLOSED
+    val model: String = "",
+    val snapshot: MarketSnapshot = MarketSnapshot(),
+    val cached: Boolean = false,
+    val usage: AiUsage? = null,
+)
+
+@Serializable
+data class MarketSnapshot(
+    val session: String = "",
+    @SerialName("as_of_et") val asOfEt: String = "",
+    val indices: List<MarketPulseQuote> = emptyList(),
+    val vix: VixNow = VixNow(),
+    @SerialName("sector_leaders") val sectorLeaders: List<MarketPulseQuote> = emptyList(),
+    @SerialName("sector_laggards") val sectorLaggards: List<MarketPulseQuote> = emptyList(),
+    @SerialName("watchlist_movers") val watchlistMovers: PulseMovers = PulseMovers(),
+    @SerialName("market_movers") val marketMovers: MoversResponse? = null,
+)
+
+@Serializable
+data class MarketPulseQuote(val name: String = "", val symbol: String = "", val pct: Double? = null)
+
+@Serializable
+data class VixNow(val level: Double? = null, val pct: Double? = null)
+
+@Serializable
+data class PulseMovers(
+    val up: List<MarketPulseQuote> = emptyList(),
+    val down: List<MarketPulseQuote> = emptyList(),
 )
 
 @Serializable

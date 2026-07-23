@@ -21,7 +21,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -127,6 +132,9 @@ fun WatchlistScreen(
             TopAppBar(
                 title = { Text("StockTracker") },
                 actions = {
+                    IconButton(onClick = { vm.openMarketNow() }) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "Market now — AI overview")
+                    }
                     IconButton(onClick = onOpenCalendar) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = "Catalyst calendar")
                     }
@@ -275,6 +283,14 @@ fun WatchlistScreen(
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
         }
+    }
+
+    if (state.marketNow.open) {
+        MarketNowDialog(
+            ui = state.marketNow,
+            onRefresh = { vm.loadMarketNow(force = true) },
+            onDismiss = { vm.dismissMarketNow() },
+        )
     }
 
     if (showNewListDialog) {
@@ -488,3 +504,68 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
         }
     }
 }
+
+/** AIE-5 — the instant "Market now" AI overview, shown in a dialog from the watchlist top bar. */
+@Composable
+private fun MarketNowDialog(
+    ui: MarketNowUi,
+    onRefresh: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val snap = ui.result?.snapshot
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Market now", style = MaterialTheme.typography.titleLarge)
+                if (snap != null && snap.session.isNotBlank()) {
+                    val sess = snap.session.lowercase().replaceFirstChar { it.uppercase() }
+                    val label = if (snap.asOfEt.isNotBlank()) "$sess · ${snap.asOfEt}" else sess
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 440.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                when {
+                    ui.loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Reading the tape…")
+                    }
+                    ui.error != null -> Text(ui.error, color = MaterialTheme.colorScheme.error)
+                    ui.result != null && snap != null -> {
+                        val idx = snap.indices.filter { it.pct != null }
+                        if (idx.isNotEmpty() || snap.vix.pct != null) {
+                            val header = buildString {
+                                idx.take(3).forEach { append("${it.name} ${fmtPct(it.pct)}   ") }
+                                snap.vix.pct?.let { append("VIX ${fmtPct(it)}") }
+                            }
+                            Text(
+                                header.trim(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                        }
+                        Text(ui.result.overview, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    else -> Text("No overview yet — tap Refresh.")
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onRefresh, enabled = !ui.loading) { Text("Refresh") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+private fun fmtPct(p: Double?): String =
+    if (p == null) "—" else (if (p >= 0) "+" else "") + String.format("%.1f%%", p)

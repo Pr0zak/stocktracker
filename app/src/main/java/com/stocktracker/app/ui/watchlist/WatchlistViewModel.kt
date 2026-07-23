@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.remote.MarketNowResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.downsample
@@ -35,12 +36,21 @@ data class DipEntry(
     val pctOff52w: Double?,    // off the 52-week high
 )
 
+/** State for the on-demand "Market now" AI overview dialog (AIE-5). */
+data class MarketNowUi(
+    val open: Boolean = false,
+    val loading: Boolean = false,
+    val result: MarketNowResponse? = null,
+    val error: String? = null,
+)
+
 data class WatchlistUiState(
     val items: List<WatchlistItemUi> = emptyList(),
     val loading: Boolean = true,
     val stocksEnabled: Boolean = true,
     /** "Good time to add" dips from the latest scan, most-severe first — the buy-signal strip. */
     val dips: List<DipEntry> = emptyList(),
+    val marketNow: MarketNowUi = MarketNowUi(),
 )
 
 class WatchlistViewModel : ViewModel() {
@@ -110,6 +120,45 @@ class WatchlistViewModel : ViewModel() {
         viewModelScope.launch {
             loadQuotes(currentAssets)
             loadBelowLineFlags()
+        }
+    }
+
+    /** Open the "Market now" dialog and load the AI overview (a cached result is reused until refreshed). */
+    fun openMarketNow() {
+        _state.update { it.copy(marketNow = it.marketNow.copy(open = true)) }
+        loadMarketNow(force = false)
+    }
+
+    fun dismissMarketNow() {
+        _state.update { it.copy(marketNow = it.marketNow.copy(open = false)) }
+    }
+
+    /** Fetch the instant market overview (one LLM call; the server caches ~3 min). Gated on a configured
+     *  Signals URL + the AI master switch. [force] re-runs even when a result is already loaded. */
+    fun loadMarketNow(force: Boolean) {
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            val on = settings.aiAnalystEnabled.first()
+            if (base.isBlank() || !on) {
+                _state.update { st ->
+                    st.copy(marketNow = st.marketNow.copy(
+                        loading = false,
+                        error = if (base.isBlank()) "Set the Signals service URL in Settings to use this."
+                        else "The AI analyst is off — turn it on in Settings.",
+                    ))
+                }
+                return@launch
+            }
+            if (!force && _state.value.marketNow.result != null) return@launch
+            _state.update { it.copy(marketNow = it.marketNow.copy(loading = true, error = null)) }
+            val res = runCatching { signalsApi.marketNow(base) }
+            _state.update { st ->
+                st.copy(marketNow = st.marketNow.copy(
+                    loading = false,
+                    result = res.getOrNull() ?: st.marketNow.result,
+                    error = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the market overview." },
+                ))
+            }
         }
     }
 

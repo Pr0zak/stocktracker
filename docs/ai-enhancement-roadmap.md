@@ -27,10 +27,11 @@ alt-data "alpha" is weak/lagging; we frame these as **context**, not signals.
 | **C · Recommendations** | Nightly cached best-entries; portfolio-aware rebalance; follow-the-smart-money screen | Nightly Opus now affordable |
 | **D · Trend (short + long)** | Regime labels; a long-term 200-week view (mungbeans thesis); weekly watchlist macro read | Multi-source synthesis now affordable |
 | **E · News→move correlation** | Driver-vs-noise; catalyst extraction to chart; cross-name headline linking | Per-move Opus now affordable |
+| **G · Market-now pulse** ⭐ | On-demand button → instant AI overview of what the whole market is doing *right now* (indices, VIX, sector rotation, watchlist movers, session phase) | On-demand Opus now affordable |
 | **F · New data sources** | Congressional trades + the context-block expansion below | — |
 
-**Chosen build threads (tasks AIE-1…4):** A (annotated charts), F-congress (AIE-2), B-daily-brief (AIE-3),
-E (news→move). Themes C and D ride on the same new blocks and are the natural next wave.
+**Chosen build threads (tasks AIE-1…5):** A (annotated charts), F-congress (AIE-2), B-daily-brief (AIE-3),
+E (news→move), G-market-now (AIE-5). Themes C and D ride on the same new blocks and are the natural next wave.
 
 ---
 
@@ -92,7 +93,7 @@ a prerequisite the app has needed regardless.
 
 ## Suggested build order
 
-1. **AIE-1 · Annotated charts** — highest visual ROI, *zero new data* (renders analyst output). Ship the visual win first.
+1. **AIE-1 · Annotated charts** & **AIE-5 · Market-now pulse** — highest visual ROI, *zero new data* (annotated charts render analyst output; market-now composes VIX + benchmark + `/movers` + session clock). Ship the visual wins first.
 2. **AIE-2 · Congress block** — self-contained new data path (kadoa mirror + a `congress` block + alerts); proves the ingestion pattern the other blocks reuse.
 3. **AIE-3 · Daily brief** — composes existing + congress + FRED calendar; one nightly Opus call.
 4. **AIE-4 · News→move** — Alpha Vantage sentiment + Finnhub + 8-K item codes; the correlation layer.

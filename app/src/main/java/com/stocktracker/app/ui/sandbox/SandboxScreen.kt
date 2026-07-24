@@ -125,14 +125,33 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             }
 
             item { Spacer(Modifier.height(4.dp)) }
-            item { HeaderMetrics(st) }
+            item { HeaderMetrics(st, trendPctPerMonth = ui.trendPctPerMonth) }
             st.settings.goalAmount?.takeIf { it > 0 }?.let { goal ->
                 item { GoalCard(equity = st.equity, goal = goal, goalDate = st.settings.goalDate) }
             }
             item {
                 val up = ui.nav.size >= 2 && ui.nav.last().price >= ui.nav.first().price
-                val overlays = if (ui.benchmarkValues.any { it != null })
-                    listOf(ChartLineOverlay("S&P 500", Color(0xFFEC4899), ui.benchmarkValues)) else emptyList()
+                val overlays = buildList {
+                    if (ui.benchmarkValues.any { it != null }) {
+                        add(ChartLineOverlay("S&P 500", Color(0xFFEC4899), ui.benchmarkValues))
+                    }
+                    // The trajectory through the day-to-day noise — "how it's doing over time".
+                    if (ui.trendValues.any { it != null }) {
+                        add(ChartLineOverlay("Trend", AMBER, ui.trendValues))
+                    }
+                }
+                // Out/under-performance vs the S&P, as its own pane with a zero line: above 0 = ahead.
+                val panes = if (ui.vsBenchmarkSeries.any { it != null }) {
+                    listOf(
+                        com.stocktracker.app.ui.components.ChartSubPane(
+                            label = "vs S&P (pts)",
+                            lines = listOf(ChartLineOverlay("vs S&P", GREEN, ui.vsBenchmarkSeries)),
+                            guides = listOf(0.0),
+                        ),
+                    )
+                } else {
+                    emptyList()
+                }
                 val markers = ui.trades
                     .filter { it.status == "filled" && (it.side == "buy" || it.side == "sell") }
                     .take(40)
@@ -140,8 +159,8 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                 if (ui.nav.size >= 2) {
                     PriceChart(
                         points = ui.nav, up = up, showHighLow = true, showAxis = true,
-                        overlays = overlays, markers = markers,
-                        modifier = Modifier.fillMaxWidth().height(220.dp),
+                        overlays = overlays, markers = markers, subPanes = panes,
+                        modifier = Modifier.fillMaxWidth().height(280.dp),
                         valueFormatter = { "$" + Formatting.compact(it) },
                         timeFormatter = {
                             com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL)
@@ -178,7 +197,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
 }
 
 @Composable
-private fun HeaderMetrics(st: SandboxState) {
+private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -192,6 +211,14 @@ private fun HeaderMetrics(st: SandboxState) {
             st.vsBenchmarkPct?.let {
                 Text("vs S&P " + signedPct(it), color = if (it >= 0) GREEN else RED, style = MaterialTheme.typography.titleSmall)
             }
+        }
+        trendPctPerMonth?.let { rate ->
+            Text(
+                "Trending " + signedPct(rate) + " / month",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = if (rate >= 0) GREEN else RED,
+            )
         }
         Text(
             "Cash " + (st.cashPct?.let { "${it.toInt()}%" } ?: "—") +

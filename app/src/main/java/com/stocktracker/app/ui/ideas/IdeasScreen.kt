@@ -80,6 +80,7 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            com.stocktracker.app.ui.components.BackendStatusBanner()
             if (!state.enabled) {
                 Text(
                     "AI analyst is off. Enable it and set your Signals service URL in " +

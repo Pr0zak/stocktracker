@@ -55,6 +55,9 @@ object ServiceLocator {
         priceCache = PriceCache(app)
         callPositionStore = CallPositionStore(app)
         closedCallPositionStore = ClosedCallPositionStore(app)
+        // Poll the self-hosted backend so the UI can show one clear "unreachable" banner rather than
+        // every AI feature failing silently when the phone is off the home network.
+        com.stocktracker.app.data.remote.SignalsHealth.start()
 
         // Seed the override synchronously so the first refresh (incl. a widget worker on cold
         // start) already has the persisted key, then keep it in sync with Settings.

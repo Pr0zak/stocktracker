@@ -113,6 +113,7 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            com.stocktracker.app.ui.components.BackendStatusBanner()
             if (!state.hasHoldings) {
                 Text(
                     "No holdings yet",

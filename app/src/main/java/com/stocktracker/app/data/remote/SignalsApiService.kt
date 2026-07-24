@@ -13,6 +13,26 @@ import kotlinx.serialization.encodeToString
 class SignalsApiService {
 
     /**
+     * Every Signals request goes through [sGet]/[sPost] so reachability is tracked in ONE place —
+     * [SignalsHealth] can then drive a single "backend unreachable" banner instead of each screen
+     * inventing its own message. Deliberately NOT hooked into [Http] itself: that client is shared with
+     * Yahoo/Finnhub/CoinGecko, and their outages say nothing about the self-hosted service.
+     */
+    private suspend fun sGet(url: String, slow: Boolean = false): String =
+        try {
+            Http.getString(url, slow).also { SignalsHealth.reportSuccess() }
+        } catch (e: Throwable) {
+            SignalsHealth.reportFailure(e); throw e
+        }
+
+    private suspend fun sPost(url: String, body: String, slow: Boolean = false): String =
+        try {
+            Http.postJson(url, body, slow).also { SignalsHealth.reportSuccess() }
+        } catch (e: Throwable) {
+            SignalsHealth.reportFailure(e); throw e
+        }
+
+    /**
      * @param baseUrl e.g. "http://your-host:8000"; blank returns null (feature off).
      * @param deep    true asks the backend for the deep (Opus) model instead of the cheap scan.
      */
@@ -39,27 +59,27 @@ class SignalsApiService {
         val rs = ruleScore?.let { "&rule_score=$it" } ?: ""
         val rf = if (refresh) "&refresh=true" else ""
         val url = "${baseUrl.trimEnd('/')}/signal/$sym?crypto=$crypto&deep=$deep$pos$rs$rf"
-        val body = Http.getString(url, slow = true) // LLM latency, not a quote endpoint
+        val body = sGet(url, slow = true) // LLM latency, not a quote endpoint
         return Http.json.decodeFromString<AiSignalResponse>(body)
     }
 
     /** The latest nightly-scan result (for the flip-notification check). */
     suspend fun latestScan(baseUrl: String): ScanLatest? {
         if (baseUrl.isBlank()) return null
-        val body = Http.getString("${baseUrl.trimEnd('/')}/scan/latest")
+        val body = sGet("${baseUrl.trimEnd('/')}/scan/latest")
         return Http.json.decodeFromString<ScanLatest>(body)
     }
 
     /** Push the app's watchlist up so the backend's nightly scan tracks what the user tracks. */
     suspend fun syncWatchlist(baseUrl: String, stocks: List<String>, cryptos: List<String>) {
         if (baseUrl.isBlank()) return
-        Http.postJson("${baseUrl.trimEnd('/')}/api/settings", Http.json.encodeToString(WatchlistSync(stocks, cryptos)))
+        sPost("${baseUrl.trimEnd('/')}/api/settings", Http.json.encodeToString(WatchlistSync(stocks, cryptos)))
     }
 
     /** Short-pressure read (FINRA SI + short volume + SEC FTDs) — free, no LLM call. Stocks only. */
     suspend fun shortPressure(baseUrl: String, symbol: String): ShortPressureResponse? {
         if (baseUrl.isBlank()) return null
-        val body = Http.getString("${baseUrl.trimEnd('/')}/shorts/${symbol.uppercase()}", slow = true)
+        val body = sGet("${baseUrl.trimEnd('/')}/shorts/${symbol.uppercase()}", slow = true)
         return Http.json.decodeFromString<ShortPressureResponse>(body)
     }
 
@@ -67,7 +87,7 @@ class SignalsApiService {
      *  can't chart — e.g. warrants/OTC. Returns bars + the source used, or null. */
     suspend fun history(baseUrl: String, symbol: String): HistoryResponse? {
         if (baseUrl.isBlank()) return null
-        val body = Http.getString("${baseUrl.trimEnd('/')}/history/${symbol.uppercase()}", slow = true)
+        val body = sGet("${baseUrl.trimEnd('/')}/history/${symbol.uppercase()}", slow = true)
         return Http.json.decodeFromString<HistoryResponse>(body)
     }
 
@@ -75,7 +95,7 @@ class SignalsApiService {
     suspend fun cycleInfo(baseUrl: String, symbol: String): CycleResponse? {
         if (baseUrl.isBlank()) return null
         val sym = "${symbol.uppercase()}-USD"
-        val body = Http.getString("${baseUrl.trimEnd('/')}/cycle/$sym", slow = true)
+        val body = sGet("${baseUrl.trimEnd('/')}/cycle/$sym", slow = true)
         return Http.json.decodeFromString<CycleResponse>(body)
     }
 
@@ -84,7 +104,7 @@ class SignalsApiService {
      *  LLM. Null (404) for names with under ~4 years of weekly history. */
     suspend fun trend(baseUrl: String, symbol: String): TrendResponse? {
         if (baseUrl.isBlank()) return null
-        val body = Http.getString("${baseUrl.trimEnd('/')}/trend/${symbol.uppercase()}", slow = true)
+        val body = sGet("${baseUrl.trimEnd('/')}/trend/${symbol.uppercase()}", slow = true)
         return Http.json.decodeFromString<TrendResponse>(body)
     }
 
@@ -92,7 +112,7 @@ class SignalsApiService {
      *  line, vs the S&P 500. Evidence context, not a signal. Free, no LLM. Null (404) if too new. */
     suspend fun touchStudy(baseUrl: String, symbol: String): TouchStudyResponse? {
         if (baseUrl.isBlank()) return null
-        val body = Http.getString("${baseUrl.trimEnd('/')}/touches/${symbol.uppercase()}", slow = true)
+        val body = sGet("${baseUrl.trimEnd('/')}/touches/${symbol.uppercase()}", slow = true)
         return Http.json.decodeFromString<TouchStudyResponse>(body)
     }
 
@@ -100,7 +120,7 @@ class SignalsApiService {
      *  bullish smart-money read. Free (needs a Finnhub key on the service). Null on 404/no-key. */
     suspend fun insider(baseUrl: String, symbol: String): InsiderResponse? {
         if (baseUrl.isBlank()) return null
-        val body = Http.getString("${baseUrl.trimEnd('/')}/insider/${symbol.uppercase()}", slow = true)
+        val body = sGet("${baseUrl.trimEnd('/')}/insider/${symbol.uppercase()}", slow = true)
         return Http.json.decodeFromString<InsiderResponse>(body)
     }
 
@@ -110,7 +130,7 @@ class SignalsApiService {
     suspend fun congress(baseUrl: String, symbol: String): CongressBlock? {
         if (baseUrl.isBlank()) return null
         return runCatching {
-            val body = Http.getString("${baseUrl.trimEnd('/')}/congress/${symbol.uppercase()}", slow = true)
+            val body = sGet("${baseUrl.trimEnd('/')}/congress/${symbol.uppercase()}", slow = true)
             Http.json.decodeFromString<CongressResponse>(body).congress
         }.getOrNull()
     }
@@ -120,7 +140,7 @@ class SignalsApiService {
     suspend fun seasonality(baseUrl: String, symbol: String): SeasonalityBlock? {
         if (baseUrl.isBlank()) return null
         return runCatching {
-            val body = Http.getString("${baseUrl.trimEnd('/')}/seasonality/${symbol.uppercase()}", slow = true)
+            val body = sGet("${baseUrl.trimEnd('/')}/seasonality/${symbol.uppercase()}", slow = true)
             Http.json.decodeFromString<SeasonalityResponse>(body).seasonality
         }.getOrNull()
     }
@@ -136,7 +156,7 @@ class SignalsApiService {
             RebalanceRequestBody(cash, deep, maxPositionPct.toDouble(), holdings),
         )
         return Http.json.decodeFromString<RebalanceResponse>(
-            Http.postJson("${baseUrl.trimEnd('/')}/portfolio/rebalance", body, slow = true),
+            sPost("${baseUrl.trimEnd('/')}/portfolio/rebalance", body, slow = true),
         )
     }
 
@@ -149,7 +169,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return null
         return runCatching {
             val q = "?deep=$deep" + if (refresh) "&refresh=true" else ""
-            val body = Http.getString("${baseUrl.trimEnd('/')}/news_moves/${symbol.uppercase()}$q", slow = true)
+            val body = sGet("${baseUrl.trimEnd('/')}/news_moves/${symbol.uppercase()}$q", slow = true)
             Http.json.decodeFromString<NewsMovesResponse>(body)
         }.getOrNull()
     }
@@ -162,7 +182,7 @@ class SignalsApiService {
         if (baseUrl.isBlank() || holdings.isEmpty()) return null
         val body = Http.json.encodeToString(PortfolioReviewRequest(cash, deep, holdings))
         return Http.json.decodeFromString<PortfolioReviewResponse>(
-            Http.postJson("${baseUrl.trimEnd('/')}/portfolio/review", body, slow = true),
+            sPost("${baseUrl.trimEnd('/')}/portfolio/review", body, slow = true),
         )
     }
 
@@ -170,7 +190,7 @@ class SignalsApiService {
      *  Stance-neutral business descriptors. Free. Null on 404. */
     suspend fun quality(baseUrl: String, symbol: String): QualityResponse? {
         if (baseUrl.isBlank()) return null
-        val body = Http.getString("${baseUrl.trimEnd('/')}/quality/${symbol.uppercase()}", slow = true)
+        val body = sGet("${baseUrl.trimEnd('/')}/quality/${symbol.uppercase()}", slow = true)
         return Http.json.decodeFromString<QualityResponse>(body)
     }
 
@@ -180,7 +200,7 @@ class SignalsApiService {
     suspend fun movers(baseUrl: String, count: Int = 6): MoversResponse? {
         if (baseUrl.isBlank()) return null
         return runCatching {
-            val body = Http.getString("${baseUrl.trimEnd('/')}/movers?count=$count")
+            val body = sGet("${baseUrl.trimEnd('/')}/movers?count=$count")
             Http.json.decodeFromString<MoversResponse>(body)
         }.getOrNull()
     }
@@ -194,7 +214,7 @@ class SignalsApiService {
     suspend fun marketNow(baseUrl: String, deep: Boolean = false): MarketNowResponse? {
         if (baseUrl.isBlank()) return null
         val d = if (deep) "?deep=true" else ""
-        val body = Http.getString("${baseUrl.trimEnd('/')}/market_now$d", slow = true) // LLM latency
+        val body = sGet("${baseUrl.trimEnd('/')}/market_now$d", slow = true) // LLM latency
         return Http.json.decodeFromString<MarketNowResponse>(body)
     }
 
@@ -208,7 +228,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return null
         return runCatching {
             val d = if (deep) "?deep=true" else ""
-            val body = Http.getString("${baseUrl.trimEnd('/')}/daily_brief$d", slow = true) // LLM latency
+            val body = sGet("${baseUrl.trimEnd('/')}/daily_brief$d", slow = true) // LLM latency
             Http.json.decodeFromString<DailyBriefResponse>(body)
         }.getOrNull()
     }
@@ -220,7 +240,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxState>(
-                Http.getString("${baseUrl.trimEnd('/')}/sandbox/state", slow = true))
+                sGet("${baseUrl.trimEnd('/')}/sandbox/state", slow = true))
         }.getOrNull()
     }
 
@@ -229,7 +249,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return emptyList()
         return runCatching {
             Http.json.decodeFromString<SandboxNavResponse>(
-                Http.getString("${baseUrl.trimEnd('/')}/sandbox/nav?days=$days")).series
+                sGet("${baseUrl.trimEnd('/')}/sandbox/nav?days=$days")).series
         }.getOrDefault(emptyList())
     }
 
@@ -238,7 +258,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return emptyList()
         return runCatching {
             Http.json.decodeFromString<SandboxTradesResponse>(
-                Http.getString("${baseUrl.trimEnd('/')}/sandbox/trades?limit=$limit")).trades
+                sGet("${baseUrl.trimEnd('/')}/sandbox/trades?limit=$limit")).trades
         }.getOrDefault(emptyList())
     }
 
@@ -246,7 +266,7 @@ class SignalsApiService {
     suspend fun sandboxFund(baseUrl: String, amount: Double): Boolean {
         if (baseUrl.isBlank()) return false
         return runCatching {
-            Http.postJson("${baseUrl.trimEnd('/')}/sandbox/fund",
+            sPost("${baseUrl.trimEnd('/')}/sandbox/fund",
                 Http.json.encodeToString(SandboxFundRequest(amount)))
             true
         }.getOrDefault(false)
@@ -257,7 +277,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxSettings>(
-                Http.postJson("${baseUrl.trimEnd('/')}/sandbox/settings", Http.json.encodeToString(patch)))
+                sPost("${baseUrl.trimEnd('/')}/sandbox/settings", Http.json.encodeToString(patch)))
         }.getOrNull()
     }
 
@@ -266,7 +286,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxTickResult>(
-                Http.postJson("${baseUrl.trimEnd('/')}/sandbox/tick",
+                sPost("${baseUrl.trimEnd('/')}/sandbox/tick",
                     Http.json.encodeToString(SandboxTickRequest(force = force)), slow = true))
         }.getOrNull()
     }
@@ -275,7 +295,7 @@ class SignalsApiService {
     suspend fun sandboxReset(baseUrl: String): Boolean {
         if (baseUrl.isBlank()) return false
         return runCatching {
-            Http.postJson("${baseUrl.trimEnd('/')}/sandbox/reset", Http.json.encodeToString(SandboxResetRequest(true)))
+            sPost("${baseUrl.trimEnd('/')}/sandbox/reset", Http.json.encodeToString(SandboxResetRequest(true)))
             true
         }.getOrDefault(false)
     }
@@ -286,7 +306,7 @@ class SignalsApiService {
     suspend fun regime(baseUrl: String): RegimeResponse? {
         if (baseUrl.isBlank()) return null
         return runCatching {
-            val body = Http.getString("${baseUrl.trimEnd('/')}/regime", slow = true) // LLM latency
+            val body = sGet("${baseUrl.trimEnd('/')}/regime", slow = true) // LLM latency
             Http.json.decodeFromString<RegimeResponse>(body)
         }.getOrNull()
     }
@@ -296,7 +316,7 @@ class SignalsApiService {
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
         if (baseUrl.isBlank()) return null
         val q = symbol?.let { "?symbol=${it.uppercase()}" } ?: ""
-        val body = Http.getString("${baseUrl.trimEnd('/')}/calendar$q", slow = true)
+        val body = sGet("${baseUrl.trimEnd('/')}/calendar$q", slow = true)
         return Http.json.decodeFromString<CalendarResponse>(body)
     }
 
@@ -323,7 +343,7 @@ class SignalsApiService {
         }
         val rf = if (refresh) "&refresh=true" else ""
         val url = "${baseUrl.trimEnd('/')}/plan/$sym?cash=$cash&crypto=$crypto&deep=$deep$pos$rf"
-        return Http.json.decodeFromString<PlanResponse>(Http.getString(url, slow = true))
+        return Http.json.decodeFromString<PlanResponse>(sGet(url, slow = true))
     }
 
     /**
@@ -346,7 +366,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return null
         val d = if (deep) "&deep=true" else ""
         val url = "${baseUrl.trimEnd('/')}/options/${symbol.uppercase()}?budget=$budget&style=$style$d"
-        val body = Http.getString(url, slow = true) // chain fetch + greeks, not a quote endpoint
+        val body = sGet(url, slow = true) // chain fetch + greeks, not a quote endpoint
         return Http.json.decodeFromString<OptionsResponse>(body)
     }
 
@@ -362,7 +382,7 @@ class SignalsApiService {
     suspend fun puts(baseUrl: String, symbol: String, cash: Double, style: String): PutsResponse? {
         if (baseUrl.isBlank()) return null
         val url = "${baseUrl.trimEnd('/')}/puts/${symbol.uppercase()}?cash=$cash&style=$style"
-        val body = Http.getString(url, slow = true) // chain fetch + greeks, not a quote endpoint
+        val body = sGet(url, slow = true) // chain fetch + greeks, not a quote endpoint
         return Http.json.decodeFromString<PutsResponse>(body)
     }
 
@@ -382,7 +402,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return null
         val t = target?.let { "&target=$it" } ?: ""
         val url = "${baseUrl.trimEnd('/')}/covered_call/${symbol.uppercase()}?shares=$shares$t"
-        val body = Http.getString(url, slow = true) // chain fetch + greeks, not a quote endpoint
+        val body = sGet(url, slow = true) // chain fetch + greeks, not a quote endpoint
         return Http.json.decodeFromString<CoveredCallResponse>(body)
     }
 
@@ -405,7 +425,7 @@ class SignalsApiService {
         val url = "${baseUrl.trimEnd('/')}/option_quote/${symbol.uppercase()}" +
             "?expiry_ts=$expiryTs&strike=$strike&type=$type"
         val body = try {
-            Http.getString(url, slow = true) // chain fetch + greeks, not a quote endpoint
+            sGet(url, slow = true) // chain fetch + greeks, not a quote endpoint
         } catch (e: HttpStatusException) {
             if (e.code == 404 || e.code == 400) return null
             throw e
@@ -429,7 +449,7 @@ class SignalsApiService {
             RecommendRequest(cash, deep, holdings, if (market) "market" else "watchlist"),
         )
         return Http.json.decodeFromString<RecommendationsResponse>(
-            Http.postJson("${baseUrl.trimEnd('/')}/recommendations", body, slow = true),
+            sPost("${baseUrl.trimEnd('/')}/recommendations", body, slow = true),
         )
     }
 }

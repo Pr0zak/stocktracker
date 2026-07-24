@@ -115,6 +115,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            item { com.stocktracker.app.ui.components.BackendStatusBanner() }
             if (!ui.configured) {
                 item { InfoCard("Set the Signals service URL in Settings to use the AI sandbox.") }
                 return@LazyColumn

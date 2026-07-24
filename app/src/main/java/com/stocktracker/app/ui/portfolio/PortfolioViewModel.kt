@@ -211,11 +211,17 @@ class PortfolioViewModel : ViewModel() {
         }
         val dayMs = 86_400_000L
         val allDays = perAsset.flatMap { (_, pts) -> pts.map { it.epochMs / dayMs } }.toSortedSet()
+        // A holding with ANY history must have STARTED before we value the book — otherwise the earliest
+        // days sum only the holdings whose data begins first (e.g. a crypto/ETF with a longer window),
+        // producing a spurious low first point and a vertical spike. Holdings with no history at all are
+        // excluded from the reconstruction (their live value still counts in the header total).
+        val hasData = BooleanArray(perAsset.size) { perAsset[it].second.isNotEmpty() }
         val idx = IntArray(perAsset.size)
         val last = DoubleArray(perAsset.size) { Double.NaN }
         val series = ArrayList<PricePoint>(allDays.size)
         for (day in allDays) {
             var total = 0.0
+            var allStarted = true
             var any = false
             perAsset.forEachIndexed { i, (asset, pts) ->
                 while (idx[i] < pts.size && pts[idx[i]].epochMs / dayMs <= day) {
@@ -225,9 +231,11 @@ class PortfolioViewModel : ViewModel() {
                 if (!last[i].isNaN()) {
                     total += (asset.shares ?: 0.0) * last[i]
                     any = true
+                } else if (hasData[i]) {
+                    allStarted = false   // this holding has history but hasn't begun yet on `day`
                 }
             }
-            if (any) series.add(PricePoint(day * dayMs, total))
+            if (any && allStarted) series.add(PricePoint(day * dayMs, total))
         }
 
         // Benchmark overlay + risk/relative stats: "the same starting value in the S&P 500".

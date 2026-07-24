@@ -5,7 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
+import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.remote.HoldingSync
+import com.stocktracker.app.data.remote.PortfolioReviewResponse
+import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -14,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -28,6 +33,14 @@ data class Holding(
     val gain: Double? get() = costBasis?.let { value - it }
     val gainPercent: Double? get() = costBasis?.takeIf { it != 0.0 }?.let { (value - it) / it * 100.0 }
 }
+
+/** State for the on-demand AI portfolio review dialog. */
+data class PortfolioReviewUi(
+    val open: Boolean = false,
+    val loading: Boolean = false,
+    val result: PortfolioReviewResponse? = null,
+    val error: String? = null,
+)
 
 data class PortfolioUiState(
     val totalValue: Double = 0.0,
@@ -49,6 +62,7 @@ data class PortfolioUiState(
     val loading: Boolean = true,
     val loadingChart: Boolean = true,
     val hasHoldings: Boolean = true,
+    val review: PortfolioReviewUi = PortfolioReviewUi(),
 )
 
 /** Ranges offered for the portfolio value graph (daily data). */
@@ -58,6 +72,8 @@ class PortfolioViewModel : ViewModel() {
 
     private val repo = ServiceLocator.repository
     private val store = ServiceLocator.watchlistStore
+    private val signalsApi = SignalsApiService()
+    private val settings = ServiceLocator.settingsStore
 
     private val _state = MutableStateFlow(PortfolioUiState())
     val state = _state.asStateFlow()
@@ -88,6 +104,53 @@ class PortfolioViewModel : ViewModel() {
 
     fun refresh() {
         if (holdings.isNotEmpty()) viewModelScope.launch { loadCurrent(holdings) }
+    }
+
+    /** Open the AI portfolio-review dialog and load it (a cached result is reused until refreshed). */
+    fun openReview() {
+        _state.update { it.copy(review = it.review.copy(open = true)) }
+        loadReview(force = false)
+    }
+
+    fun dismissReview() {
+        _state.update { it.copy(review = it.review.copy(open = false)) }
+    }
+
+    /** One structured LLM review over the whole book. Gated on a configured Signals URL + the AI switch. */
+    fun loadReview(force: Boolean) {
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            val on = settings.aiAnalystEnabled.first()
+            val held = _state.value.holdings
+            if (base.isBlank() || !on) {
+                _state.update { st ->
+                    st.copy(review = st.review.copy(loading = false,
+                        error = if (base.isBlank()) "Set the Signals service URL in Settings to use this."
+                        else "The AI analyst is off — turn it on in Settings."))
+                }
+                return@launch
+            }
+            if (held.isEmpty()) {
+                _state.update { it.copy(review = it.review.copy(loading = false, error = "No holdings to review.")) }
+                return@launch
+            }
+            if (!force && _state.value.review.result != null) return@launch
+            _state.update { it.copy(review = it.review.copy(loading = true, error = null)) }
+            val syncs = held.map { h ->
+                val avg = h.costBasis?.takeIf { it > 0 && h.shares > 0 }?.div(h.shares) ?: (h.asset.avgCost ?: 0.0)
+                val sym = if (h.asset.type == AssetType.CRYPTO) "${h.asset.symbol.uppercase()}-USD"
+                          else h.asset.symbol.uppercase()
+                HoldingSync(sym, h.shares, avg)
+            }
+            val res = runCatching { signalsApi.portfolioReview(base, 0.0, syncs) }
+            _state.update { st ->
+                st.copy(review = st.review.copy(
+                    loading = false,
+                    result = res.getOrNull() ?: st.review.result,
+                    error = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the review." },
+                ))
+            }
+        }
     }
 
     fun selectRange(range: ChartRange) {

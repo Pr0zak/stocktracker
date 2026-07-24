@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -340,27 +342,49 @@ fun WatchlistScreen(
 }
 
 /**
- * "Good time to add" strip atop the watchlist — the dips from the latest scan, most-severe first, in
- * plain language. A cue to add EXTRA on weakness, deliberately NOT a "buy now" signal.
+ * "Dip radar" strip atop the watchlist — the dips from the latest scan, most-severe first, in plain
+ * language. A cue to add EXTRA on weakness, deliberately NOT a "buy now" signal. Collapsed by default
+ * (it can take a lot of vertical space); tap the header to expand.
  */
 @Composable
 private fun GoodTimeToAddSection(dips: List<DipEntry>, onOpenAll: () -> Unit) {
+    var open by remember { mutableStateOf(false) }   // collapsed by default
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))
-            .clickable { onOpenAll() }
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Good time to add", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        dips.take(6).forEach { DipRow(it) }
-        Text(
-            if (dips.size > 6) "See all ${dips.size} →" else "See all →",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { open = !open },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Dip radar", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "${dips.size} name${if (dips.size == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse dip radar" else "Expand dip radar",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (open) {
+            dips.take(6).forEach { DipRow(it) }
+            Text(
+                if (dips.size > 6) "See all ${dips.size} →" else "See all →",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { onOpenAll() },
+            )
+        }
     }
 }
 
@@ -472,7 +496,7 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Good time to add") },
+                title = { Text("Dip radar") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -556,7 +580,33 @@ private fun MarketNowDialog(
                             )
                             Spacer(Modifier.height(10.dp))
                         }
-                        Text(ui.result.overview, style = MaterialTheme.typography.bodyMedium)
+                        val ov = ui.result.overviewStruct
+                        if (ov != null) {
+                            val toneColor = when (ov.tone.lowercase()) {
+                                "risk-on" -> Color(0xFF2E9E57)
+                                "risk-off" -> Color(0xFFD1453B)
+                                else -> Color(0xFFB0872B)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .background(toneColor.copy(alpha = 0.16f), RoundedCornerShape(50))
+                                    .padding(horizontal = 10.dp, vertical = 3.dp),
+                            ) {
+                                Text(ov.tone.uppercase(), style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold, color = toneColor)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(ov.headline, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(8.dp))
+                            ov.points.forEach { p ->
+                                Row(modifier = Modifier.padding(bottom = 6.dp)) {
+                                    Text("•  ", style = MaterialTheme.typography.bodyMedium)
+                                    Text(p, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        } else {
+                            Text(ui.result.overview, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                     else -> Text("No overview yet — tap Refresh.")
                 }

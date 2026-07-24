@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -88,6 +90,7 @@ import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.CongressBlock
 import com.stocktracker.app.data.remote.InsiderResponse
+import com.stocktracker.app.data.remote.SeasonalityBlock
 import com.stocktracker.app.data.remote.DebitSpread
 import com.stocktracker.app.data.remote.OptionCandidate
 import com.stocktracker.app.data.remote.OptionsResponse
@@ -439,6 +442,7 @@ fun DetailScreen(
             state.shortPressure?.let { ShortPressureCard(it) }
             state.insider?.let { InsiderBuyingCard(it) }
             state.congress?.let { CongressCard(it) }
+            state.seasonality?.let { SeasonalityCard(it) }
             state.cycleInfo?.let { HalvingCycleCard(it) }
             state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
             state.quality?.let { QualityCard(it) }
@@ -1772,6 +1776,104 @@ private fun CongressCard(c: CongressBlock) {
         }
     }
 }
+
+/**
+ * Seasonality card (stocks): typical per-calendar-month price action from ~10y of monthly bars — the
+ * current month's average return + hit rate, a 12-month bar chart, and the best/worst months. WEAK,
+ * sample-limited context (a handful of years per month), never a timing signal on its own.
+ */
+@Composable
+private fun SeasonalityCard(s: SeasonalityBlock) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val green = Color(0xFF2E9E57)
+    val red = Color(0xFFD1453B)
+    var open by remember { mutableStateOf(false) }
+    val cur = s.currentMonth
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Seasonality", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val chipColor = if ((cur?.avgPct ?: 0.0) >= 0) green else red
+                Box(
+                    modifier = Modifier
+                        .background(chipColor.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        "${cur?.name ?: "—"} ${fmtSignedPct(cur?.avgPct)}",
+                        style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = chipColor,
+                    )
+                }
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse seasonality" else "Expand seasonality", tint = neutral,
+                )
+            }
+        }
+        if (!open && cur != null) {
+            Text(
+                "${cur.name} is historically ${fmtSignedPct(cur.avgPct)} on average · up ${cur.hitRate ?: 0}% of ${cur.n} years · tap for detail",
+                style = MaterialTheme.typography.labelSmall, color = neutral,
+            )
+        }
+        if (open) {
+            val months = s.months.filter { it.avgPct != null }
+            val maxAbs = months.maxOfOrNull { kotlin.math.abs(it.avgPct ?: 0.0) } ?: 1.0
+            Row(
+                modifier = Modifier.fillMaxWidth().height(60.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                months.forEach { m ->
+                    val v = m.avgPct ?: 0.0
+                    val frac = (kotlin.math.abs(v) / maxAbs).toFloat().coerceIn(0.06f, 1f)
+                    val isCur = cur != null && m.month == cur.month
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(frac)
+                            .background(if (v >= 0) green else red, RoundedCornerShape(2.dp))
+                            .then(if (isCur) Modifier.border(1.5.dp, neutral, RoundedCornerShape(2.dp)) else Modifier),
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                months.forEach { m ->
+                    Text(
+                        m.name.take(1),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (cur != null && m.month == cur.month) neutral else neutral.copy(alpha = 0.5f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                StatCell("Best month", "${s.bestMonth?.name ?: "—"} ${fmtSignedPct(s.bestMonth?.avgPct)}", valueColor = green, modifier = Modifier.weight(1f))
+                StatCell("Worst month", "${s.worstMonth?.name ?: "—"} ${fmtSignedPct(s.worstMonth?.avgPct)}", valueColor = red, modifier = Modifier.weight(1f))
+            }
+            Text(
+                s.sampleNote.ifBlank { "~${s.years} years of monthly data — small per-month sample" } + " · not advice",
+                style = MaterialTheme.typography.labelSmall, color = neutral,
+            )
+        }
+    }
+}
+
+private fun fmtSignedPct(p: Double?): String =
+    if (p == null) "—" else (if (p >= 0) "+" else "") + String.format("%.1f%%", p)
 
 /**
  * Quality card (stocks): business-quality descriptors from Finnhub basic-financials — ROE, margins,

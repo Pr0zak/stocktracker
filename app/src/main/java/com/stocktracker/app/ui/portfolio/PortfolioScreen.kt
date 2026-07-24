@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -15,8 +17,14 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -56,7 +64,25 @@ fun PortfolioScreen() {
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
     var percentMode by remember { mutableStateOf(false) }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Portfolio") }) }) { padding ->
+    if (state.review.open) {
+        PortfolioReviewDialog(
+            ui = state.review,
+            onRefresh = { vm.loadReview(force = true) },
+            onDismiss = { vm.dismissReview() },
+        )
+    }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Portfolio") },
+                actions = {
+                    if (state.hasHoldings) IconButton(onClick = { vm.openReview() }) {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = "AI portfolio review")
+                    }
+                },
+            )
+        },
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -320,4 +346,92 @@ private fun AllocationDonut(slices: List<Pair<Color, Float>>, modifier: Modifier
             start += sweep
         }
     }
+}
+
+/** AI portfolio review dialog: overall health, concentration flags, a per-holding action list, and a
+ *  cash note. Opened from the Portfolio top-bar sparkle. */
+@Composable
+private fun PortfolioReviewDialog(
+    ui: PortfolioReviewUi,
+    onRefresh: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val amber = Color(0xFFB0872B)
+    val r = ui.result?.review
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Portfolio review", style = MaterialTheme.typography.titleLarge)
+                ui.result?.portfolio?.let { p ->
+                    Text(
+                        "$" + Formatting.compact(p.totalValue) + " · " + String.format("%.0f", p.cashPct) + "% cash",
+                        style = MaterialTheme.typography.labelSmall, color = neutral,
+                    )
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
+                when {
+                    ui.loading -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Reviewing your book…")
+                    }
+                    ui.error != null -> Text(ui.error, color = MaterialTheme.colorScheme.error)
+                    r != null -> {
+                        Text(r.health, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        if (r.concentration.isNotEmpty()) {
+                            Spacer(Modifier.height(12.dp))
+                            Text("Concentration", style = MaterialTheme.typography.labelMedium, color = neutral)
+                            r.concentration.forEach {
+                                Text("⚠  $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 3.dp))
+                            }
+                        }
+                        if (r.actions.isNotEmpty()) {
+                            Spacer(Modifier.height(12.dp))
+                            Text("Actions", style = MaterialTheme.typography.labelMedium, color = neutral)
+                            r.actions.forEach { a ->
+                                val ac = when (a.action.lowercase()) {
+                                    "add" -> GainGreen
+                                    "trim" -> amber
+                                    "watch" -> LossRed
+                                    else -> neutral
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(ac.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 7.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(a.action.uppercase(), style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold, color = ac)
+                                    }
+                                    Text("${a.symbol} — ${a.reason}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                        if (r.cashNote.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            Text("Cash: ${r.cashNote}", style = MaterialTheme.typography.bodySmall, color = neutral)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text("Decision support, not investment advice.",
+                            style = MaterialTheme.typography.labelSmall, color = neutral)
+                    }
+                    else -> Text("No review yet — tap Refresh.")
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onRefresh, enabled = !ui.loading) { Text("Refresh") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }

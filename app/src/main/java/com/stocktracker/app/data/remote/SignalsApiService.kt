@@ -113,6 +113,28 @@ class SignalsApiService {
         }.getOrNull()
     }
 
+    /** Per-calendar-month seasonal price action (~10y): avg return + hit rate per month, current-month
+     *  tendency, best/worst months. Free, no LLM. Weak, sample-limited context. Null under ~2y history. */
+    suspend fun seasonality(baseUrl: String, symbol: String): SeasonalityBlock? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            val body = Http.getString("${baseUrl.trimEnd('/')}/seasonality/${symbol.uppercase()}", slow = true)
+            Http.json.decodeFromString<SeasonalityResponse>(body).seasonality
+        }.getOrNull()
+    }
+
+    /** Whole-portfolio AI review: overall health, concentration flags, a per-holding action list, and a
+     *  cash-deployment note. POSTs the holdings (crypto must be sent as <SYM>-USD). Gate on the AI switch. */
+    suspend fun portfolioReview(
+        baseUrl: String, cash: Double, holdings: List<HoldingSync>, deep: Boolean = false,
+    ): PortfolioReviewResponse? {
+        if (baseUrl.isBlank() || holdings.isEmpty()) return null
+        val body = Http.json.encodeToString(PortfolioReviewRequest(cash, deep, holdings))
+        return Http.json.decodeFromString<PortfolioReviewResponse>(
+            Http.postJson("${baseUrl.trimEnd('/')}/portfolio/review", body, slow = true),
+        )
+    }
+
     /** Quality tags (Finnhub basic-financials) — ROE/margins/D-E + Buffett/wide-moat/aristocrat flags.
      *  Stance-neutral business descriptors. Free. Null on 404. */
     suspend fun quality(baseUrl: String, symbol: String): QualityResponse? {
@@ -496,11 +518,19 @@ data class MoverQuote(
 @Serializable
 data class MarketNowResponse(
     val overview: String = "",
+    @SerialName("overview_struct") val overviewStruct: MarketOverviewStruct? = null,
     val session: String = "",   // PRE | REGULAR | AFTER | CLOSED
     val model: String = "",
     val snapshot: MarketSnapshot = MarketSnapshot(),
     val cached: Boolean = false,
     val usage: AiUsage? = null,
+)
+
+@Serializable
+data class MarketOverviewStruct(
+    val tone: String = "",      // risk-on | risk-off | mixed
+    val headline: String = "",
+    val points: List<String> = emptyList(),
 )
 
 @Serializable
@@ -525,6 +555,85 @@ data class VixNow(val level: Double? = null, val pct: Double? = null)
 data class PulseMovers(
     val up: List<MarketPulseQuote> = emptyList(),
     val down: List<MarketPulseQuote> = emptyList(),
+)
+
+/** GET /seasonality/{symbol} — typical per-calendar-month price action. */
+@Serializable
+data class SeasonalityResponse(val symbol: String = "", val seasonality: SeasonalityBlock? = null)
+
+@Serializable
+data class SeasonalityBlock(
+    val years: Int = 0,
+    @SerialName("sample_note") val sampleNote: String = "",
+    val months: List<SeasonMonth> = emptyList(),
+    @SerialName("current_month") val currentMonth: SeasonMonth? = null,
+    @SerialName("best_month") val bestMonth: SeasonExtreme? = null,
+    @SerialName("worst_month") val worstMonth: SeasonExtreme? = null,
+)
+
+@Serializable
+data class SeasonMonth(
+    val month: Int = 0,
+    val name: String = "",
+    val n: Int = 0,
+    @SerialName("avg_pct") val avgPct: Double? = null,
+    @SerialName("hit_rate") val hitRate: Int? = null,
+    @SerialName("best_pct") val bestPct: Double? = null,
+    @SerialName("worst_pct") val worstPct: Double? = null,
+)
+
+@Serializable
+data class SeasonExtreme(
+    val name: String = "",
+    @SerialName("avg_pct") val avgPct: Double? = null,
+    @SerialName("hit_rate") val hitRate: Int? = null,
+)
+
+/** POST /portfolio/review — whole-portfolio AI read. */
+@Serializable
+data class PortfolioReviewRequest(
+    val cash: Double,
+    val deep: Boolean = false,
+    val holdings: List<HoldingSync>,
+)
+
+@Serializable
+data class PortfolioReviewResponse(
+    val review: PortfolioReview = PortfolioReview(),
+    val portfolio: PortfolioSummary = PortfolioSummary(),
+    val model: String = "",
+    val cached: Boolean = false,
+    val usage: AiUsage? = null,
+)
+
+@Serializable
+data class PortfolioReview(
+    val health: String = "",
+    val concentration: List<String> = emptyList(),
+    val actions: List<PortfolioAction> = emptyList(),
+    @SerialName("cash_note") val cashNote: String = "",
+)
+
+@Serializable
+data class PortfolioAction(
+    val symbol: String = "",
+    val action: String = "",   // trim | hold | add | watch
+    val reason: String = "",
+)
+
+@Serializable
+data class PortfolioSummary(
+    @SerialName("total_value") val totalValue: Double = 0.0,
+    @SerialName("cash_pct") val cashPct: Double = 0.0,
+    val positions: List<PortfolioPosition> = emptyList(),
+)
+
+@Serializable
+data class PortfolioPosition(
+    val symbol: String = "",
+    @SerialName("weight_pct") val weightPct: Double? = null,
+    @SerialName("unrealized_gain_pct") val unrealizedGainPct: Double? = null,
+    val value: Double = 0.0,
 )
 
 @Serializable

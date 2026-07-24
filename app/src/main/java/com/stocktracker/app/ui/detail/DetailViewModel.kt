@@ -13,6 +13,7 @@ import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CoveredCallResponse
 import com.stocktracker.app.data.remote.CongressBlock
 import com.stocktracker.app.data.remote.CycleResponse
+import com.stocktracker.app.data.remote.SeasonalityBlock
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.HttpStatusException
 import com.stocktracker.app.data.remote.InsiderResponse
@@ -97,6 +98,8 @@ data class DetailUiState(
     val insider: InsiderResponse? = null,
     /** Congressional / political trades — free, auto-fetched for stocks (only set when any disclosed). */
     val congress: CongressBlock? = null,
+    /** Seasonality — typical per-month price action (~10y), free, auto-fetched for stocks. */
+    val seasonality: SeasonalityBlock? = null,
     /** Quality tags (ROE/margins/D-E + Buffett/wide-moat/aristocrat flags) — free, auto-fetched for stocks. */
     val quality: QualityResponse? = null,
     /** Halving-cycle + multi-year trend — free data, auto-fetched for crypto. */
@@ -182,6 +185,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 // Congressional trades — public-official smart money; lagging/weak, shown as context.
                 val cg = runCatching { signalsApi.congress(base, asset.symbol) }.getOrNull()
                 if (cg != null && cg.tradeCount > 0) _state.update { it.copy(congress = cg) }
+                // Seasonality — typical per-month price action (weak tilt).
+                val sea = runCatching { signalsApi.seasonality(base, asset.symbol) }.getOrNull()
+                if (sea?.currentMonth != null) _state.update { it.copy(seasonality = sea) }
                 // Business-quality descriptors — stance-neutral context; show when there's anything to show.
                 val q = runCatching { signalsApi.quality(base, asset.symbol) }.getOrNull()
                 if (q != null && (q.hasAnyFlag || q.hasMetrics)) _state.update { it.copy(quality = q) }

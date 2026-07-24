@@ -104,6 +104,8 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
 
     fun setAllowEtf(on: Boolean) = patchSettings(SandboxSettingsPatch(allowEtf = on))
 
+    fun setAllowCryptoEtf(on: Boolean) = patchSettings(SandboxSettingsPatch(allowCryptoEtf = on))
+
     fun setGoal(amount: Double?, date: String?) =
         patchSettings(SandboxSettingsPatch(goalAmount = amount ?: 0.0, goalDate = date ?: ""), note = "Goal updated")
 

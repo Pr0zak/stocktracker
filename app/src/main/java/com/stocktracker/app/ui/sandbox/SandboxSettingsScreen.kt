@@ -215,8 +215,13 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
             // ---------------- UNIVERSE ----------------
             item {
                 Section("Universe", "What it's allowed to buy") {
-                    SwitchLine("Allow crypto (BTC / ETH ETFs)", s.allowCrypto) { vm.setAllowCrypto(it) }
                     SwitchLine("Allow ETFs", s.allowEtf) { vm.setAllowEtf(it) }
+                    SwitchLine("Crypto ETFs (IBIT / FBTC / FETH)", s.allowCryptoEtf) { vm.setAllowCryptoEtf(it) }
+                    SwitchLine("Direct crypto (BTC / ETH)", s.allowCrypto) { vm.setAllowCrypto(it) }
+                    Helper(
+                        "Spot crypto usually costs more to trade and hold than an ETF holding the same " +
+                            "coin, so the ETF is preferred. The AI picks one vehicle per exposure.",
+                    )
                     Spacer(Modifier.height(8.dp))
                     Label("Never buy these")
                     ExclusionSearchField(

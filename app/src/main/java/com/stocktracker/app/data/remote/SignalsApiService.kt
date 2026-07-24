@@ -24,6 +24,7 @@ class SignalsApiService {
         shares: Double? = null,
         avgCost: Double? = null,
         ruleScore: Int? = null,
+        refresh: Boolean = false,
     ): AiSignalResponse? {
         if (baseUrl.isBlank()) return null
         // The backend fetches via Yahoo, whose crypto symbols take a -USD suffix.
@@ -36,7 +37,8 @@ class SignalsApiService {
         }
         // The on-device rule score rides along so the analyst reconciles a diverging read.
         val rs = ruleScore?.let { "&rule_score=$it" } ?: ""
-        val url = "${baseUrl.trimEnd('/')}/signal/$sym?crypto=$crypto&deep=$deep$pos$rs"
+        val rf = if (refresh) "&refresh=true" else ""
+        val url = "${baseUrl.trimEnd('/')}/signal/$sym?crypto=$crypto&deep=$deep$pos$rs$rf"
         val body = Http.getString(url, slow = true) // LLM latency, not a quote endpoint
         return Http.json.decodeFromString<AiSignalResponse>(body)
     }
@@ -126,11 +128,13 @@ class SignalsApiService {
     /** AIE-4 — "why it moved": the stock's notable recent daily moves each correlated with a dated
      *  headline (or flagged as no-catalyst), plus a one-line read. Runs the analyst → gate on the AI
      *  switch. Returns the full response (block may be null with a [note], e.g. crypto). Null on failure. */
-    suspend fun newsMoves(baseUrl: String, symbol: String, deep: Boolean = false): NewsMovesResponse? {
+    suspend fun newsMoves(
+        baseUrl: String, symbol: String, deep: Boolean = false, refresh: Boolean = false,
+    ): NewsMovesResponse? {
         if (baseUrl.isBlank()) return null
         return runCatching {
-            val d = if (deep) "?deep=true" else ""
-            val body = Http.getString("${baseUrl.trimEnd('/')}/news_moves/${symbol.uppercase()}$d", slow = true)
+            val q = "?deep=$deep" + if (refresh) "&refresh=true" else ""
+            val body = Http.getString("${baseUrl.trimEnd('/')}/news_moves/${symbol.uppercase()}$q", slow = true)
             Http.json.decodeFromString<NewsMovesResponse>(body)
         }.getOrNull()
     }
@@ -215,6 +219,7 @@ class SignalsApiService {
         deep: Boolean = false,
         shares: Double? = null,
         avgCost: Double? = null,
+        refresh: Boolean = false,
     ): PlanResponse? {
         if (baseUrl.isBlank() || cash <= 0) return null
         val sym = if (crypto) "${symbol.uppercase()}-USD" else symbol.uppercase()
@@ -223,7 +228,8 @@ class SignalsApiService {
         } else {
             ""
         }
-        val url = "${baseUrl.trimEnd('/')}/plan/$sym?cash=$cash&crypto=$crypto&deep=$deep$pos"
+        val rf = if (refresh) "&refresh=true" else ""
+        val url = "${baseUrl.trimEnd('/')}/plan/$sym?cash=$cash&crypto=$crypto&deep=$deep$pos$rf"
         return Http.json.decodeFromString<PlanResponse>(Http.getString(url, slow = true))
     }
 

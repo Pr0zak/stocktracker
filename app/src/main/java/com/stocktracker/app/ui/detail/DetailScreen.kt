@@ -32,6 +32,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -199,6 +200,18 @@ fun DetailScreen(
                     }
                 },
                 actions = {
+                    // Refresh every AI section for this ticker at once (verdict + any run news→move /
+                    // plan), bypassing the server cache. Shown only when the AI analyst is configured.
+                    if (state.aiEnabled) {
+                        val aiBusy = state.aiLoading || state.newsMovesLoading || state.planLoading
+                        IconButton(onClick = { vm.refreshAllAi() }, enabled = !aiBusy) {
+                            if (aiBusy) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Refresh AI analysis")
+                            }
+                        }
+                    }
                     IconButton(onClick = onOpenCalendar) {
                         Icon(Icons.Filled.CalendarMonth, contentDescription = "This asset's calendar")
                     }

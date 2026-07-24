@@ -222,7 +222,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     }
 
     /** Fetch the Tier-2 Claude analyst verdict, if a Signals API URL is configured in Settings. */
-    fun requestAiVerdict(deep: Boolean) {
+    fun requestAiVerdict(deep: Boolean, refresh: Boolean = false) {
         aiJob?.cancel()
         aiJob = viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
@@ -236,6 +236,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     base, asset.symbol, crypto = asset.type == AssetType.CRYPTO, deep = deep,
                     shares = s.shares, avgCost = s.avgCost,
                     ruleScore = s.signal?.score, // analyst reconciles with the on-device read
+                    refresh = refresh,
                 )
             }
             ensureActive() // runCatching swallows cancellation; don't apply a superseded result
@@ -257,11 +258,38 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
         }
     }
 
+    /**
+     * Refresh EVERY AI analysis section for this ticker in one tap (the detail top-bar refresh button):
+     * the headline verdict always re-runs; the opt-in cards (news→move, entry plan) re-run only if the
+     * user has already generated them. Each call passes refresh=true to bypass the server-side cache, so
+     * the analyst genuinely re-reads. The button's spinner is driven by the section loading flags.
+     */
+    fun refreshAllAi() {
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            val on = settings.aiAnalystEnabled.first()
+            if (base.isBlank() || !on) {
+                _state.update {
+                    it.copy(
+                        aiEnabled = base.isNotBlank() && on,
+                        aiError = if (base.isBlank()) "Set the Signals service URL in Settings."
+                        else "Turn on the AI analyst in Settings.",
+                    )
+                }
+                return@launch
+            }
+            requestAiVerdict(deep = false, refresh = true)
+            if (_state.value.newsMovesLoaded) requestNewsMoves(refresh = true)
+            val cash = settings.investableCash.first()
+            if (_state.value.plan != null && cash > 0) requestPlan(cash, refresh = true)
+        }
+    }
+
     private var newsMovesJob: Job? = null
 
     /** AIE-4 — "why it moved": correlate the stock's notable recent moves with dated headlines. On-demand
      *  (it's an LLM call), gated on a Signals URL + the AI switch, same as the verdict. */
-    fun requestNewsMoves(deep: Boolean = false) {
+    fun requestNewsMoves(deep: Boolean = false, refresh: Boolean = false) {
         newsMovesJob?.cancel()
         newsMovesJob = viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
@@ -274,7 +302,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 return@launch
             }
             _state.update { it.copy(newsMovesLoading = true, newsMovesError = null) }
-            val res = runCatching { signalsApi.newsMoves(base, asset.symbol) }
+            val res = runCatching { signalsApi.newsMoves(base, asset.symbol, refresh = refresh) }
             ensureActive()
             val resp = res.getOrNull()
             _state.update {
@@ -295,7 +323,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
 
     /** "What if I deployed [cash] into this symbol?" — fetch an entry plan from the signals service.
      *  Persists the cash amount so the Ideas screen and future plans reuse it. */
-    fun requestPlan(cash: Double, deep: Boolean = false) {
+    fun requestPlan(cash: Double, deep: Boolean = false, refresh: Boolean = false) {
         if (cash <= 0) {
             _state.update { it.copy(planError = "Enter a cash amount first") }
             return
@@ -310,7 +338,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             val res = runCatching {
                 signalsApi.planEntry(
                     base, asset.symbol, crypto = asset.type == AssetType.CRYPTO, cash = cash,
-                    deep = deep, shares = s.shares, avgCost = s.avgCost,
+                    deep = deep, shares = s.shares, avgCost = s.avgCost, refresh = refresh,
                 )
             }
             ensureActive() // runCatching swallows cancellation; don't apply a superseded result

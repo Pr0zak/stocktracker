@@ -26,7 +26,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -241,10 +243,23 @@ fun PortfolioScreen() {
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
             Text(
-                "The AI review and rebalance distribute this across your holdings.",
+                "Enter your available cash, then get an AI plan for how to distribute it.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Button(onClick = { vm.openRebalance() }, enabled = state.hasHoldings) {
+                    Icon(Icons.Filled.Balance, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Suggest how to invest it")
+                }
+                OutlinedButton(onClick = { vm.openReview() }, enabled = state.hasHoldings) {
+                    Text("Review")
+                }
+            }
 
             Text(
                 "Holdings",

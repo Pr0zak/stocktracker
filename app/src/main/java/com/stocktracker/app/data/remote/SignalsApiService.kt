@@ -213,6 +213,17 @@ class SignalsApiService {
         }.getOrNull()
     }
 
+    /** Theme D — the current market REGIME: a short label + trend + volatility + positioning note, from
+     *  the market snapshot plus the S&P's 50/200-day structural trend. One market-wide LLM call, cached
+     *  ~30 min server-side. Gate on the AI switch. Returns null on a blank URL / any failure. */
+    suspend fun regime(baseUrl: String): RegimeResponse? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            val body = Http.getString("${baseUrl.trimEnd('/')}/regime", slow = true) // LLM latency
+            Http.json.decodeFromString<RegimeResponse>(body)
+        }.getOrNull()
+    }
+
     /** Catalyst calendar (SI dates, OPEX, earnings). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
@@ -579,6 +590,34 @@ data class MarketOverviewStruct(
     val tone: String = "",      // risk-on | risk-off | mixed
     val headline: String = "",
     val points: List<String> = emptyList(),
+)
+
+/** GET /regime — the market-regime read (Theme D): a structural label + trend + volatility + a
+ *  positioning note, plus the S&P's 50/200-day trend. */
+@Serializable
+data class RegimeResponse(
+    val regime: MarketRegimeBlock = MarketRegimeBlock(),
+    @SerialName("spy_trend") val spyTrend: SpyTrend? = null,
+    val session: String = "",
+    val model: String = "",
+    val cached: Boolean = false,
+)
+
+@Serializable
+data class MarketRegimeBlock(
+    val label: String = "",
+    val trend: String = "",       // up | down | sideways
+    val volatility: String = "",  // calm | normal | elevated | stressed
+    val note: String = "",
+)
+
+@Serializable
+data class SpyTrend(
+    val price: Double? = null,
+    @SerialName("pct_vs_sma50") val pctVsSma50: Double? = null,
+    @SerialName("pct_vs_sma200") val pctVsSma200: Double? = null,
+    @SerialName("above_200d") val above200d: Boolean? = null,
+    val rsi14: Double? = null,
 )
 
 /** GET /daily_brief — the AI morning brief (AIE-3): a notification [title] + [body] + [tone], plus the

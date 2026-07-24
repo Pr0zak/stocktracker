@@ -6,6 +6,7 @@ import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.MarketNowResponse
+import com.stocktracker.app.data.remote.RegimeResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.downsample
@@ -44,6 +45,13 @@ data class MarketNowUi(
     val error: String? = null,
 )
 
+/** State for the auto-loaded market-regime banner (Theme D). */
+data class RegimeUi(
+    val loading: Boolean = false,
+    val result: RegimeResponse? = null,
+    val error: String? = null,
+)
+
 data class WatchlistUiState(
     val items: List<WatchlistItemUi> = emptyList(),
     val loading: Boolean = true,
@@ -51,6 +59,7 @@ data class WatchlistUiState(
     /** "Good time to add" dips from the latest scan, most-severe first — the buy-signal strip. */
     val dips: List<DipEntry> = emptyList(),
     val marketNow: MarketNowUi = MarketNowUi(),
+    val regime: RegimeUi = RegimeUi(),
 )
 
 class WatchlistViewModel : ViewModel() {
@@ -79,6 +88,7 @@ class WatchlistViewModel : ViewModel() {
 
     init {
         viewModelScope.launch { loadBelowLineFlags() }
+        loadRegime()
         viewModelScope.launch {
             // Reload when the watchlist OR the Finnhub key changes (adding a key should immediately
             // start fetching stocks). distinctUntilChanged avoids reacting to unrelated settings.
@@ -124,6 +134,30 @@ class WatchlistViewModel : ViewModel() {
     }
 
     /** Open the "Market now" dialog and load the AI overview (a cached result is reused until refreshed). */
+    /** Auto-load the market-regime banner (Theme D). One market-wide LLM call, cached ~30 min server-
+     *  side, so this is cheap on a re-open. Silent no-op when the AI analyst is off or unconfigured —
+     *  the banner just doesn't appear. [force] bypasses the "already loaded" guard for the refresh tap. */
+    fun loadRegime(force: Boolean = false) {
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            val on = settings.aiAnalystEnabled.first()
+            if (base.isBlank() || !on) {
+                _state.update { it.copy(regime = RegimeUi()) } // clear any stale banner when AI is off
+                return@launch
+            }
+            if (!force && (_state.value.regime.result != null || _state.value.regime.loading)) return@launch
+            _state.update { it.copy(regime = it.regime.copy(loading = true, error = null)) }
+            val res = runCatching { signalsApi.regime(base) }
+            _state.update { st ->
+                st.copy(regime = st.regime.copy(
+                    loading = false,
+                    result = res.getOrNull() ?: st.regime.result,
+                    error = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the regime." },
+                ))
+            }
+        }
+    }
+
     fun openMarketNow() {
         _state.update { it.copy(marketNow = it.marketNow.copy(open = true)) }
         loadMarketNow(force = false)

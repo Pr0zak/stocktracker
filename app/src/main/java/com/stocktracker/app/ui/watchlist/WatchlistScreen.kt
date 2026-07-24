@@ -219,6 +219,12 @@ fun WatchlistScreen(
                     item(key = "hdr:timeline") { SessionTimelineBar(marketState) }
                 }
 
+                // Market regime banner (Theme D) — auto-loaded when the AI analyst is on.
+                val reg = state.regime
+                if (reg.result?.regime?.label?.isNotBlank() == true || reg.loading) {
+                    item(key = "hdr:regime") { RegimeCard(reg, onRefresh = { vm.loadRegime(force = true) }) }
+                }
+
                 if (showVix) {
                     vix?.let { v -> item(key = "hdr:vix") { FearGauge(v, onClick = onOpenVix) } }
                 }
@@ -525,6 +531,76 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
                     onOpenDetail(bySym[d.symbol.uppercase()] ?: Asset(d.symbol, AssetType.STOCK, d.symbol))
                 })
             }
+        }
+    }
+}
+
+/**
+ * Theme D — the market-regime banner: a colored label (by trend) + trend/volatility chips + the S&P's
+ * position vs its 200-day, and a one-line positioning note. Auto-loaded, cached ~30 min server-side.
+ */
+@Composable
+private fun RegimeCard(ui: RegimeUi, onRefresh: () -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val green = Color(0xFF2E9E57)
+    val red = Color(0xFFC64040)
+    val amber = Color(0xFFB0872B)
+    val r = ui.result?.regime
+    val trendColor = when (r?.trend?.lowercase()) {
+        "up" -> green
+        "down" -> red
+        else -> amber
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Market regime", style = MaterialTheme.typography.labelLarge, color = neutral)
+            if (ui.loading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                IconButton(onClick = onRefresh, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh regime", tint = neutral,
+                        modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+        if (r != null && r.label.isNotBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .background(trendColor.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                ) {
+                    Text(r.label, style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold, color = trendColor)
+                }
+                r.volatility.takeIf { it.isNotBlank() }?.let {
+                    Text("· vol ${it.lowercase()}", style = MaterialTheme.typography.labelMedium, color = neutral)
+                }
+                ui.result?.spyTrend?.let { st ->
+                    st.above200d?.let { above ->
+                        Text(
+                            if (above) "· S&P > 200-day" else "· S&P < 200-day",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (above) green else red,
+                        )
+                    }
+                }
+            }
+            if (r.note.isNotBlank()) {
+                Text(r.note, style = MaterialTheme.typography.bodySmall)
+            }
+        } else if (ui.loading) {
+            Text("Reading the tape…", style = MaterialTheme.typography.bodySmall, color = neutral)
         }
     }
 }

@@ -444,17 +444,26 @@ private fun TradeRow(t: SandboxTrade) {
         else -> MaterialTheme.colorScheme.primary   // deposit/withdraw
     }
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-        Pill(t.side.uppercase(), color)
+        // A blocked order gets its own amber BLOCKED pill — a greyed "BUY" read like a real buy at a
+        // glance, which hid the fact that a rule stopped it.
+        Pill(if (skipped) "BLOCKED" else t.side.uppercase(), if (skipped) AMBER else color)
         Column(Modifier.weight(1f)) {
             val head = when {
                 t.symbol == "CASH" -> "${t.date} · " + signedUsd(t.gross ?: 0.0)
-                skipped -> "${t.date} · ${t.symbol}"
+                skipped -> "${t.date} · ${t.side.uppercase()} ${t.symbol.removeSuffix("-USD")} not placed"
                 else -> "${t.date} · ${t.symbol.removeSuffix("-USD")} · ${trimNum(t.shares)} sh @ $${Formatting.compact(t.price ?: 0.0)}"
             }
             Text(head, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             val zone = t.entryHigh?.let { " · wanted ≤$" + Formatting.compact(it) } ?: ""
-            val sub = if (skipped) ((t.skipReason ?: "") + zone) else t.reason
-            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.labelSmall, color = neutral)
+            val sub = if (skipped) ("Rule: " + (t.skipReason ?: "blocked") + zone) else t.reason
+            if (sub.isNotBlank()) {
+                Text(sub, style = MaterialTheme.typography.labelSmall,
+                    color = if (skipped) AMBER else neutral)
+            }
+            // Keep the AI's original intent visible so you can see WHAT the rule stopped.
+            if (skipped && t.reason.isNotBlank()) {
+                Text("Wanted: ${t.reason}", style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
         }
         if (!skipped && t.realizedPl != null && t.realizedPl != 0.0) {
             Text(signedUsd(t.realizedPl), style = MaterialTheme.typography.labelMedium,

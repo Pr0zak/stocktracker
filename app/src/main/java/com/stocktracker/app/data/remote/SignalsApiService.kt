@@ -986,4 +986,14 @@ data class AiVerdict(
     @SerialName("key_risks") val keyRisks: List<String> = emptyList(),
     val invalidation: String = "",
     val catalysts: List<String> = emptyList(),
+    /** Numeric chart levels (AIE-1) the app overlays on the price chart. Null on older responses. */
+    val levels: AiLevels? = null,
+)
+
+@Serializable
+data class AiLevels(
+    val support: Double? = null,
+    val resistance: Double? = null,
+    @SerialName("invalidation_price") val invalidationPrice: Double? = null,
+    val target: Double? = null,
 )

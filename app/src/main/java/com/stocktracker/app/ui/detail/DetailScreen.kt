@@ -292,7 +292,24 @@ fun DetailScreen(
             } else {
                 null
             }
-            val allOverlays = indicatorResult.overlays + listOfNotNull(benchOverlay)
+            // AI-analyst levels (AIE-1): support/resistance/target/invalidation as horizontal lines,
+            // but only ones within the visible price band so they don't squish the chart's y-axis.
+            val levelOverlays = if (!percentMode && chartPoints.size >= 2 && state.aiVerdict?.levels != null) {
+                val lv = state.aiVerdict!!.levels!!
+                val loBound = chartPoints.minOf { it.price } * 0.95
+                val hiBound = chartPoints.maxOf { it.price } * 1.05
+                fun lvl(label: String, color: Color, v: Double?): ChartLineOverlay? =
+                    v?.takeIf { it in loBound..hiBound }?.let { p ->
+                        ChartLineOverlay("$label ${fmtLevel(p)}", color, List(chartPoints.size) { p })
+                    }
+                listOfNotNull(
+                    lvl("Support", Color(0xFF2E9E57), lv.support),
+                    lvl("Resistance", Color(0xFFEF4444), lv.resistance),
+                    lvl("Target", Color(0xFF14B8A6), lv.target),
+                    lvl("Invalidation", Color(0xFFF59E0B), lv.invalidationPrice),
+                )
+            } else emptyList()
+            val allOverlays = indicatorResult.overlays + listOfNotNull(benchOverlay) + levelOverlays
 
             Box(
                 modifier = Modifier
@@ -1874,6 +1891,9 @@ private fun SeasonalityCard(s: SeasonalityBlock) {
 
 private fun fmtSignedPct(p: Double?): String =
     if (p == null) "—" else (if (p >= 0) "+" else "") + String.format("%.1f%%", p)
+
+private fun fmtLevel(v: Double): String =
+    "$" + if (v >= 100) String.format("%.0f", v) else String.format("%.2f", v)
 
 /**
  * Quality card (stocks): business-quality descriptors from Finnhub basic-financials — ROE, margins,

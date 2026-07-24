@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
@@ -44,12 +45,13 @@ private sealed class TopDest(val route: String, val label: String, val icon: Ima
     data object Watchlist : TopDest("watchlist", "Watchlist", Icons.Filled.ShowChart)
     data object Portfolio : TopDest("portfolio", "Portfolio", Icons.Filled.PieChart)
     data object Ideas : TopDest("ideas", "Ideas", Icons.Filled.Lightbulb)
+    data object Sandbox : TopDest("sandbox", "Sandbox", Icons.Filled.SmartToy)
     data object Widgets : TopDest("widgets", "Widgets", Icons.Filled.Widgets)
     data object Settings : TopDest("settings", "Settings", Icons.Filled.Settings)
 }
 
 private val topDestinations =
-    listOf(TopDest.Watchlist, TopDest.Portfolio, TopDest.Ideas, TopDest.Widgets, TopDest.Settings)
+    listOf(TopDest.Watchlist, TopDest.Portfolio, TopDest.Ideas, TopDest.Sandbox, TopDest.Widgets, TopDest.Settings)
 
 private fun detailRoute(asset: Asset): String {
     val name = Uri.encode(asset.displayName)
@@ -134,6 +136,7 @@ fun StockTrackerRoot() {
             composable(TopDest.Ideas.route) {
                 IdeasScreen(onOpenDetail = { nav.navigate(detailRoute(it)) })
             }
+            composable(TopDest.Sandbox.route) { com.stocktracker.app.ui.sandbox.SandboxScreen() }
             composable(TopDest.Widgets.route) { WidgetGalleryScreen() }
             composable(TopDest.Settings.route) { SettingsScreen() }
             composable("add") { AddTickerScreen(onBack = { nav.popBackStack() }) }

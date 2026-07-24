@@ -213,6 +213,73 @@ class SignalsApiService {
         }.getOrNull()
     }
 
+    // ---- AI Sandbox (autonomous paper trader) ----
+
+    /** Live-marked sandbox state (cash, positions, equity, vs-benchmark, settings, strategy note). */
+    suspend fun sandboxState(baseUrl: String): SandboxState? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            Http.json.decodeFromString<SandboxState>(
+                Http.getString("${baseUrl.trimEnd('/')}/sandbox/state", slow = true))
+        }.getOrNull()
+    }
+
+    /** The equity-curve series (NAV + benchmark) for the value chart. */
+    suspend fun sandboxNav(baseUrl: String, days: Int = 120): List<SandboxNavPoint> {
+        if (baseUrl.isBlank()) return emptyList()
+        return runCatching {
+            Http.json.decodeFromString<SandboxNavResponse>(
+                Http.getString("${baseUrl.trimEnd('/')}/sandbox/nav?days=$days")).series
+        }.getOrDefault(emptyList())
+    }
+
+    /** The trade log (executed + skipped, newest first). */
+    suspend fun sandboxTrades(baseUrl: String, limit: Int = 100): List<SandboxTrade> {
+        if (baseUrl.isBlank()) return emptyList()
+        return runCatching {
+            Http.json.decodeFromString<SandboxTradesResponse>(
+                Http.getString("${baseUrl.trimEnd('/')}/sandbox/trades?limit=$limit")).trades
+        }.getOrDefault(emptyList())
+    }
+
+    /** Add (or withdraw, negative) fictional cash. */
+    suspend fun sandboxFund(baseUrl: String, amount: Double): Boolean {
+        if (baseUrl.isBlank()) return false
+        return runCatching {
+            Http.postJson("${baseUrl.trimEnd('/')}/sandbox/fund",
+                Http.json.encodeToString(SandboxFundRequest(amount)))
+            true
+        }.getOrDefault(false)
+    }
+
+    /** Patch the sandbox settings (risk, dates, caps, master switch). Returns the new settings. */
+    suspend fun sandboxUpdateSettings(baseUrl: String, patch: SandboxSettingsPatch): SandboxSettings? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            Http.json.decodeFromString<SandboxSettings>(
+                Http.postJson("${baseUrl.trimEnd('/')}/sandbox/settings", Http.json.encodeToString(patch)))
+        }.getOrNull()
+    }
+
+    /** Run one decision cycle now (manual "run a tick"). `force` bypasses the once-a-day + session gates. */
+    suspend fun sandboxTick(baseUrl: String, force: Boolean = true): SandboxTickResult? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            Http.json.decodeFromString<SandboxTickResult>(
+                Http.postJson("${baseUrl.trimEnd('/')}/sandbox/tick",
+                    Http.json.encodeToString(SandboxTickRequest(force = force)), slow = true))
+        }.getOrNull()
+    }
+
+    /** Wipe the sandbox back to fresh (rotates the logs). */
+    suspend fun sandboxReset(baseUrl: String): Boolean {
+        if (baseUrl.isBlank()) return false
+        return runCatching {
+            Http.postJson("${baseUrl.trimEnd('/')}/sandbox/reset", Http.json.encodeToString(SandboxResetRequest(true)))
+            true
+        }.getOrDefault(false)
+    }
+
     /** Theme D — the current market REGIME: a short label + trend + volatility + positioning note, from
      *  the market snapshot plus the S&P's 50/200-day structural trend. One market-wide LLM call, cached
      *  ~30 min server-side. Gate on the AI switch. Returns null on a blank URL / any failure. */
@@ -618,6 +685,138 @@ data class SpyTrend(
     @SerialName("pct_vs_sma200") val pctVsSma200: Double? = null,
     @SerialName("above_200d") val above200d: Boolean? = null,
     val rsi14: Double? = null,
+)
+
+// ---- AI Sandbox models ----
+
+@Serializable
+data class SandboxState(
+    val cash: Double = 0.0,
+    val equity: Double = 0.0,
+    @SerialName("positions_value") val positionsValue: Double = 0.0,
+    @SerialName("funded_total") val fundedTotal: Double = 0.0,
+    @SerialName("realized_pl_total") val realizedPlTotal: Double = 0.0,
+    @SerialName("total_return_pct") val totalReturnPct: Double? = null,
+    @SerialName("cash_pct") val cashPct: Double? = null,
+    @SerialName("benchmark_value") val benchmarkValue: Double? = null,
+    @SerialName("vs_benchmark_pct") val vsBenchmarkPct: Double? = null,
+    val positions: List<SandboxPosition> = emptyList(),
+    val settings: SandboxSettings = SandboxSettings(),
+    val enabled: Boolean = false,
+    @SerialName("last_tick_date") val lastTickDate: String? = null,
+    @SerialName("last_weekly_review_date") val lastWeeklyReviewDate: String? = null,
+    @SerialName("last_strategy_note") val strategyNote: SandboxStrategyNote? = null,
+    @SerialName("created_at") val createdAt: Double? = null,
+)
+
+@Serializable
+data class SandboxPosition(
+    val symbol: String = "",
+    val shares: Double = 0.0,
+    @SerialName("avg_cost") val avgCost: Double = 0.0,
+    @SerialName("exposure_group") val exposureGroup: String = "",
+    val price: Double = 0.0,
+    val value: Double = 0.0,
+    @SerialName("unrealized_pct") val unrealizedPct: Double? = null,
+)
+
+@Serializable
+data class SandboxSettings(
+    @SerialName("master_enabled") val masterEnabled: Boolean = false,
+    @SerialName("risk_tolerance") val riskTolerance: String = "balanced",
+    @SerialName("retirement_date") val retirementDate: String? = null,
+    @SerialName("exit_date") val exitDate: String? = null,
+    @SerialName("max_position_pct") val maxPositionPct: Double = 20.0,
+    @SerialName("cash_floor_pct") val cashFloorPct: Double = 10.0,
+    @SerialName("allow_crypto") val allowCrypto: Boolean = true,
+    @SerialName("allow_etf") val allowEtf: Boolean = true,
+    @SerialName("max_trades_per_tick") val maxTradesPerTick: Int = 4,
+    @SerialName("max_new_positions_per_tick") val maxNewPositionsPerTick: Int = 2,
+    @SerialName("min_conviction_to_trade") val minConvictionToTrade: Int = 55,
+    @SerialName("slippage_bps") val slippageBps: Int = 5,
+)
+
+@Serializable
+data class SandboxStrategyNote(
+    val stance: String = "",
+    @SerialName("cash_target_pct") val cashTargetPct: Double = 0.0,
+    val targets: List<SandboxTarget> = emptyList(),
+    val themes: List<String> = emptyList(),
+    val avoid: List<String> = emptyList(),
+    val notes: String = "",
+)
+
+@Serializable
+data class SandboxTarget(
+    @SerialName("exposure_group") val exposureGroup: String = "",
+    @SerialName("target_pct") val targetPct: Double = 0.0,
+)
+
+@Serializable
+data class SandboxNavResponse(val series: List<SandboxNavPoint> = emptyList())
+
+@Serializable
+data class SandboxNavPoint(
+    val ts: Double = 0.0,
+    val date: String = "",
+    val equity: Double = 0.0,
+    val cash: Double = 0.0,
+    @SerialName("positions_value") val positionsValue: Double = 0.0,
+    @SerialName("benchmark_value") val benchmarkValue: Double? = null,
+    @SerialName("num_positions") val numPositions: Int = 0,
+)
+
+@Serializable
+data class SandboxTradesResponse(val trades: List<SandboxTrade> = emptyList())
+
+@Serializable
+data class SandboxTrade(
+    val ts: Double = 0.0,
+    val date: String = "",
+    val symbol: String = "",
+    val side: String = "",       // buy | sell | deposit | withdraw
+    val status: String = "",     // filled | skipped
+    val shares: Double = 0.0,
+    val price: Double? = null,
+    val gross: Double? = null,
+    @SerialName("realized_pl") val realizedPl: Double? = null,
+    val conviction: Int? = null,
+    val source: String = "",
+    val reason: String = "",
+    @SerialName("skip_reason") val skipReason: String? = null,
+)
+
+@Serializable
+data class SandboxTickResult(
+    val status: String = "",
+    val date: String = "",
+    val posture: String = "",
+    @SerialName("orders_filled") val ordersFilled: List<SandboxTrade> = emptyList(),
+    @SerialName("orders_skipped") val ordersSkipped: List<SandboxTrade> = emptyList(),
+    @SerialName("weekly_review_ran") val weeklyReviewRan: Boolean = false,
+    val warnings: List<String> = emptyList(),
+)
+
+@Serializable
+data class SandboxFundRequest(val amount: Double)
+
+@Serializable
+data class SandboxTickRequest(val force: Boolean = true, val manual: Boolean = true)
+
+@Serializable
+data class SandboxResetRequest(val confirm: Boolean)
+
+@Serializable
+data class SandboxSettingsPatch(
+    @SerialName("master_enabled") val masterEnabled: Boolean? = null,
+    @SerialName("risk_tolerance") val riskTolerance: String? = null,
+    @SerialName("retirement_date") val retirementDate: String? = null,
+    @SerialName("exit_date") val exitDate: String? = null,
+    @SerialName("max_position_pct") val maxPositionPct: Double? = null,
+    @SerialName("cash_floor_pct") val cashFloorPct: Double? = null,
+    @SerialName("allow_crypto") val allowCrypto: Boolean? = null,
+    @SerialName("allow_etf") val allowEtf: Boolean? = null,
+    @SerialName("min_conviction_to_trade") val minConvictionToTrade: Int? = null,
 )
 
 /** GET /daily_brief — the AI morning brief (AIE-3): a notification [title] + [body] + [tone], plus the

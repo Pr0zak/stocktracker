@@ -146,6 +146,13 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
 
     fun setRespectEntryZones(on: Boolean) = patchSettings(SandboxSettingsPatch(respectEntryZones = on))
 
+    fun setAges(current: Int?, retire: Int?) =
+        patchSettings(SandboxSettingsPatch(currentAge = current ?: 0, retirementAge = retire ?: 0), note = "Ages updated")
+
+    fun setAccountType(t: String) = patchSettings(SandboxSettingsPatch(accountType = t))
+
+    fun setAvoidWashSales(on: Boolean) = patchSettings(SandboxSettingsPatch(avoidWashSales = on))
+
     /** Manually run one decision cycle now (bypasses the once-a-day + session gates). */
     fun runTick() {
         viewModelScope.launch {

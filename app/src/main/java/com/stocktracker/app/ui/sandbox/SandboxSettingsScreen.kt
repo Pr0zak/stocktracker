@@ -167,6 +167,35 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     }
 
                     Spacer(Modifier.height(10.dp))
+                    Label("Your age / retirement age")
+                    var ageNow by remember(s.currentAge) { mutableStateOf(s.currentAge?.toString() ?: "") }
+                    var ageRet by remember(s.retirementAge) { mutableStateOf(s.retirementAge?.toString() ?: "") }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = ageNow, onValueChange = { ageNow = it.filter(Char::isDigit).take(3) },
+                            label = { Text("Now") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = ageRet, onValueChange = { ageRet = it.filter(Char::isDigit).take(3) },
+                            label = { Text("Retire at") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Button(onClick = { vm.setAges(ageNow.toIntOrNull(), ageRet.toIntOrNull()) }) { Text("Save") }
+                    }
+                    val runway = (s.retirementAge ?: 0) - (s.currentAge ?: 0)
+                    Helper(
+                        if (s.currentAge != null && runway > 0)
+                            "$runway years of runway — " + (
+                                if (runway >= 15) "long horizon, so it favours total-return growth over dividend income."
+                                else "shorter horizon, so it leans toward preservation and lower drawdown."
+                            )
+                        else "Set your ages so the AI can pick growth vs income appropriately.",
+                    )
+
+                    Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DateField("Retirement", s.retirementDate, Modifier.weight(1f)) { vm.setRetirementDate(it) }
                         DateField("Exit date", s.exitDate, Modifier.weight(1f)) { vm.setExitDate(it) }
@@ -280,6 +309,20 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(8.dp))
                     SwitchLine("Notify me on each trade", s.notifyOnTrade) { vm.setNotifyOnTrade(it) }
+
+                    Spacer(Modifier.height(10.dp))
+                    Label("Account rules")
+                    SwitchLine("Use a margin account", s.accountType == "margin") {
+                        vm.setAccountType(if (it) "margin" else "cash")
+                    }
+                    Helper(
+                        if (s.accountType == "margin")
+                            "Margin: sale proceeds are usable the same day. Real margin accounts are also " +
+                                "subject to the pattern-day-trader rule under \$25k."
+                        else "Cash account: proceeds settle T+1, so a sale can't fund a buy until the next session.",
+                    )
+                    SwitchLine("Avoid wash sales", s.avoidWashSales) { vm.setAvoidWashSales(it) }
+                    Helper("Won't rebuy a name sold at a loss for 30 days (IRS \u00a71091).")
                     st?.lastTickDate?.let { Helper("Last decision: $it") }
                 }
             }

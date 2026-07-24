@@ -120,7 +120,17 @@ fun StockTrackerRoot() {
                 val sym = entry.arguments?.getString("symbol").orEmpty().ifBlank { null }
                 CalendarScreen(onBack = { nav.popBackStack() }, symbol = sym)
             }
-            composable(TopDest.Portfolio.route) { PortfolioScreen() }
+            composable(TopDest.Portfolio.route) {
+                PortfolioScreen(
+                    onOpenIdeas = {
+                        nav.navigate(TopDest.Ideas.route) {
+                            popUpTo(TopDest.Watchlist.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
+            }
             composable(TopDest.Ideas.route) {
                 IdeasScreen(onOpenDetail = { nav.navigate(detailRoute(it)) })
             }

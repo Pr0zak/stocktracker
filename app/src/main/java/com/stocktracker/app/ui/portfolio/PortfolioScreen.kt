@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Balance
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,7 +65,7 @@ import com.stocktracker.app.util.asPercentChange
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PortfolioScreen() {
+fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
     val vm: PortfolioViewModel = viewModel()
     val state by vm.state.collectAsState()
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
@@ -242,17 +243,25 @@ fun PortfolioScreen() {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
+            // Two ways to put the cash to work: deepen what you already own (rebalance, existing
+            // holdings only), or discover new names (the Ideas engine — watchlist + whole market).
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 8.dp),
             ) {
-                Button(onClick = { vm.openRebalance() }, enabled = state.hasHoldings) {
+                Button(
+                    onClick = { vm.openRebalance() },
+                    enabled = state.hasHoldings,
+                    modifier = Modifier.weight(1f),
+                ) {
                     Icon(Icons.Filled.Balance, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(8.dp))
-                    Text("Suggest how to invest it")
+                    Text("Add to holdings")
                 }
-                OutlinedButton(onClick = { vm.openReview() }, enabled = state.hasHoldings) {
-                    Text("Review")
+                OutlinedButton(onClick = onOpenIdeas, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.Lightbulb, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Find new")
                 }
             }
 

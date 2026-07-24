@@ -1,7 +1,11 @@
 # AI-Enhancement Roadmap & Data-Source Catalog
 
-**Status:** research complete, build not started (2026-07-23). Companion to `ai-signals-roadmap.md`
-and `options-roadmap.md`.
+**Status:** **AIE-1…6 all shipped (2026-07-23).** The full chosen build board is complete —
+AIE-1 annotated charts (v0.25.0), AIE-2 congress block, AIE-5 market-now, AIE-6 seasonality,
+AIE-3 daily-brief push (v0.26.0), AIE-4 news→move (v0.27.0). Themes **C (recommendations /
+portfolio-aware rebalance / smart-money screen)** and **D (regime labels / weekly macro read)**
+are the natural next wave and remain un-started. Companion to `ai-signals-roadmap.md` and
+`options-roadmap.md`.
 
 ## The reframe: inference is now ~free
 
@@ -30,8 +34,10 @@ alt-data "alpha" is weak/lagging; we frame these as **context**, not signals.
 | **G · Market-now pulse** ⭐ | On-demand button → instant AI overview of what the whole market is doing *right now* (indices, VIX, sector rotation, watchlist movers, session phase) | On-demand Opus now affordable |
 | **F · New data sources** | Congressional trades + the context-block expansion below | — |
 
-**Chosen build threads (tasks AIE-1…5):** A (annotated charts), F-congress (AIE-2), B-daily-brief (AIE-3),
-E (news→move), G-market-now (AIE-5). Themes C and D ride on the same new blocks and are the natural next wave.
+**Chosen build threads (tasks AIE-1…6) — ALL SHIPPED 2026-07-23:** A annotated charts (AIE-1, v0.25.0),
+F-congress (AIE-2), B-daily-brief (AIE-3, v0.26.0), E news→move (AIE-4, v0.27.0), G-market-now (AIE-5),
+seasonality (AIE-6). Each runs on the `llm_provider=cli` subscription path (≈$0/token) and caches server-
+side. Themes C and D ride on the same new blocks and are the natural next wave (un-started).
 
 ---
 

@@ -209,6 +209,14 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     ChipRow(listOf(40.0, 55.0, 70.0, 85.0), s.minConvictionToTrade.toDouble(),
                         { vm.setMinConviction(it.toInt()) }) { it.toInt().toString() }
                     Helper("Higher = pickier; it holds cash unless a setup is strong.")
+
+                    Spacer(Modifier.height(8.dp))
+                    SwitchLine("Wait for a good entry price", s.respectEntryZones) { vm.setRespectEntryZones(it) }
+                    Helper(
+                        if (s.respectEntryZones)
+                            "The AI names a price range per buy; if the market is above it, the buy waits for another day."
+                        else "Buys fill at whatever the price is when it decides.",
+                    )
                 }
             }
 

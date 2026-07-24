@@ -742,6 +742,7 @@ data class SandboxSettings(
     @SerialName("max_trades_per_tick") val maxTradesPerTick: Int = 4,
     @SerialName("max_new_positions_per_tick") val maxNewPositionsPerTick: Int = 2,
     @SerialName("min_conviction_to_trade") val minConvictionToTrade: Int = 55,
+    @SerialName("respect_entry_zones") val respectEntryZones: Boolean = true,
     @SerialName("slippage_bps") val slippageBps: Int = 5,
 )
 
@@ -793,6 +794,8 @@ data class SandboxTrade(
     val source: String = "",
     val reason: String = "",
     @SerialName("skip_reason") val skipReason: String? = null,
+    @SerialName("entry_low") val entryLow: Double? = null,
+    @SerialName("entry_high") val entryHigh: Double? = null,
 )
 
 @Serializable
@@ -835,6 +838,7 @@ data class SandboxSettingsPatch(
     @SerialName("max_turnover_pct") val maxTurnoverPct: Double? = null,
     @SerialName("notify_on_trade") val notifyOnTrade: Boolean? = null,
     @SerialName("min_conviction_to_trade") val minConvictionToTrade: Int? = null,
+    @SerialName("respect_entry_zones") val respectEntryZones: Boolean? = null,
 )
 
 /** GET /daily_brief — the AI morning brief (AIE-3): a notification [title] + [body] + [tone], plus the

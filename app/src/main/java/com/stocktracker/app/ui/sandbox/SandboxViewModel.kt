@@ -135,6 +135,8 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
 
     fun setMinConviction(v: Int) = patchSettings(SandboxSettingsPatch(minConvictionToTrade = v))
 
+    fun setRespectEntryZones(on: Boolean) = patchSettings(SandboxSettingsPatch(respectEntryZones = on))
+
     /** Manually run one decision cycle now (bypasses the once-a-day + session gates). */
     fun runTick() {
         viewModelScope.launch {

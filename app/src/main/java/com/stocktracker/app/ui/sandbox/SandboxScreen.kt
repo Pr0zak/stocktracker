@@ -381,7 +381,8 @@ private fun TradeRow(t: SandboxTrade) {
                 else -> "${t.date} · ${t.symbol.removeSuffix("-USD")} · ${trimNum(t.shares)} sh @ $${Formatting.compact(t.price ?: 0.0)}"
             }
             Text(head, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            val sub = if (skipped) (t.skipReason ?: "") else t.reason
+            val zone = t.entryHigh?.let { " · wanted ≤$" + Formatting.compact(it) } ?: ""
+            val sub = if (skipped) ((t.skipReason ?: "") + zone) else t.reason
             if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.labelSmall, color = neutral)
         }
         if (!skipped && t.realizedPl != null && t.realizedPl != 0.0) {

@@ -50,26 +50,29 @@ object SandboxTradeNotifier {
         settings.setLastSandboxTradeTs(newest)
     }
 
-    /** One trade → a specific headline; several → a digest, so a multi-trade day is a single ping. */
+    /**
+     * Deliberately BRIEF — a glanceable headline plus one short line. The AI's full reasoning lives in
+     * the app's trade log; a notification that repeats it is a wall of text on the lock screen.
+     * One trade → "Sandbox: Bought 2 MSFT @ $384"; several → a compact "BUY MSFT 2 · SELL IBIT 10" digest.
+     */
     internal fun summarize(fresh: List<SandboxTrade>, equity: Double): Pair<String, String> {
-        val title = if (fresh.size == 1) {
+        val balance = if (equity > 0) "Balance $" + trim(equity) else ""
+        if (fresh.size == 1) {
             val t = fresh.first()
-            "Sandbox: ${t.side.replaceFirstChar { c -> c.uppercase() }} ${sym(t.symbol)} ${shares(t.shares)} sh"
-        } else {
-            val buys = fresh.count { it.side == "buy" }
-            val sells = fresh.size - buys
-            "Sandbox: ${listOfNotNull(
-                buys.takeIf { it > 0 }?.let { "$it buy${if (it > 1) "s" else ""}" },
-                sells.takeIf { it > 0 }?.let { "$it sell${if (it > 1) "s" else ""}" },
-            ).joinToString(" · ")}"
-        }
-        val lines = fresh.joinToString("\n") { t ->
+            val verb = if (t.side == "buy") "Bought" else "Sold"
             val px = t.price?.let { " @ $" + trim(it) } ?: ""
-            val why = t.reason.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""
-            "${t.side.uppercase()} ${sym(t.symbol)} ${shares(t.shares)} sh$px$why"
+            return "Sandbox: $verb ${shares(t.shares)} ${sym(t.symbol)}$px" to balance
         }
-        val tail = if (equity > 0) "\n\nBalance $" + trim(equity) else ""
-        return title to (lines + tail)
+        val buys = fresh.count { it.side == "buy" }
+        val sells = fresh.size - buys
+        val title = "Sandbox: " + listOfNotNull(
+            buys.takeIf { it > 0 }?.let { "$it buy${if (it > 1) "s" else ""}" },
+            sells.takeIf { it > 0 }?.let { "$it sell${if (it > 1) "s" else ""}" },
+        ).joinToString(" · ")
+        val body = fresh.joinToString(" · ") { t ->
+            "${t.side.uppercase()} ${sym(t.symbol)} ${shares(t.shares)}"
+        } + if (balance.isNotEmpty()) " — $balance" else ""
+        return title to body
     }
 
     private fun sym(s: String) = s.removeSuffix("-USD")

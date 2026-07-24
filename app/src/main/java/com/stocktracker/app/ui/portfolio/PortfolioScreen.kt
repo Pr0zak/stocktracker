@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Balance
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -71,13 +72,26 @@ fun PortfolioScreen() {
             onDismiss = { vm.dismissReview() },
         )
     }
+    if (state.rebalance.open) {
+        RebalancePlanDialog(
+            ui = state.rebalance,
+            onRefresh = { vm.loadRebalance(force = true) },
+            onTarget = { vm.setRebalanceTarget(it) },
+            onDismiss = { vm.dismissRebalance() },
+        )
+    }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Portfolio") },
                 actions = {
-                    if (state.hasHoldings) IconButton(onClick = { vm.openReview() }) {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = "AI portfolio review")
+                    if (state.hasHoldings) {
+                        IconButton(onClick = { vm.openRebalance() }) {
+                            Icon(Icons.Filled.Balance, contentDescription = "AI rebalance plan")
+                        }
+                        IconButton(onClick = { vm.openReview() }) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = "AI portfolio review")
+                        }
                     }
                 },
             )
@@ -428,6 +442,114 @@ private fun PortfolioReviewDialog(
                             style = MaterialTheme.typography.labelSmall, color = neutral)
                     }
                     else -> Text("No review yet — tap Refresh.")
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onRefresh, enabled = !ui.loading) { Text("Refresh") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+/**
+ * Theme C — a CONCRETE rebalance plan: pick a target max single-position weight (chips), and the analyst
+ * returns sized sell/buy moves (real shares + dollars) to bring the book under that weight and redeploy
+ * proceeds + idle cash into the best-setup existing holdings. Decision support for manual trading.
+ */
+@Composable
+private fun RebalancePlanDialog(
+    ui: RebalanceUi,
+    onRefresh: () -> Unit,
+    onTarget: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val amber = Color(0xFFB0872B)
+    val plan = ui.result?.plan
+    fun shareText(s: Double) = if (s == kotlin.math.floor(s)) s.toInt().toString() else String.format("%.2f", s)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Rebalance plan", style = MaterialTheme.typography.titleLarge)
+                ui.result?.portfolio?.let { p ->
+                    Text(
+                        "$" + Formatting.compact(p.totalValue) + " · target ≤ ${ui.targetPct}% per name",
+                        style = MaterialTheme.typography.labelSmall, color = neutral,
+                    )
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                Text("Max single position", style = MaterialTheme.typography.labelMedium, color = neutral)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
+                    listOf(25, 33, 40, 50).forEach { pct ->
+                        FilterChip(
+                            selected = ui.targetPct == pct,
+                            onClick = { onTarget(pct) },
+                            enabled = !ui.loading,
+                            label = { Text("$pct%") },
+                        )
+                    }
+                }
+                when {
+                    ui.loading -> Row(
+                        modifier = Modifier.padding(top = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Planning the moves…")
+                    }
+                    ui.error != null -> Text(ui.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp))
+                    plan != null -> {
+                        Spacer(Modifier.height(8.dp))
+                        Text(plan.summary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(10.dp))
+                        plan.moves.forEach { m ->
+                            val ac = when (m.action.lowercase()) {
+                                "buy" -> GainGreen
+                                "sell" -> amber
+                                else -> neutral
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(ac.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                                ) {
+                                    Text(m.action.uppercase(), style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold, color = ac)
+                                }
+                                Column {
+                                    val head = if (m.action.equals("hold", true)) {
+                                        "${m.symbol} — hold"
+                                    } else {
+                                        "${m.symbol} · ${shareText(m.shares)} sh · $" + Formatting.compact(m.dollars)
+                                    }
+                                    Text(head, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    Text(m.reason, style = MaterialTheme.typography.bodySmall, color = neutral)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        val after = buildList {
+                            plan.resultingTopWeightPct?.let { add("top ~${String.format("%.0f", it)}%") }
+                            plan.cashAfter?.let { add("$" + Formatting.compact(it) + " cash") }
+                        }
+                        if (after.isNotEmpty()) {
+                            Text("After: " + after.joinToString(" · "),
+                                style = MaterialTheme.typography.labelMedium, color = neutral)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text("Estimates — verify prices before trading. Decision support, not investment advice.",
+                            style = MaterialTheme.typography.labelSmall, color = neutral)
+                    }
+                    else -> Text("No plan yet — tap Refresh.", modifier = Modifier.padding(top = 12.dp))
                 }
             }
         },

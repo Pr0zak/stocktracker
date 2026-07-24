@@ -125,6 +125,21 @@ class SignalsApiService {
         }.getOrNull()
     }
 
+    /** Theme C — a concrete, sized rebalance plan: sell/buy N shares to bring the book under
+     *  [maxPositionPct] and redeploy proceeds + cash into the best-setup holdings. Runs the analyst →
+     *  gate on the AI switch. Crypto holdings must be sent as <SYM>-USD. Null on a blank URL / no holdings. */
+    suspend fun rebalance(
+        baseUrl: String, cash: Double, maxPositionPct: Int, holdings: List<HoldingSync>, deep: Boolean = false,
+    ): RebalanceResponse? {
+        if (baseUrl.isBlank() || holdings.isEmpty()) return null
+        val body = Http.json.encodeToString(
+            RebalanceRequestBody(cash, deep, maxPositionPct.toDouble(), holdings),
+        )
+        return Http.json.decodeFromString<RebalanceResponse>(
+            Http.postJson("${baseUrl.trimEnd('/')}/portfolio/rebalance", body, slow = true),
+        )
+    }
+
     /** AIE-4 — "why it moved": the stock's notable recent daily moves each correlated with a dated
      *  headline (or flagged as no-catalyst), plus a one-line read. Runs the analyst → gate on the AI
      *  switch. Returns the full response (block may be null with a [note], e.g. crypto). Null on failure. */
@@ -739,6 +754,42 @@ data class HoldingSync(
     val symbol: String,
     val shares: Double,
     @SerialName("avg_cost") val avgCost: Double,
+)
+
+/** POST /portfolio/rebalance — a concrete sized rebalance plan (Theme C). */
+@Serializable
+data class RebalanceRequestBody(
+    val cash: Double,
+    val deep: Boolean = false,
+    @SerialName("max_position_pct") val maxPositionPct: Double,
+    val holdings: List<HoldingSync>,
+)
+
+@Serializable
+data class RebalanceResponse(
+    val plan: RebalancePlan = RebalancePlan(),
+    @SerialName("max_position_pct") val maxPositionPct: Double = 0.0,
+    val portfolio: PortfolioSummary = PortfolioSummary(),
+    val model: String = "",
+    val cached: Boolean = false,
+    val usage: AiUsage? = null,
+)
+
+@Serializable
+data class RebalancePlan(
+    val summary: String = "",
+    val moves: List<RebalanceMove> = emptyList(),
+    @SerialName("resulting_top_weight_pct") val resultingTopWeightPct: Double? = null,
+    @SerialName("cash_after") val cashAfter: Double? = null,
+)
+
+@Serializable
+data class RebalanceMove(
+    val symbol: String = "",
+    val action: String = "",   // sell | buy | hold
+    val shares: Double = 0.0,
+    val dollars: Double = 0.0,
+    val reason: String = "",
 )
 
 @Serializable

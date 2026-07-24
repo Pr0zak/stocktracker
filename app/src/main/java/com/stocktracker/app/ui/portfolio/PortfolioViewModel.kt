@@ -9,6 +9,7 @@ import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.HoldingSync
 import com.stocktracker.app.data.remote.PortfolioReviewResponse
+import com.stocktracker.app.data.remote.RebalanceResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.async
@@ -42,6 +43,16 @@ data class PortfolioReviewUi(
     val error: String? = null,
 )
 
+/** State for the on-demand AI rebalance-plan dialog (Theme C). [targetPct] is the max single-position
+ *  weight the user wants after rebalancing. */
+data class RebalanceUi(
+    val open: Boolean = false,
+    val loading: Boolean = false,
+    val result: RebalanceResponse? = null,
+    val error: String? = null,
+    val targetPct: Int = 25,
+)
+
 data class PortfolioUiState(
     val totalValue: Double = 0.0,
     val dayChange: Double = 0.0,
@@ -63,6 +74,7 @@ data class PortfolioUiState(
     val loadingChart: Boolean = true,
     val hasHoldings: Boolean = true,
     val review: PortfolioReviewUi = PortfolioReviewUi(),
+    val rebalance: RebalanceUi = RebalanceUi(),
 )
 
 /** Ranges offered for the portfolio value graph (daily data). */
@@ -148,6 +160,61 @@ class PortfolioViewModel : ViewModel() {
                     loading = false,
                     result = res.getOrNull() ?: st.review.result,
                     error = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the review." },
+                ))
+            }
+        }
+    }
+
+    /** Open the AI rebalance-plan dialog and load it (a cached plan is reused until refreshed). */
+    fun openRebalance() {
+        _state.update { it.copy(rebalance = it.rebalance.copy(open = true)) }
+        loadRebalance(force = false)
+    }
+
+    fun dismissRebalance() {
+        _state.update { it.copy(rebalance = it.rebalance.copy(open = false)) }
+    }
+
+    /** Change the target max single-position weight and re-run the plan. */
+    fun setRebalanceTarget(pct: Int) {
+        if (pct == _state.value.rebalance.targetPct) return
+        _state.update { it.copy(rebalance = it.rebalance.copy(targetPct = pct)) }
+        loadRebalance(force = true)
+    }
+
+    /** One structured LLM call producing concrete sized moves. Gated on a Signals URL + the AI switch. */
+    fun loadRebalance(force: Boolean) {
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            val on = settings.aiAnalystEnabled.first()
+            val held = _state.value.holdings
+            if (base.isBlank() || !on) {
+                _state.update { st ->
+                    st.copy(rebalance = st.rebalance.copy(loading = false,
+                        error = if (base.isBlank()) "Set the Signals service URL in Settings to use this."
+                        else "The AI analyst is off — turn it on in Settings."))
+                }
+                return@launch
+            }
+            if (held.isEmpty()) {
+                _state.update { it.copy(rebalance = it.rebalance.copy(loading = false, error = "No holdings to rebalance.")) }
+                return@launch
+            }
+            if (!force && _state.value.rebalance.result != null) return@launch
+            _state.update { it.copy(rebalance = it.rebalance.copy(loading = true, error = null)) }
+            val syncs = held.map { h ->
+                val avg = h.costBasis?.takeIf { it > 0 && h.shares > 0 }?.div(h.shares) ?: (h.asset.avgCost ?: 0.0)
+                val sym = if (h.asset.type == AssetType.CRYPTO) "${h.asset.symbol.uppercase()}-USD"
+                          else h.asset.symbol.uppercase()
+                HoldingSync(sym, h.shares, avg)
+            }
+            val target = _state.value.rebalance.targetPct
+            val res = runCatching { signalsApi.rebalance(base, 0.0, target, syncs) }
+            _state.update { st ->
+                st.copy(rebalance = st.rebalance.copy(
+                    loading = false,
+                    result = res.getOrNull() ?: st.rebalance.result,
+                    error = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the rebalance plan." },
                 ))
             }
         }

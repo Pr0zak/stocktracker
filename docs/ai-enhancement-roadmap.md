@@ -1,11 +1,12 @@
 # AI-Enhancement Roadmap & Data-Source Catalog
 
-**Status:** **AIE-1…6 all shipped (2026-07-23).** The full chosen build board is complete —
-AIE-1 annotated charts (v0.25.0), AIE-2 congress block, AIE-5 market-now, AIE-6 seasonality,
-AIE-3 daily-brief push (v0.26.0), AIE-4 news→move (v0.27.0). Themes **C (recommendations /
-portfolio-aware rebalance / smart-money screen)** and **D (regime labels / weekly macro read)**
-are the natural next wave and remain un-started. Companion to `ai-signals-roadmap.md` and
-`options-roadmap.md`.
+**Status:** **AIE-1…6 + Themes C & D all shipped (2026-07-23→24).** AIE-1 annotated charts (v0.25.0),
+AIE-2 congress, AIE-5 market-now, AIE-6 seasonality, AIE-3 daily-brief push (v0.26.0), AIE-4 news→move
+(v0.27.0); a **refresh-all-AI button** on the detail screen (v0.28.0); **Theme C — portfolio rebalance
+plan** (concrete sized SELL/BUY moves, POST /portfolio/rebalance, v0.29.0); **Theme D — market-regime
+banner** (GET /regime, trend/vol + positioning note on the watchlist, v0.30.0). Remaining un-built:
+Theme C's follow-the-smart-money screen, Theme D's weekly-macro read + the 200-week value screener
+(mungbeans — see that memory). Companion to `ai-signals-roadmap.md` and `options-roadmap.md`.
 
 ## The reframe: inference is now ~free
 

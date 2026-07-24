@@ -41,6 +41,7 @@ class SettingsStore(private val context: Context) {
     private val lastAfterHoursSummaryKey = stringPreferencesKey("last_after_hours_summary_date")
     private val aiDailyBriefEnabledKey = booleanPreferencesKey("ai_daily_brief_enabled")
     private val lastDailyBriefKey = stringPreferencesKey("last_daily_brief_date")
+    private val lastSandboxTradeTsKey = doublePreferencesKey("last_sandbox_trade_ts")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
@@ -97,6 +98,12 @@ class SettingsStore(private val context: Context) {
     /** ET date (yyyy-MM-dd) the morning brief last fired; "" = never. Dedups it to once per trading day. */
     val lastDailyBriefDate: Flow<String> = context.dataStore.data.map { it[lastDailyBriefKey] ?: "" }
     suspend fun setLastDailyBriefDate(date: String) = context.dataStore.edit { it[lastDailyBriefKey] = date }
+
+    /** Epoch-seconds watermark of the newest sandbox trade already notified about (0 = none yet). Only
+     *  fills newer than this produce a notification, so the 15-min worker never re-announces old trades. */
+    val lastSandboxTradeTs: Flow<Double> = context.dataStore.data.map { it[lastSandboxTradeTsKey] ?: 0.0 }
+    suspend fun setLastSandboxTradeTs(ts: Double) =
+        context.dataStore.edit { it[lastSandboxTradeTsKey] = ts }
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }

@@ -19,6 +19,7 @@ object AlertNotifier {
     private const val CHANNEL_ID = "price_alerts"
     private const val MARKET_CHANNEL_ID = "market_summary"
     private const val BRIEF_CHANNEL_ID = "ai_daily_brief"
+    private const val SANDBOX_CHANNEL_ID = "sandbox_trades"
 
     fun ensureChannel(context: Context) {
         ensureChannel(
@@ -44,6 +45,16 @@ object AlertNotifier {
         ensureChannel(
             context, BRIEF_CHANNEL_ID, "AI morning brief",
             "A once-a-morning AI read of the tape, your watchlist, and today's catalysts",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+    }
+
+    /** The AI sandbox's paper-trade channel — its own default-importance channel so trade pings can be
+     *  muted separately from price alerts and the daily brief. */
+    fun ensureSandboxChannel(context: Context) {
+        ensureChannel(
+            context, SANDBOX_CHANNEL_ID, "Sandbox trades",
+            "When the AI paper trader buys or sells in the sandbox",
             NotificationManager.IMPORTANCE_DEFAULT,
         )
     }
@@ -77,6 +88,10 @@ object AlertNotifier {
     fun notifyBrief(context: Context, id: Int, title: String, text: String) =
         post(context, BRIEF_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
 
+    /** Post a sandbox paper-trade notification (its own default-importance channel). */
+    fun notifySandbox(context: Context, id: Int, title: String, text: String) =
+        post(context, SANDBOX_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
+
     private fun post(
         context: Context,
         channelId: String,
@@ -94,6 +109,7 @@ object AlertNotifier {
         when (channelId) {
             MARKET_CHANNEL_ID -> ensureMarketChannel(context)
             BRIEF_CHANNEL_ID -> ensureBriefChannel(context)
+            SANDBOX_CHANNEL_ID -> ensureSandboxChannel(context)
             else -> ensureChannel(context)
         }
 

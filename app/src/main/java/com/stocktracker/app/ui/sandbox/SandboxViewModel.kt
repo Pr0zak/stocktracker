@@ -1,6 +1,5 @@
 package com.stocktracker.app.ui.sandbox
 
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.remote.SandboxSettings
@@ -30,7 +29,7 @@ data class SandboxUiState(
 
 /** Drives the Sandbox tab — the read-only view of the server-side autonomous paper trader plus the
  *  hands-on controls (fund, settings, run-a-tick). All state lives on the backend; this just mirrors it. */
-class SandboxViewModel : ViewModel() {
+class SandboxViewModel(private val app: android.app.Application) : androidx.lifecycle.AndroidViewModel(app) {
 
     private val api = SignalsApiService()
     private val settings = ServiceLocator.settingsStore
@@ -145,6 +144,9 @@ class SandboxViewModel : ViewModel() {
                 else -> "Ran — ${res.ordersFilled.size} trade(s) executed"
             }
             _state.update { it.copy(ticking = false, message = msg) }
+            // Announce any fills immediately (the 15-min worker would otherwise catch them later). Run
+            // unconditionally so the notifier's watermark also gets primed on a no-trade cycle.
+            runCatching { com.stocktracker.app.notify.SandboxTradeNotifier.check(app) }
             refresh()
         }
     }

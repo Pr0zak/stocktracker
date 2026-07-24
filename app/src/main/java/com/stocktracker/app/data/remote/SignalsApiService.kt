@@ -167,6 +167,21 @@ class SignalsApiService {
         return Http.json.decodeFromString<MarketNowResponse>(body)
     }
 
+    /**
+     * AIE-3 — the AI morning brief: a push-ready title + 2-3 sentences + tone, from the same live
+     * snapshot [marketNow] uses plus today's watchlist catalysts. Server-side watchlist; cached ~30 min.
+     * Runs the analyst, so gate on the AI switch. Returns null on a blank URL / any failure so the
+     * notifier just skips this morning rather than erroring.
+     */
+    suspend fun dailyBrief(baseUrl: String, deep: Boolean = false): DailyBriefResponse? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            val d = if (deep) "?deep=true" else ""
+            val body = Http.getString("${baseUrl.trimEnd('/')}/daily_brief$d", slow = true) // LLM latency
+            Http.json.decodeFromString<DailyBriefResponse>(body)
+        }.getOrNull()
+    }
+
     /** Catalyst calendar (SI dates, OPEX, earnings). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
@@ -531,6 +546,19 @@ data class MarketOverviewStruct(
     val tone: String = "",      // risk-on | risk-off | mixed
     val headline: String = "",
     val points: List<String> = emptyList(),
+)
+
+/** GET /daily_brief — the AI morning brief (AIE-3): a notification [title] + [body] + [tone], plus the
+ *  watchlist names reporting earnings today. All defaulted so a partial payload still deserializes. */
+@Serializable
+data class DailyBriefResponse(
+    val title: String = "",
+    val body: String = "",
+    val tone: String = "",      // risk-on | risk-off | mixed
+    @SerialName("catalysts_today") val catalystsToday: List<String> = emptyList(),
+    val session: String = "",   // PRE | REGULAR | AFTER | CLOSED
+    val model: String = "",
+    val cached: Boolean = false,
 )
 
 @Serializable

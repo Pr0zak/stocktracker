@@ -39,6 +39,8 @@ class SettingsStore(private val context: Context) {
     private val marketSummaryMarketWideKey = booleanPreferencesKey("market_summary_market_wide")
     private val lastCloseSummaryKey = stringPreferencesKey("last_close_summary_date")
     private val lastAfterHoursSummaryKey = stringPreferencesKey("last_after_hours_summary_date")
+    private val aiDailyBriefEnabledKey = booleanPreferencesKey("ai_daily_brief_enabled")
+    private val lastDailyBriefKey = stringPreferencesKey("last_daily_brief_date")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
@@ -85,6 +87,16 @@ class SettingsStore(private val context: Context) {
     val lastAfterHoursSummaryDate: Flow<String> = context.dataStore.data.map { it[lastAfterHoursSummaryKey] ?: "" }
     suspend fun setLastAfterHoursSummaryDate(date: String) =
         context.dataStore.edit { it[lastAfterHoursSummaryKey] = date }
+
+    /** Master switch for the AI morning brief (AIE-3). Off by default — it's an LLM call, so opt-in;
+     *  it also needs a Signals URL and the AI analyst switch on to actually fire. */
+    val aiDailyBriefEnabled: Flow<Boolean> = context.dataStore.data.map { it[aiDailyBriefEnabledKey] ?: false }
+    suspend fun setAiDailyBriefEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[aiDailyBriefEnabledKey] = enabled }
+
+    /** ET date (yyyy-MM-dd) the morning brief last fired; "" = never. Dedups it to once per trading day. */
+    val lastDailyBriefDate: Flow<String> = context.dataStore.data.map { it[lastDailyBriefKey] ?: "" }
+    suspend fun setLastDailyBriefDate(date: String) = context.dataStore.edit { it[lastDailyBriefKey] = date }
 
     /** User-entered Finnhub key (empty = fall back to the build-time BuildConfig key). */
     val finnhubApiKey: Flow<String> = context.dataStore.data.map { it[finnhubKeyKey] ?: "" }

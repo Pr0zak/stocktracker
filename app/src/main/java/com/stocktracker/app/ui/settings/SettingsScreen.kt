@@ -79,6 +79,7 @@ fun SettingsScreen() {
     val marketSummary by settings.marketSummaryEnabled.collectAsState(initial = true)
     val marketSummaryAfterHours by settings.marketSummaryAfterHours.collectAsState(initial = true)
     val marketSummaryMarketWide by settings.marketSummaryMarketWide.collectAsState(initial = false)
+    val aiDailyBrief by settings.aiDailyBriefEnabled.collectAsState(initial = false)
 
     var keyField by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedKey) { if (keyField == null) keyField = savedKey }
@@ -187,6 +188,28 @@ fun SettingsScreen() {
                             "Your watchlist, or the whole market's biggest movers. Whole-market applies " +
                                 "to the close recap.",
                         )
+                    }
+                }
+
+                SwitchRow(
+                    "AI morning brief",
+                    "A once-a-morning AI read of the tape, your watchlist movers, and any earnings due " +
+                        "today (needs the AI analyst on + a Signals URL)",
+                    aiDailyBrief,
+                ) { scope.launch { settings.setAiDailyBriefEnabled(it) } }
+
+                if (aiDailyBrief) {
+                    Column(modifier = Modifier.padding(start = 12.dp)) {
+                        TextButton(onClick = {
+                            scope.launch {
+                                Toast.makeText(context, "Fetching brief…", Toast.LENGTH_SHORT).show()
+                                val err = com.stocktracker.app.notify.AiDailyBriefNotifier.sendNow(context)
+                                Toast.makeText(
+                                    context, err ?: "Brief sent — check your notifications", Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }) { Text("Send a test brief now") }
+                        HelperText("The brief posts automatically each trading morning (8:30–10am ET).")
                     }
                 }
             }

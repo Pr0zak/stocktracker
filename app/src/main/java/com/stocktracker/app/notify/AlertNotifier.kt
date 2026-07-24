@@ -18,6 +18,7 @@ object AlertNotifier {
 
     private const val CHANNEL_ID = "price_alerts"
     private const val MARKET_CHANNEL_ID = "market_summary"
+    private const val BRIEF_CHANNEL_ID = "ai_daily_brief"
 
     fun ensureChannel(context: Context) {
         ensureChannel(
@@ -33,6 +34,16 @@ object AlertNotifier {
         ensureChannel(
             context, MARKET_CHANNEL_ID, "Market summary",
             "A recap of your watchlist's top movers at the close and after hours",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+    }
+
+    /** The AI morning-brief channel — its own default-importance channel so it can be muted apart from
+     *  price alerts and the movers recap. */
+    fun ensureBriefChannel(context: Context) {
+        ensureChannel(
+            context, BRIEF_CHANNEL_ID, "AI morning brief",
+            "A once-a-morning AI read of the tape, your watchlist, and today's catalysts",
             NotificationManager.IMPORTANCE_DEFAULT,
         )
     }
@@ -62,6 +73,10 @@ object AlertNotifier {
     fun notifyMarket(context: Context, id: Int, title: String, text: String) =
         post(context, MARKET_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
 
+    /** Post the AI morning brief (its own default-importance channel). */
+    fun notifyBrief(context: Context, id: Int, title: String, text: String) =
+        post(context, BRIEF_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
+
     private fun post(
         context: Context,
         channelId: String,
@@ -76,7 +91,11 @@ object AlertNotifier {
         ) {
             return // no notification permission — silently skip
         }
-        if (channelId == MARKET_CHANNEL_ID) ensureMarketChannel(context) else ensureChannel(context)
+        when (channelId) {
+            MARKET_CHANNEL_ID -> ensureMarketChannel(context)
+            BRIEF_CHANNEL_ID -> ensureBriefChannel(context)
+            else -> ensureChannel(context)
+        }
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP

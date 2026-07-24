@@ -60,6 +60,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.remote.SandboxState
 import com.stocktracker.app.data.remote.SandboxStrategyNote
 import com.stocktracker.app.data.remote.SandboxTrade
+import com.stocktracker.app.ui.components.AllocationDonut
+import com.stocktracker.app.ui.components.DONUT_COLORS
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.ChartMarker
 import com.stocktracker.app.ui.components.PriceChart
@@ -77,9 +79,12 @@ internal val AMBER = Color(0xFFB0872B)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
-    val vm: SandboxViewModel = viewModel()
+    val vm: SandboxViewModel = sandboxViewModel()
     val ui by vm.state.collectAsState()
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    // Re-pull whenever this screen is shown: the server-side timer may have traded while the app sat
+    // open, and returning from settings should reflect anything changed there.
+    LaunchedEffect(Unit) { vm.refresh() }
 
     Scaffold(
         topBar = {
@@ -174,6 +179,45 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             st.strategyNote?.let { item { StrategyCard(it) } }
             if (st.positions.isNotEmpty()) {
                 item { SectionLabel("Holdings") }
+                // Allocation donut + legend, same as the Portfolio tab — one colour per position,
+                // echoed on the rows below so a slice maps to a name at a glance. Cash is included as
+                // its own slice since an idle-cash sandbox is a meaningful state.
+                item {
+                    val sorted = st.positions.sortedByDescending { it.value }
+                    val colorOf = sorted.mapIndexed { i, p -> p.symbol to DONUT_COLORS[i % DONUT_COLORS.size] }.toMap()
+                    val cashColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                    if (st.equity > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AllocationDonut(
+                                slices = sorted.map {
+                                    (colorOf[it.symbol] ?: DONUT_COLORS[0]) to (it.value / st.equity).toFloat()
+                                } + (cashColor to (st.cash / st.equity).toFloat().coerceAtLeast(0f)),
+                                modifier = Modifier.size(96.dp),
+                            )
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                sorted.take(5).forEach { p ->
+                                    LegendRow(
+                                        colorOf[p.symbol] ?: DONUT_COLORS[0],
+                                        p.symbol.removeSuffix("-USD"),
+                                        p.value / st.equity * 100,
+                                    )
+                                }
+                                if (sorted.size > 5) {
+                                    Text("+${sorted.size - 5} more", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (st.cash > 0) LegendRow(cashColor, "Cash", st.cash / st.equity * 100)
+                            }
+                        }
+                    }
+                }
                 items(st.positions) { p -> PositionRow(p, st.equity) }
             }
             item { SectionLabel("Trade log") }
@@ -529,6 +573,17 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** One donut-legend line: colour swatch, name, and share of the book. */
+@Composable
+private fun LegendRow(color: Color, label: String, pct: Double) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(color))
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+        Text("${pct.toInt()}%", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -60,6 +60,8 @@ import com.stocktracker.app.ui.components.PriceChart
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceLarge
+import com.stocktracker.app.ui.components.AllocationDonut
+import com.stocktracker.app.ui.components.DONUT_COLORS
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.asPercentChange
 
@@ -370,35 +372,7 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
 }
 
 /** Distinct slice colours for the allocation donut, cycled by position rank (largest first). */
-private val DONUT_COLORS = listOf(
-    Color(0xFF7C6BD6), Color(0xFF4666CF), Color(0xFF0F8A7E), Color(0xFFD29922),
-    Color(0xFFB0543D), Color(0xFFC2477E), Color(0xFF2E9E57), Color(0xFF8A6BB0),
-)
 
-/** A thin allocation donut — one arc per position, swept by its share of the book, drawn on Canvas. */
-@Composable
-private fun AllocationDonut(slices: List<Pair<Color, Float>>, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val stroke = size.minDimension * 0.18f
-        val d = size.minDimension - stroke
-        val tl = Offset((size.width - d) / 2f, (size.height - d) / 2f)
-        val arc = Size(d, d)
-        var start = -90f
-        slices.forEach { (color, frac) ->
-            val sweep = frac * 360f
-            drawArc(
-                color = color,
-                startAngle = start,
-                sweepAngle = sweep,
-                useCenter = false,
-                topLeft = tl,
-                size = arc,
-                style = Stroke(width = stroke, cap = StrokeCap.Butt),
-            )
-            start += sweep
-        }
-    }
-}
 
 /** AI portfolio review dialog: overall health, concentration flags, a per-holding action list, and a
  *  cash note. Opened from the Portfolio top-bar sparkle. */

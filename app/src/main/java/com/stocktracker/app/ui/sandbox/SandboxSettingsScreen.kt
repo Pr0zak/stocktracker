@@ -63,7 +63,7 @@ import com.stocktracker.app.util.Formatting
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SandboxSettingsScreen(onBack: () -> Unit) {
-    val vm: SandboxViewModel = viewModel()
+    val vm: SandboxViewModel = sandboxViewModel()
     val ui by vm.state.collectAsState()
     val st = ui.state
     val s = st?.settings ?: SandboxSettings()

@@ -260,6 +260,12 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     }
                     Helper("Weekly still tracks value daily — it just decides less often.")
                     Spacer(Modifier.height(8.dp))
+                    SwitchLine("Trade after hours", s.allowAfterHours) { vm.setAllowAfterHours(it) }
+                    Helper(
+                        if (s.allowAfterHours) "Also trades 4-8pm ET — thinner books, wider spreads."
+                        else "Regular session only (9:30am-4pm ET). Crypto trades any time.",
+                    )
+                    Spacer(Modifier.height(8.dp))
                     SwitchLine("Notify me on each trade", s.notifyOnTrade) { vm.setNotifyOnTrade(it) }
                     st?.lastTickDate?.let { Helper("Last decision: $it") }
                 }

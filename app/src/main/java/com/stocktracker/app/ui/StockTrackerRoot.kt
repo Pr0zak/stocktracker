@@ -50,8 +50,10 @@ private sealed class TopDest(val route: String, val label: String, val icon: Ima
     data object Settings : TopDest("settings", "Settings", Icons.Filled.Settings)
 }
 
+// Ideas is deliberately NOT a top-level tab — it's reached from Portfolio ("Find new"), since deploying
+// cash into new names is a portfolio action. Keeping it out also keeps the bar to five readable labels.
 private val topDestinations =
-    listOf(TopDest.Watchlist, TopDest.Portfolio, TopDest.Ideas, TopDest.Sandbox, TopDest.Widgets, TopDest.Settings)
+    listOf(TopDest.Watchlist, TopDest.Portfolio, TopDest.Sandbox, TopDest.Widgets, TopDest.Settings)
 
 private fun detailRoute(asset: Asset): String {
     val name = Uri.encode(asset.displayName)
@@ -134,7 +136,10 @@ fun StockTrackerRoot() {
                 )
             }
             composable(TopDest.Ideas.route) {
-                IdeasScreen(onOpenDetail = { nav.navigate(detailRoute(it)) })
+                IdeasScreen(
+                    onOpenDetail = { nav.navigate(detailRoute(it)) },
+                    onBack = { nav.popBackStack() },
+                )
             }
             composable(TopDest.Sandbox.route) {
                 com.stocktracker.app.ui.sandbox.SandboxScreen(

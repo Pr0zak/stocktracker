@@ -129,6 +129,8 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
 
     fun setNotifyOnTrade(on: Boolean) = patchSettings(SandboxSettingsPatch(notifyOnTrade = on))
 
+    fun setAllowAfterHours(on: Boolean) = patchSettings(SandboxSettingsPatch(allowAfterHours = on))
+
     fun setMinConviction(v: Int) = patchSettings(SandboxSettingsPatch(minConvictionToTrade = v))
 
     /** Manually run one decision cycle now (bypasses the once-a-day + session gates). */

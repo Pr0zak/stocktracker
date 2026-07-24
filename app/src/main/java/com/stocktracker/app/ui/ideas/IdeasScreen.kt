@@ -23,6 +23,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -45,7 +49,7 @@ import com.stocktracker.app.di.ServiceLocator
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun IdeasScreen(onOpenDetail: (Asset) -> Unit) {
+fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
     val vm: IdeasViewModel = viewModel()
     val state by vm.state.collectAsState()
     val watchlist by ServiceLocator.watchlistStore.watchlist.collectAsState(initial = emptyList())
@@ -56,7 +60,18 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit) {
         s == symbol.uppercase() || (it.type == AssetType.CRYPTO && "$s-USD" == symbol.uppercase())
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Ideas") }) }) { padding ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Ideas") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

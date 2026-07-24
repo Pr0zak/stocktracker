@@ -1,5 +1,6 @@
 package com.stocktracker.app.ui.watchlist
 
+import java.util.Locale
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
@@ -53,6 +54,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -219,9 +222,10 @@ fun WatchlistScreen(
                     item(key = "hdr:timeline") { SessionTimelineBar(marketState) }
                 }
 
-                // Market regime banner (Theme D) — auto-loaded when the AI analyst is on.
+                // Market regime banner (Theme D) — auto-loaded when the AI analyst is on. Also render on
+                // error so the failure (and a retry) is visible rather than silently missing.
                 val reg = state.regime
-                if (reg.result?.regime?.label?.isNotBlank() == true || reg.loading) {
+                if (reg.result?.regime?.label?.isNotBlank() == true || reg.loading || reg.error != null) {
                     item(key = "hdr:regime") { RegimeCard(reg, onRefresh = { vm.loadRegime(force = true) }) }
                 }
 
@@ -536,8 +540,10 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
 }
 
 /**
- * Theme D — the market-regime banner: a colored label (by trend) + trend/volatility chips + the S&P's
- * position vs its 200-day, and a one-line positioning note. Auto-loaded, cached ~30 min server-side.
+ * Theme D — the market-regime banner. COLLAPSED by default to a one-line summary (trend-colored label +
+ * volatility + the S&P's position vs its 200-day); tap to expand the positioning note and the S&P's
+ * 50/200-day + RSI stats. Auto-loaded, cached ~30 min server-side. Refresh (top-right) is always
+ * reachable — including on a failed load — and errors are surfaced rather than swallowed.
  */
 @Composable
 private fun RegimeCard(ui: RegimeUi, onRefresh: () -> Unit) {
@@ -546,60 +552,109 @@ private fun RegimeCard(ui: RegimeUi, onRefresh: () -> Unit) {
     val red = Color(0xFFC64040)
     val amber = Color(0xFFB0872B)
     val r = ui.result?.regime
+    val st = ui.result?.spyTrend
+    val hasContent = r != null && r.label.isNotBlank()
     val trendColor = when (r?.trend?.lowercase()) {
         "up" -> green
         "down" -> red
         else -> amber
     }
+    // rememberSaveable so the expanded view survives the LazyColumn recycling the header item on scroll
+    // and survives a configuration change / process death.
+    var open by rememberSaveable { mutableStateOf(false) }
+    // Locale-safe + negative-zero-safe signed percent ("+1.2%", "-0.8%", "0.0%" — never "+-0.0%").
+    fun signed(v: Double): String {
+        val s = String.format(Locale.US, "%.1f", v)
+        val d = s.toDoubleOrNull() ?: v
+        return (if (d > 0) "+" else "") + (if (d == 0.0) "0.0" else s) + "%"
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .then(if (hasContent) Modifier.clickable { open = !open } else Modifier)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // Header: the label chip IS the collapsed summary; the note lives behind the chevron. Refresh
+        // stays in the header so it's reachable whether collapsed, expanded, or errored.
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Market regime", style = MaterialTheme.typography.labelLarge, color = neutral)
+            if (hasContent) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .background(trendColor.copy(alpha = 0.16f), RoundedCornerShape(50))
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                    ) {
+                        Text(r!!.label, style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold, color = trendColor,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    // Collapsed summary stays to a clean "label · vol" — the S&P's 200-day position is
+                    // shown in the expanded stats line, so it doesn't crowd the header here.
+                    r.volatility.takeIf { it.isNotBlank() }?.let {
+                        Text("· vol ${it.lowercase()}", style = MaterialTheme.typography.labelMedium,
+                            color = neutral, maxLines = 1)
+                    }
+                }
+            } else {
+                Text("Market regime", style = MaterialTheme.typography.labelLarge, color = neutral,
+                    modifier = Modifier.weight(1f))
+            }
             if (ui.loading) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             } else {
-                IconButton(onClick = onRefresh, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh regime", tint = neutral,
-                        modifier = Modifier.size(18.dp))
-                }
-            }
-        }
-        if (r != null && r.label.isNotBlank()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier
-                        .background(trendColor.copy(alpha = 0.16f), RoundedCornerShape(50))
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                ) {
-                    Text(r.label, style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold, color = trendColor)
-                }
-                r.volatility.takeIf { it.isNotBlank() }?.let {
-                    Text("· vol ${it.lowercase()}", style = MaterialTheme.typography.labelMedium, color = neutral)
-                }
-                ui.result?.spyTrend?.let { st ->
-                    st.above200d?.let { above ->
-                        Text(
-                            if (above) "· S&P > 200-day" else "· S&P < 200-day",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (above) green else red,
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onRefresh, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh regime",
+                            tint = if (ui.error != null) red else neutral, modifier = Modifier.size(18.dp))
+                    }
+                    if (hasContent) {
+                        Icon(
+                            if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (open) "Collapse market regime" else "Expand market regime",
+                            tint = neutral,
                         )
                     }
                 }
             }
-            if (r.note.isNotBlank()) {
+        }
+
+        // Surface a load/refresh failure (visible collapsed or expanded); the header ↻ retries.
+        if (ui.error != null && !ui.loading) {
+            Text(
+                if (hasContent) "Couldn't refresh — showing the last read." else ui.error,
+                style = MaterialTheme.typography.labelSmall, color = red,
+            )
+        }
+
+        if (hasContent && open) {
+            if (r!!.note.isNotBlank()) {
                 Text(r.note, style = MaterialTheme.typography.bodySmall)
             }
-        } else if (ui.loading) {
+            val bits = listOfNotNull(
+                st?.pctVsSma50?.let { "vs 50-day ${signed(it)}" },
+                st?.pctVsSma200?.let { "vs 200-day ${signed(it)}" },
+                st?.rsi14?.let { "RSI ${String.format(Locale.US, "%.0f", it)}" },
+            )
+            if (bits.isNotEmpty()) {
+                Text("S&P 500 · " + bits.joinToString("  ·  "),
+                    style = MaterialTheme.typography.labelMedium, color = neutral)
+            }
+            if (r.note.isBlank() && bits.isEmpty()) {
+                Text("No additional detail available.", style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+        } else if (!hasContent && ui.loading) {
             Text("Reading the tape…", style = MaterialTheme.typography.bodySmall, color = neutral)
         }
     }

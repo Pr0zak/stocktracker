@@ -12,6 +12,7 @@ import com.stocktracker.app.data.remote.PortfolioReviewResponse
 import com.stocktracker.app.data.remote.RebalanceResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.ideas.formatCashPlain
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -75,6 +76,9 @@ data class PortfolioUiState(
     val hasHoldings: Boolean = true,
     val review: PortfolioReviewUi = PortfolioReviewUi(),
     val rebalance: RebalanceUi = RebalanceUi(),
+    /** Free cash the user has to invest — fed to the AI review + rebalance so they distribute it.
+     *  Persisted in [investableCash] (shared with the Ideas screen + detail entry plans). */
+    val cashText: String = "",
 )
 
 /** Ranges offered for the portfolio value graph (daily data). */
@@ -93,6 +97,11 @@ class PortfolioViewModel : ViewModel() {
     private var holdings: List<Asset> = emptyList()
 
     init {
+        // Seed the cash field from the shared investable-cash setting (set on Ideas / entry plans).
+        viewModelScope.launch {
+            val c = settings.investableCash.first()
+            if (c > 0) _state.update { it.copy(cashText = formatCashPlain(c)) }
+        }
         viewModelScope.launch {
             // Recompute when the set of holdings (or their share counts) changes.
             store.watchlist
@@ -113,6 +122,25 @@ class PortfolioViewModel : ViewModel() {
                 }
         }
     }
+
+    /** Update the "cash to invest" field and persist the parsed amount (shared with Ideas + entry plans).
+     *  The AI review + rebalance read this so their suggestions distribute the available cash. */
+    fun setCash(text: String) {
+        _state.update {
+            it.copy(
+                cashText = text,
+                // The cached review/rebalance were computed for the old cash — drop them so the next
+                // open re-runs with the new amount (no LLM call fires until the user opens a dialog).
+                review = it.review.copy(result = null),
+                rebalance = it.rebalance.copy(result = null),
+            )
+        }
+        viewModelScope.launch { settings.setInvestableCash(cashValue()) }
+    }
+
+    /** The cash-to-invest amount parsed from the field ($/comma-tolerant, never negative). */
+    private fun cashValue(): Double =
+        _state.value.cashText.replace(",", "").removePrefix("$").trim().toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
 
     fun refresh() {
         if (holdings.isNotEmpty()) viewModelScope.launch { loadCurrent(holdings) }
@@ -154,7 +182,7 @@ class PortfolioViewModel : ViewModel() {
                           else h.asset.symbol.uppercase()
                 HoldingSync(sym, h.shares, avg)
             }
-            val res = runCatching { signalsApi.portfolioReview(base, 0.0, syncs) }
+            val res = runCatching { signalsApi.portfolioReview(base, cashValue(), syncs) }
             _state.update { st ->
                 st.copy(review = st.review.copy(
                     loading = false,
@@ -209,7 +237,7 @@ class PortfolioViewModel : ViewModel() {
                 HoldingSync(sym, h.shares, avg)
             }
             val target = _state.value.rebalance.targetPct
-            val res = runCatching { signalsApi.rebalance(base, 0.0, target, syncs) }
+            val res = runCatching { signalsApi.rebalance(base, cashValue(), target, syncs) }
             _state.update { st ->
                 st.copy(rebalance = st.rebalance.copy(
                     loading = false,

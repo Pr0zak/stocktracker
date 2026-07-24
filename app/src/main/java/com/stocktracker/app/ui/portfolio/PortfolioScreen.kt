@@ -27,6 +27,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -223,6 +226,22 @@ fun PortfolioScreen() {
             }
             Text(
                 "History reflects your current share counts across the whole period.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            // Cash to invest — feeds the AI review + rebalance so they can distribute it across holdings.
+            OutlinedTextField(
+                value = state.cashText,
+                onValueChange = vm::setCash,
+                label = { Text("Cash to invest") },
+                prefix = { Text("$") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+            Text(
+                "The AI review and rebalance distribute this across your holdings.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

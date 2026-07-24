@@ -105,6 +105,33 @@ class SandboxViewModel : ViewModel() {
 
     fun setAllowEtf(on: Boolean) = patchSettings(SandboxSettingsPatch(allowEtf = on))
 
+    fun setGoal(amount: Double?, date: String?) =
+        patchSettings(SandboxSettingsPatch(goalAmount = amount ?: 0.0, goalDate = date ?: ""), note = "Goal updated")
+
+    fun setMonthlyDeposit(amount: Double) =
+        patchSettings(SandboxSettingsPatch(monthlyDeposit = amount),
+            note = if (amount > 0) "Recurring deposit set" else "Recurring deposit off")
+
+    fun setExclusions(list: List<String>) =
+        patchSettings(SandboxSettingsPatch(exclusions = list), note = "Exclusions updated")
+
+    fun addExclusion(ticker: String) {
+        val t = ticker.trim().uppercase()
+        if (t.isBlank()) return
+        setExclusions((currentSettings.exclusions + t).distinct())
+    }
+
+    fun removeExclusion(ticker: String) =
+        setExclusions(currentSettings.exclusions.filterNot { it.equals(ticker, true) })
+
+    fun setCadence(c: String) = patchSettings(SandboxSettingsPatch(cadence = c))
+
+    fun setTurnoverPct(pct: Double) = patchSettings(SandboxSettingsPatch(maxTurnoverPct = pct))
+
+    fun setNotifyOnTrade(on: Boolean) = patchSettings(SandboxSettingsPatch(notifyOnTrade = on))
+
+    fun setMinConviction(v: Int) = patchSettings(SandboxSettingsPatch(minConvictionToTrade = v))
+
     /** Manually run one decision cycle now (bypasses the once-a-day + session gates). */
     fun runTick() {
         viewModelScope.launch {

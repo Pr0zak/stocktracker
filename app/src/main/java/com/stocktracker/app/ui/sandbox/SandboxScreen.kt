@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -26,6 +27,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -44,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -62,9 +65,9 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
-private val GREEN = GainGreen
-private val RED = LossRed
-private val AMBER = Color(0xFFB0872B)
+internal val GREEN = GainGreen
+internal val RED = LossRed
+internal val AMBER = Color(0xFFB0872B)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +93,9 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                         }
                     }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Sandbox settings")
+                    }
                 },
             )
         },
@@ -109,12 +115,15 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             if (st == null || st.fundedTotal <= 0.0) {
                 item { Spacer(Modifier.height(8.dp)) }
                 item { EmptyState(onFund = { vm.fund(it) }) }
-                if (st != null) item { SettingsSection(vm, st) }
+                if (st != null) item { SettingsSummary(st, onOpen = onOpenSettings) }
                 return@LazyColumn
             }
 
             item { Spacer(Modifier.height(4.dp)) }
             item { HeaderMetrics(st) }
+            st.settings.goalAmount?.takeIf { it > 0 }?.let { goal ->
+                item { GoalCard(equity = st.equity, goal = goal, goalDate = st.settings.goalDate) }
+            }
             item {
                 val up = ui.nav.size >= 2 && ui.nav.last().price >= ui.nav.first().price
                 val overlays = if (ui.benchmarkValues.any { it != null })
@@ -149,7 +158,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             } else {
                 items(ui.trades.take(60)) { t -> TradeRow(t) }
             }
-            item { SettingsSection(vm, st) }
+            item { SettingsSummary(st, onOpen = onOpenSettings) }
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
@@ -281,84 +290,81 @@ private fun TradeRow(t: SandboxTrade) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Goal progress — the instant "how am I tracking?" visual: a big % + a progress bar + the gap left. */
 @Composable
-private fun SettingsSection(vm: SandboxViewModel, st: SandboxState) {
-    val s = st.settings
+private fun GoalCard(equity: Double, goal: Double, goalDate: String?) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    var cashText by remember { mutableStateOf("") }
-    var confirmReset by remember { mutableStateOf(false) }
-
+    val frac = (equity / goal).coerceIn(0.0, 1.0)
+    val done = frac >= 1.0
     Column(
         modifier = Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("Settings & goals", style = MaterialTheme.typography.labelLarge, color = neutral)
-
-        Text("Risk tolerance", style = MaterialTheme.typography.labelMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("conservative", "balanced", "aggressive").forEach { r ->
-                FilterChip(selected = s.riskTolerance == r, onClick = { vm.setRisk(r) },
-                    label = { Text(r.replaceFirstChar { it.uppercase() }) })
-            }
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text("Goal", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Text("${(frac * 100).toInt()}%", style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold, color = if (done) GREEN else MaterialTheme.colorScheme.primary)
         }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DateField("Retirement", s.retirementDate, Modifier.weight(1f)) { vm.setRetirementDate(it) }
-            DateField("Exit date", s.exitDate, Modifier.weight(1f)) { vm.setExitDate(it) }
-        }
-
-        Text("Max per position", style = MaterialTheme.typography.labelMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(10, 20, 25, 33).forEach { pct ->
-                FilterChip(selected = s.maxPositionPct.toInt() == pct, onClick = { vm.setMaxPositionPct(pct.toDouble()) },
-                    label = { Text("$pct%") })
-            }
-        }
-        Text("Cash floor", style = MaterialTheme.typography.labelMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(0, 5, 10, 20).forEach { pct ->
-                FilterChip(selected = s.cashFloorPct.toInt() == pct, onClick = { vm.setCashFloorPct(pct.toDouble()) },
-                    label = { Text("$pct%") })
-            }
-        }
-        SwitchRow("Allow crypto (BTC/ETH ETFs)", s.allowCrypto) { vm.setAllowCrypto(it) }
-        SwitchRow("Allow ETFs", s.allowEtf) { vm.setAllowEtf(it) }
-
-        Text("Funds", style = MaterialTheme.typography.labelMedium)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = cashText, onValueChange = { cashText = it }, prefix = { Text("$") },
-                label = { Text("Amount") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f),
-            )
-            Button(onClick = {
-                cashText.replace(",", "").removePrefix("$").trim().toDoubleOrNull()?.let { vm.fund(it) }
-                cashText = ""
-            }) { Text("Add") }
-        }
-        HelperText("Adds fictional cash; a deposit also buys the S&P benchmark on the same schedule.")
-
-        Spacer(Modifier.height(2.dp))
-        if (!confirmReset) {
-            TextButton(onClick = { confirmReset = true }) { Text("Reset sandbox", color = RED) }
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Wipe everything?", style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { vm.reset(); confirmReset = false }) { Text("Yes, reset", color = RED) }
-                TextButton(onClick = { confirmReset = false }) { Text("Cancel") }
-            }
-        }
+        LinearProgressIndicator(
+            progress = { frac.toFloat() },
+            modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(50)),
+            color = if (done) GREEN else MaterialTheme.colorScheme.primary,
+        )
+        val gap = goal - equity
+        Text(
+            if (done) "Goal reached — $" + Formatting.compact(equity) + " of $" + Formatting.compact(goal)
+            else "$" + Formatting.compact(equity) + " of $" + Formatting.compact(goal) +
+                " · $" + Formatting.compact(gap) + " to go" + (goalDate?.let { " by $it" } ?: ""),
+            style = MaterialTheme.typography.labelSmall, color = neutral,
+        )
     }
 }
+
+/** A compact, tappable summary of the key settings — the entry point to the full settings page. */
+@Composable
+private fun SettingsSummary(st: SandboxState, onOpen: () -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val s = st.settings
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { onOpen() }.padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text("Settings & goals", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Icon(Icons.Filled.Settings, contentDescription = null, tint = neutral, modifier = Modifier.size(18.dp))
+        }
+        Text(
+            listOfNotNull(
+                s.riskTolerance.replaceFirstChar { it.uppercase() },
+                "max ${s.maxPositionPct.toInt()}%/name",
+                "${s.cashFloorPct.toInt()}% cash floor",
+                if (s.maxTurnoverPct > 0) "${s.maxTurnoverPct.toInt()}% turnover" else null,
+                s.cadence,
+            ).joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            listOfNotNull(
+                if (s.monthlyDeposit > 0) "+$${s.monthlyDeposit.toInt()}/mo" else null,
+                if (s.exclusions.isNotEmpty()) "excludes ${s.exclusions.joinToString(",")}" else null,
+                if (!s.allowCrypto) "no crypto" else null,
+                if (!s.allowEtf) "no ETFs" else null,
+                s.exitDate?.let { "exit $it" },
+            ).joinToString(" · ").ifBlank { "Tap to configure funds, goals, risk and automation" },
+            style = MaterialTheme.typography.labelSmall, color = neutral,
+        )
+    }
+}
+
 
 // ---- small reusable bits (kept local to avoid promoting private helpers elsewhere) ----
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DateField(label: String, iso: String?, modifier: Modifier = Modifier, onPicked: (String?) -> Unit) {
+internal fun DateField(label: String, iso: String?, modifier: Modifier = Modifier, onPicked: (String?) -> Unit) {
     var open by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { open = true }, modifier = modifier) {
         Text(iso ?: label, maxLines = 1)

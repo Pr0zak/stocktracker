@@ -136,7 +136,14 @@ fun StockTrackerRoot() {
             composable(TopDest.Ideas.route) {
                 IdeasScreen(onOpenDetail = { nav.navigate(detailRoute(it)) })
             }
-            composable(TopDest.Sandbox.route) { com.stocktracker.app.ui.sandbox.SandboxScreen() }
+            composable(TopDest.Sandbox.route) {
+                com.stocktracker.app.ui.sandbox.SandboxScreen(
+                    onOpenSettings = { nav.navigate("sandbox_settings") },
+                )
+            }
+            composable("sandbox_settings") {
+                com.stocktracker.app.ui.sandbox.SandboxSettingsScreen(onBack = { nav.popBackStack() })
+            }
             composable(TopDest.Widgets.route) { WidgetGalleryScreen() }
             composable(TopDest.Settings.route) { SettingsScreen() }
             composable("add") { AddTickerScreen(onBack = { nav.popBackStack() }) }

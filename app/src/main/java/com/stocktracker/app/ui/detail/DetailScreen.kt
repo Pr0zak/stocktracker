@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Star
@@ -89,6 +90,7 @@ import com.stocktracker.app.data.remote.CoveredCallResponse
 import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.CongressBlock
+import com.stocktracker.app.data.remote.NewsMovesBlock
 import com.stocktracker.app.data.remote.InsiderResponse
 import com.stocktracker.app.data.remote.SeasonalityBlock
 import com.stocktracker.app.data.remote.DebitSpread
@@ -460,6 +462,16 @@ fun DetailScreen(
             state.insider?.let { InsiderBuyingCard(it) }
             state.congress?.let { CongressCard(it) }
             state.seasonality?.let { SeasonalityCard(it) }
+            if (state.aiEnabled && state.asset.type == AssetType.STOCK) {
+                NewsMovesCard(
+                    block = state.newsMoves,
+                    note = state.newsMovesNote,
+                    loading = state.newsMovesLoading,
+                    error = state.newsMovesError,
+                    loaded = state.newsMovesLoaded,
+                    onExplain = { vm.requestNewsMoves() },
+                )
+            }
             state.cycleInfo?.let { HalvingCycleCard(it) }
             state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
             state.quality?.let { QualityCard(it) }
@@ -1790,6 +1802,105 @@ private fun CongressCard(c: CongressBlock) {
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
+        }
+    }
+}
+
+/**
+ * "Why it moved" (AIE-4): the stock's notable recent daily moves, each correlated by the analyst with a
+ * dated headline (or honestly flagged as no-catalyst / flows-driven), plus a one-line read of whether
+ * it's trading on news. On-demand — the fetch is an LLM call, so it runs only when the user taps Explain.
+ * Correlation isn't causation; a big move with no matching headline is itself a useful (technical) tell.
+ */
+@Composable
+private fun NewsMovesCard(
+    block: NewsMovesBlock?,
+    note: String?,
+    loading: Boolean,
+    error: String?,
+    loaded: Boolean,
+    onExplain: () -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val green = Color(0xFF2E9E57)
+    val red = Color(0xFFC64040)
+    var open by remember { mutableStateOf(false) }
+    val hasContent = block != null || note != null || error != null
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { if (hasContent) open = !open else onExplain() }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = neutral, modifier = Modifier.size(16.dp))
+                Text("Why it moved", style = MaterialTheme.typography.labelLarge, color = neutral)
+            }
+            when {
+                loading -> CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                hasContent -> Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Collapse" else "Expand",
+                    tint = neutral,
+                )
+                else -> Text("Explain", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        when {
+            // Nothing fetched yet — a one-line teaser; tapping the card (or "Explain") runs it.
+            !hasContent && !loading -> Text(
+                "Correlate this stock's recent big moves with the news that drove them — tap to run.",
+                style = MaterialTheme.typography.labelSmall, color = neutral,
+            )
+            note != null -> Text(note, style = MaterialTheme.typography.bodySmall, color = neutral)
+            error != null -> {
+                Text(error, style = MaterialTheme.typography.bodySmall, color = red)
+                TextButton(onClick = onExplain) { Text("Retry") }
+            }
+            block != null -> {
+                Text(block.summary, style = MaterialTheme.typography.bodyMedium)
+                if (open) {
+                    if (block.drivers.isEmpty()) {
+                        Text(
+                            "No outsized moves to explain in the last few weeks.",
+                            style = MaterialTheme.typography.bodySmall, color = neutral,
+                        )
+                    }
+                    block.drivers.forEach { d ->
+                        val up = d.movePct >= 0
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(d.date, style = MaterialTheme.typography.labelSmall, color = neutral)
+                                Text(
+                                    (if (up) "+" else "") + "%.1f%%".format(d.movePct),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (up) green else red,
+                                )
+                            }
+                            d.headline?.takeIf { it.isNotBlank() }?.let {
+                                Text("“$it”", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                            }
+                            Text(d.explanation, style = MaterialTheme.typography.bodySmall, color = neutral)
+                        }
+                    }
+                    Text(
+                        "Correlation, not causation — headlines matched to moves by the analyst · not advice",
+                        style = MaterialTheme.typography.labelSmall, color = neutral,
+                    )
+                } else {
+                    Text("Tap for the move-by-move breakdown", style = MaterialTheme.typography.labelSmall, color = neutral)
+                }
+            }
         }
     }
 }

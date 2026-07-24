@@ -123,6 +123,18 @@ class SignalsApiService {
         }.getOrNull()
     }
 
+    /** AIE-4 — "why it moved": the stock's notable recent daily moves each correlated with a dated
+     *  headline (or flagged as no-catalyst), plus a one-line read. Runs the analyst → gate on the AI
+     *  switch. Returns the full response (block may be null with a [note], e.g. crypto). Null on failure. */
+    suspend fun newsMoves(baseUrl: String, symbol: String, deep: Boolean = false): NewsMovesResponse? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            val d = if (deep) "?deep=true" else ""
+            val body = Http.getString("${baseUrl.trimEnd('/')}/news_moves/${symbol.uppercase()}$d", slow = true)
+            Http.json.decodeFromString<NewsMovesResponse>(body)
+        }.getOrNull()
+    }
+
     /** Whole-portfolio AI review: overall health, concentration flags, a per-holding action list, and a
      *  cash-deployment note. POSTs the holdings (crypto must be sent as <SYM>-USD). Gate on the AI switch. */
     suspend fun portfolioReview(
@@ -559,6 +571,31 @@ data class DailyBriefResponse(
     val session: String = "",   // PRE | REGULAR | AFTER | CLOSED
     val model: String = "",
     val cached: Boolean = false,
+)
+
+/** GET /news_moves/{symbol} — "why it moved" (AIE-4): notable recent daily moves correlated with dated
+ *  headlines. [newsMoves] is null (with a [note]) for crypto/unsupported symbols. */
+@Serializable
+data class NewsMovesResponse(
+    val symbol: String = "",
+    @SerialName("news_moves") val newsMoves: NewsMovesBlock? = null,
+    val note: String? = null,
+    val model: String = "",
+    val cached: Boolean = false,
+)
+
+@Serializable
+data class NewsMovesBlock(
+    val summary: String = "",
+    val drivers: List<NewsDriver> = emptyList(),
+)
+
+@Serializable
+data class NewsDriver(
+    val date: String = "",                              // YYYY-MM-DD
+    @SerialName("move_pct") val movePct: Double = 0.0,
+    val headline: String? = null,                       // the driving headline, or null if none fit
+    val explanation: String = "",
 )
 
 @Serializable

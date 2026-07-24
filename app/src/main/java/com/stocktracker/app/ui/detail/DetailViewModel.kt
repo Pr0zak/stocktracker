@@ -13,6 +13,7 @@ import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CoveredCallResponse
 import com.stocktracker.app.data.remote.CongressBlock
 import com.stocktracker.app.data.remote.CycleResponse
+import com.stocktracker.app.data.remote.NewsMovesBlock
 import com.stocktracker.app.data.remote.SeasonalityBlock
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.HttpStatusException
@@ -100,6 +101,12 @@ data class DetailUiState(
     val congress: CongressBlock? = null,
     /** Seasonality — typical per-month price action (~10y), free, auto-fetched for stocks. */
     val seasonality: SeasonalityBlock? = null,
+    /** "Why it moved" (AIE-4) — notable recent moves correlated with news. On-demand (an LLM call). */
+    val newsMoves: NewsMovesBlock? = null,
+    val newsMovesNote: String? = null,     // e.g. "not available for crypto"
+    val newsMovesLoading: Boolean = false,
+    val newsMovesError: String? = null,
+    val newsMovesLoaded: Boolean = false,  // true once a fetch has completed (drives the empty state)
     /** Quality tags (ROE/margins/D-E + Buffett/wide-moat/aristocrat flags) — free, auto-fetched for stocks. */
     val quality: QualityResponse? = null,
     /** Halving-cycle + multi-year trend — free data, auto-fetched for crypto. */
@@ -245,6 +252,40 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     } else {
                         null
                     },
+                )
+            }
+        }
+    }
+
+    private var newsMovesJob: Job? = null
+
+    /** AIE-4 — "why it moved": correlate the stock's notable recent moves with dated headlines. On-demand
+     *  (it's an LLM call), gated on a Signals URL + the AI switch, same as the verdict. */
+    fun requestNewsMoves(deep: Boolean = false) {
+        newsMovesJob?.cancel()
+        newsMovesJob = viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            val on = settings.aiAnalystEnabled.first()
+            if (base.isBlank() || !on) {
+                _state.update {
+                    it.copy(newsMovesError = if (base.isBlank())
+                        "Set the Signals service URL in Settings." else "Turn on the AI analyst in Settings.")
+                }
+                return@launch
+            }
+            _state.update { it.copy(newsMovesLoading = true, newsMovesError = null) }
+            val res = runCatching { signalsApi.newsMoves(base, asset.symbol) }
+            ensureActive()
+            val resp = res.getOrNull()
+            _state.update {
+                it.copy(
+                    newsMoves = resp?.newsMoves ?: it.newsMoves,
+                    newsMovesNote = resp?.note,
+                    newsMovesLoading = false,
+                    newsMovesLoaded = true,
+                    newsMovesError = if (resp == null)
+                        (analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't reach the analyst service")
+                    else null,
                 )
             }
         }

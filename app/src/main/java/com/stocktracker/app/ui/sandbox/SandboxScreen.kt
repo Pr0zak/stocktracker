@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -269,12 +270,77 @@ private fun StrategyCard(n: SandboxStrategyNote) {
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         } else {
-            if (n.notes.isNotBlank()) Text(n.notes, style = MaterialTheme.typography.bodySmall)
-            if (n.themes.isNotEmpty()) Text("Lean in: " + n.themes.joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall, color = neutral)
-            if (n.avoid.isNotEmpty()) Text("Avoid: " + n.avoid.joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall, color = neutral)
+            // Target mix — the plan's actual numbers, as proportion bars (this is the most concrete
+            // part of the note and was previously not surfaced at all).
+            if (n.targets.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                StrategyHeading("Target mix")
+                val maxPct = (n.targets.maxOfOrNull { it.targetPct } ?: 1.0).coerceAtLeast(1.0)
+                // Label ABOVE the bar — the analyst's group names are descriptive ("US Large-Cap Equity
+                // (SPY/VOO)"), which a fixed side column would truncate to uselessness.
+                n.targets.sortedByDescending { it.targetPct }.take(6).forEach { t ->
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                t.exposureGroup, style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Text("${t.targetPct.toInt()}%", style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold, color = neutral)
+                        }
+                        Spacer(Modifier.height(3.dp))
+                        LinearProgressIndicator(
+                            progress = { (t.targetPct / maxPct).toFloat().coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)),
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+            // Lean in / Avoid as real bullet lists, one idea per line.
+            if (n.themes.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                StrategyHeading("Lean in")
+                n.themes.forEach { BulletLine("+", it, GREEN) }
+            }
+            if (n.avoid.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                StrategyHeading("Avoid")
+                n.avoid.forEach { BulletLine("−", it, RED) }
+            }
+            // The full reasoning paragraph last, as supporting detail.
+            if (n.notes.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                StrategyHeading("Why")
+                Text(n.notes, style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
         }
+    }
+}
+
+@Composable
+private fun StrategyHeading(text: String) = Text(
+    text.uppercase(),
+    style = MaterialTheme.typography.labelSmall,
+    fontWeight = FontWeight.Bold,
+    color = MaterialTheme.colorScheme.primary,
+)
+
+/** One idea per line with a colored marker — far more scannable than a "·"-joined run-on. */
+@Composable
+private fun BulletLine(marker: String, text: String, color: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(marker, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = color)
+        Text(text, style = MaterialTheme.typography.bodySmall)
     }
 }
 

@@ -18,7 +18,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -33,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,10 +46,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.remote.SandboxSettings
+import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.Formatting
 
 /**
@@ -214,14 +219,10 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     SwitchLine("Allow ETFs", s.allowEtf) { vm.setAllowEtf(it) }
                     Spacer(Modifier.height(8.dp))
                     Label("Never buy these")
-                    var newTicker by remember { mutableStateOf("") }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = newTicker, onValueChange = { newTicker = it.uppercase() },
-                            label = { Text("Ticker") }, singleLine = true, modifier = Modifier.weight(1f),
-                        )
-                        Button(onClick = { vm.addExclusion(newTicker); newTicker = "" }) { Text("Exclude") }
-                    }
+                    ExclusionSearchField(
+                        already = s.exclusions,
+                        onPick = { vm.addExclusion(it) },
+                    )
                     if (s.exclusions.isNotEmpty()) {
                         Spacer(Modifier.height(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
@@ -284,6 +285,78 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
             }
             item { Spacer(Modifier.height(28.dp)) }
         }
+    }
+}
+
+/**
+ * Type-ahead ticker picker for the exclusion list. Reuses the app's existing live search
+ * (`ServiceLocator.repository.search`, the same one behind "Add ticker"), debounced 300ms, so the user
+ * picks a real symbol from matches instead of hand-typing one that may not exist. Symbols already
+ * excluded are greyed out; a raw entry can still be forced with the Exclude button for anything the
+ * search doesn't cover.
+ */
+@Composable
+private fun ExclusionSearchField(already: List<String>, onPick: (String) -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<com.stocktracker.app.data.model.SearchResult>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+
+    LaunchedEffect(query) {
+        if (query.isBlank()) {
+            results = emptyList(); searching = false
+            return@LaunchedEffect
+        }
+        searching = true
+        kotlinx.coroutines.delay(300)
+        results = runCatching { ServiceLocator.repository.search(query) }.getOrDefault(emptyList()).take(6)
+        searching = false
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = { Text("Search a ticker") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (searching) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        Button(
+            onClick = { onPick(query); query = "" },
+            enabled = query.isNotBlank(),
+        ) { Text("Exclude") }
+    }
+
+    // Live matches — tap one to exclude it.
+    results.forEach { r ->
+        val dup = already.any { it.equals(r.symbol, true) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !dup) { onPick(r.symbol); query = "" }
+                .padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                r.symbol.uppercase(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (dup) neutral else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                r.name, style = MaterialTheme.typography.labelSmall, color = neutral,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            if (dup) Text("excluded", style = MaterialTheme.typography.labelSmall, color = neutral)
+        }
+    }
+    if (query.isNotBlank() && !searching && results.isEmpty()) {
+        Helper("No matches — tap Exclude to add \"${query.uppercase()}\" anyway.")
     }
 }
 

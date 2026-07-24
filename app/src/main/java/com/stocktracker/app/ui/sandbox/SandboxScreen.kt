@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -43,12 +45,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -225,21 +229,52 @@ private fun StrategyCard(n: SandboxStrategyNote) {
     val color = when (n.stance.lowercase()) {
         "constructive" -> GREEN; "defensive" -> RED; else -> AMBER
     }
+    // COLLAPSED by default — the Opus note is a full paragraph plus theme lists, which reads as a wall
+    // of text inline. The header carries the actionable summary (stance + cash target); tap for the rest.
+    var open by rememberSaveable { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)).padding(14.dp),
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Weekly strategy", style = MaterialTheme.typography.labelLarge, color = neutral)
-            Pill(n.stance.ifBlank { "—" }, color)
-            Text("cash target ${n.cashTargetPct.toInt()}%", style = MaterialTheme.typography.labelMedium, color = neutral)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Strategy", style = MaterialTheme.typography.labelLarge, color = neutral)
+                Pill(n.stance.ifBlank { "—" }, color)
+                Text("${n.cashTargetPct.toInt()}% cash", style = MaterialTheme.typography.labelMedium,
+                    color = neutral, maxLines = 1)
+            }
+            Icon(
+                if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (open) "Collapse strategy" else "Expand strategy",
+                tint = neutral,
+            )
         }
-        if (n.notes.isNotBlank()) Text(n.notes, style = MaterialTheme.typography.bodySmall)
-        if (n.themes.isNotEmpty()) Text("Lean in: " + n.themes.joinToString(" · "),
-            style = MaterialTheme.typography.labelSmall, color = neutral)
-        if (n.avoid.isNotEmpty()) Text("Avoid: " + n.avoid.joinToString(" · "),
-            style = MaterialTheme.typography.labelSmall, color = neutral)
+        if (!open) {
+            // One scannable line: what it's leaning into (the most useful at-a-glance bit).
+            val gist = n.themes.firstOrNull()?.takeIf { it.isNotBlank() }
+                ?: n.notes.takeIf { it.isNotBlank() }?.substringBefore(". ")?.plus(".")
+            gist?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        } else {
+            if (n.notes.isNotBlank()) Text(n.notes, style = MaterialTheme.typography.bodySmall)
+            if (n.themes.isNotEmpty()) Text("Lean in: " + n.themes.joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall, color = neutral)
+            if (n.avoid.isNotEmpty()) Text("Avoid: " + n.avoid.joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall, color = neutral)
+        }
     }
 }
 

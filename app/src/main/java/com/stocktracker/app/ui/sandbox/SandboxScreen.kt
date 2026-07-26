@@ -185,6 +185,9 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                 }
             }
             item { AutoTradeRow(st, onToggle = { vm.setEnabled(it) }, onRunNow = { vm.runTick() }, ticking = ui.ticking) }
+            // Directly under the equity curve and the auto-trade switch: right where someone deciding
+            // whether to trust this thing is already looking.
+            ui.memory?.let { mem -> item { ScorecardCard(mem) } }
             st.strategyNote?.let { item { StrategyCard(it) } }
             if (st.positions.isNotEmpty()) {
                 item { SectionLabel("Holdings") }
@@ -618,6 +621,83 @@ private fun HelperText(text: String) =
 private fun Pill(text: String, color: Color) = Box(
     Modifier.background(color.copy(alpha = 0.16f), RoundedCornerShape(50)).padding(horizontal = 9.dp, vertical = 2.dp),
 ) { Text(text, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color) }
+
+/**
+ * The AI's own scorecard: did its decisions actually beat just owning the index?
+ *
+ * Shown on purpose even when it is unflattering — the whole value of grading past calls is lost if the
+ * UI only surfaces the number when it flatters. Beat rate is the headline because raw win rate is
+ * misleading (equities drift up, so ~55-60% of any 20-day window is positive regardless of skill).
+ * Absent entirely until enough decisions have been graded, which takes ~20 trading days after a call.
+ */
+@Composable
+private fun ScorecardCard(mem: com.stocktracker.app.data.remote.MemoryStats) {
+    val cards = listOfNotNull(
+        mem.sandboxBuys?.let { "What it bought" to it },
+        mem.buyCalls?.let { "What it called" to it },
+    )
+    Column(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("Is it any good?", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        if (cards.isEmpty()) {
+            Text(
+                "Not enough graded decisions yet. Each one is scored 20 trading days after it is made, " +
+                    "then compared with simply owning the S&P.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            cards.forEach { (label, sc) ->
+                val beat = sc.beatRate20d
+                val excess = sc.avgExcess20dPct
+                // Grey, not green/red, until the sample can support a claim either way.
+                val thin = sc.n < 20
+                val color = when {
+                    thin || beat == null -> MaterialTheme.colorScheme.onSurfaceVariant
+                    beat >= 0.55 -> GREEN
+                    beat < 0.45 -> RED
+                    else -> AMBER
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
+                        Text(
+                            "${sc.n} graded" + if (thin) " · too few to judge" else "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            beat?.let { String.format(java.util.Locale.US, "%.0f%%", it * 100) } ?: "—",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = color,
+                        )
+                        Text(
+                            excess?.let { "beat index · " + signedPct(it) + " avg" } ?: "beat index",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Text(
+                "Measured over 20 trading days against the S&P. Above 50% means it added value; below " +
+                    "means it would have been better to just buy the index.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
 
 @Composable
 private fun InfoCard(text: String) = Box(

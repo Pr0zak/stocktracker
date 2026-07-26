@@ -29,6 +29,8 @@ data class SandboxUiState(
     val trendPctPerMonth: Double? = null,
     val trades: List<SandboxTrade> = emptyList(),
     val ticking: Boolean = false,
+    // The AI's own scorecard (GET /memory/stats) — null until enough decisions have been graded.
+    val memory: com.stocktracker.app.data.remote.MemoryStats? = null,
     val message: String? = null,      // transient toast-style feedback
     val error: String? = null,
 )
@@ -56,6 +58,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
             val st = api.sandboxState(base)
             val navRows = api.sandboxNav(base, days = 180)
             val trades = api.sandboxTrades(base, limit = 120)
+            val mem = api.memoryStats(base)
             _state.update {
                 it.copy(
                     loading = false,
@@ -66,6 +69,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
                     vsBenchmarkSeries = relativePerformance(navRows),
                     trendPctPerMonth = trendPerMonth(navRows),
                     trades = trades,
+                    memory = mem ?: it.memory,
                     error = if (st == null) "Couldn't reach the sandbox service." else null,
                 )
             }

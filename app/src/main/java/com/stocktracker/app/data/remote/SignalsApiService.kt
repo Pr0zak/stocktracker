@@ -316,6 +316,15 @@ class SignalsApiService {
         }.getOrNull()
     }
 
+    /** How the AI's own past calls actually performed against the index. Free (a local DB read, no
+     *  LLM), so it costs nothing to show. Returns null on a blank URL / any failure. */
+    suspend fun memoryStats(baseUrl: String): MemoryStats? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            Http.json.decodeFromString<MemoryStats>(sGet("${baseUrl.trimEnd('/')}/memory/stats"))
+        }.getOrNull()
+    }
+
     /** Catalyst calendar (SI dates, OPEX, earnings). Whole watchlist by
      *  default; pass [symbol] for a single stock's calendar. Free. */
     suspend fun calendar(baseUrl: String, symbol: String? = null): CalendarResponse? {
@@ -682,6 +691,34 @@ data class MarketOverviewStruct(
     val tone: String = "",      // risk-on | risk-off | mixed
     val headline: String = "",
     val points: List<String> = emptyList(),
+)
+
+/**
+ * GET /memory/stats — the service's own scorecard.
+ *
+ * [buyCalls] grades what the watchlist analyst called a buy; [sandboxBuys] grades what the paper
+ * trader actually bought. Both are measured over 20 trading days against simply owning the index —
+ * `beatRate20d` is the honest number, and `positiveRate20d` is deliberately NOT the headline because
+ * equities drift up (any 20-day window is positive ~55-60% of the time regardless of skill).
+ * Each block is absent until there are enough graded decisions to mean anything.
+ */
+@Serializable
+data class MemoryStats(
+    val verdicts: Int = 0,
+    val scored: Int = 0,
+    val symbols: Int = 0,
+    @SerialName("by_origin") val byOrigin: Map<String, Int> = emptyMap(),
+    @SerialName("buy_calls") val buyCalls: Scorecard? = null,
+    @SerialName("sandbox_buys") val sandboxBuys: Scorecard? = null,
+)
+
+@Serializable
+data class Scorecard(
+    val n: Int = 0,
+    @SerialName("positive_rate_20d") val positiveRate20d: Double = 0.0,
+    @SerialName("avg_fwd_20d_pct") val avgFwd20dPct: Double = 0.0,
+    @SerialName("avg_excess_20d_pct") val avgExcess20dPct: Double? = null,
+    @SerialName("beat_rate_20d") val beatRate20d: Double? = null,
 )
 
 /** GET /regime — the market-regime read (Theme D): a structural label + trend + volatility + a

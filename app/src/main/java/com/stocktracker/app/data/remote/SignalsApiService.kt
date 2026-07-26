@@ -715,17 +715,34 @@ data class MemoryStats(
     val symbols: Int = 0,
     @SerialName("by_origin") val byOrigin: Map<String, Int> = emptyMap(),
     @SerialName("buy_calls") val buyCalls: Scorecard? = null,
+    @SerialName("sell_calls") val sellCalls: Scorecard? = null,
     @SerialName("sandbox_buys") val sandboxBuys: Scorecard? = null,
+    @SerialName("sandbox_sells") val sandboxSells: Scorecard? = null,
 )
 
+/**
+ * One side of the book, graded over 20 trading days.
+ *
+ * [correctRate20d] means the same thing on every card — higher is better, 0.50 is a coin flip —
+ * because the sell side is inverted server-side: a sell is *correct* when the name subsequently
+ * UNDERperforms the index, since owning the index was the alternative to holding it. Scoring sells
+ * on raw return would mark every sell in a bull market as wrong regardless of judgement.
+ *
+ * The size of the edge arrives as [avgExcess20dPct] for buys and [avgAvoided20dPct] for sells;
+ * positive is good in both. [avgFwd20dPct] is the raw price move and is NOT evidence on its own —
+ * equities drift up.
+ */
 @Serializable
 data class Scorecard(
     val n: Int = 0,
-    @SerialName("positive_rate_20d") val positiveRate20d: Double = 0.0,
     @SerialName("avg_fwd_20d_pct") val avgFwd20dPct: Double = 0.0,
     @SerialName("avg_excess_20d_pct") val avgExcess20dPct: Double? = null,
-    @SerialName("beat_rate_20d") val beatRate20d: Double? = null,
-)
+    @SerialName("avg_avoided_20d_pct") val avgAvoided20dPct: Double? = null,
+    @SerialName("correct_rate_20d") val correctRate20d: Double? = null,
+) {
+    /** Edge size, whichever side this card is — already signed so positive means "good call". */
+    val edgePct: Double? get() = avgExcess20dPct ?: avgAvoided20dPct
+}
 
 /** GET /regime — the market-regime read (Theme D): a structural label + trend + volatility + a
  *  positioning note, plus the S&P's 50/200-day trend. */

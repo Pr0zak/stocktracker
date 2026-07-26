@@ -659,8 +659,10 @@ private fun Pill(text: String, color: Color) = Box(
 @Composable
 private fun ScorecardCard(mem: com.stocktracker.app.data.remote.MemoryStats) {
     val cards = listOfNotNull(
-        mem.sandboxBuys?.let { "What it bought" to it },
-        mem.buyCalls?.let { "What it called" to it },
+        mem.sandboxBuys?.let { "Bought" to it },
+        mem.sandboxSells?.let { "Sold" to it },
+        mem.buyCalls?.let { "Buy calls" to it },
+        mem.sellCalls?.let { "Sell calls" to it },
     )
     Column(
         Modifier.fillMaxWidth()
@@ -677,8 +679,8 @@ private fun ScorecardCard(mem: com.stocktracker.app.data.remote.MemoryStats) {
             )
         } else {
             cards.forEach { (label, sc) ->
-                val beat = sc.beatRate20d
-                val excess = sc.avgExcess20dPct
+                val beat = sc.correctRate20d
+                val excess = sc.edgePct
                 // Grey, not green/red, until the sample can support a claim either way.
                 val thin = sc.n < 20
                 val color = when {
@@ -708,7 +710,9 @@ private fun ScorecardCard(mem: com.stocktracker.app.data.remote.MemoryStats) {
                             color = color,
                         )
                         Text(
-                            excess?.let { "beat index · " + signedPct(it) + " avg" } ?: "beat index",
+                            // "right" reads correctly for both sides; the sell inversion is
+                            // already applied server-side, so no per-card wording change is needed.
+                            excess?.let { "right · " + signedPct(it) + " vs index" } ?: "right",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -716,8 +720,9 @@ private fun ScorecardCard(mem: com.stocktracker.app.data.remote.MemoryStats) {
                 }
             }
             Text(
-                "Measured over 20 trading days against the S&P. Above 50% means it added value; below " +
-                    "means it would have been better to just buy the index.",
+                "How often each call was right, measured 20 trading days later against the S&P. " +
+                    "Above 50% means it added value; below means buying the index would have done " +
+                    "better. A sell counts as right when the name then lagged the index.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

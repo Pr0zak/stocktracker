@@ -17,14 +17,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.data.remote.SignalsHealth
-import kotlinx.coroutines.launch
 
 /**
  * The single, consistent "can't reach the AI service" indicator.
@@ -53,13 +51,12 @@ fun BackendStatusBanner(modifier: Modifier = Modifier) {
     val health by SignalsHealth.state.collectAsState()
     if (!health.isOffline) return
 
-    val scope = rememberCoroutineScope()
     val red = Color(0xFFC64040)
     Row(
         modifier = modifier
             .fillMaxWidth()
             .background(red.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
-            .clickable(enabled = !health.checking) { scope.launch { SignalsHealth.check() } }
+            .clickable(enabled = !health.checking) { SignalsHealth.retry() }
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

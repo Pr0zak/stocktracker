@@ -4,6 +4,8 @@ import android.os.SystemClock
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -71,6 +74,9 @@ object SignalsHealth {
      *  after a fast one succeeded; the next poll re-checks anyway, so a short window is safe. */
     private const val CONCURRENT_WINDOW_MS = 2_000L
 
+    /** Minimum time the retry spinner stays up, so a probe that fails instantly is still visible. */
+    private const val MIN_SPINNER_MS = 450L
+
     private val _state = MutableStateFlow(SignalsHealthState())
     val state = _state.asStateFlow()
 
@@ -96,6 +102,18 @@ object SignalsHealth {
     @Volatile
     private var lastOkElapsed = Long.MIN_VALUE
 
+    /**
+     * Run a user-initiated retry on the object's OWN scope.
+     *
+     * The banner used to launch into `rememberCoroutineScope()`, which dies with its composition — and
+     * on Watchlist/Sandbox the banner is a LazyColumn item that is disposed the moment it scrolls out
+     * of view, as is the whole screen on a tab change. A 6s probe was trivially easy to cancel, and the
+     * user's retry then evaporated with no result and no feedback.
+     */
+    fun retry() {
+        scope.launch { runCatching { check(manual = true) } }
+    }
+
     /** Start the background poll. Idempotent — a second call is a no-op rather than a second loop. */
     fun start() {
         if (!started.compareAndSet(false, true)) return
@@ -114,6 +132,19 @@ object SignalsHealth {
                     onTimeout(naptime) { }
                 }
             }
+        }
+        // Re-probe when the app comes back to the foreground. A nap is a coroutine delay that does not
+        // advance in deep sleep, so a "5 minute" cadence can span hours of wall time — and the state
+        // has no staleness concept, so a long-stale ONLINE renders exactly like a fresh one (no banner)
+        // on a phone that has since changed networks entirely.
+        runCatching {
+            androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(
+                androidx.lifecycle.LifecycleEventObserver { _, event ->
+                    if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
+                        scope.launch { runCatching { check(manual = false) } }
+                    }
+                },
+            )
         }
         // React to configuration changes instead of waiting out a 5-minute nap. Saving a URL used to
         // leave the state at NOT_CONFIGURED, and reportFailure discards everything in that state, so a
@@ -151,6 +182,7 @@ object SignalsHealth {
             if (it.state == BackendState.NOT_CONFIGURED) it.copy(state = BackendState.UNKNOWN) else it
         }
         if (manual && manualProbes.incrementAndGet() == 1) _state.update { it.copy(checking = true) }
+        val probeStart = SystemClock.elapsedRealtime()
         try {
             // Keep the REAL failure: a synthetic exception loses the cause AND defeats the
             // HttpStatusException carve-out below (a backend that 404s /health is still reachable).
@@ -170,9 +202,17 @@ object SignalsHealth {
                 }
             }
         } finally {
-            // Without this, a cancellation mid-probe (e.g. the composition that launched it is disposed)
-            // leaves `checking` stuck true, which permanently disables tap-to-retry.
-            if (manual && manualProbes.decrementAndGet() == 0) _state.update { it.copy(checking = false) }
+            // A retry against a stopped LAN service fails in single-digit milliseconds (ECONNREFUSED,
+            // NXDOMAIN), so `checking` flipped true→false inside one frame and the conflated StateFlow
+            // never emitted the intermediate value: the tap produced no visible change whatsoever and
+            // read as a dead control. Hold the indicator long enough to actually be seen.
+            if (manual) {
+                val shown = SystemClock.elapsedRealtime() - probeStart
+                if (shown < MIN_SPINNER_MS) {
+                    withContext(NonCancellable) { delay(MIN_SPINNER_MS - shown) }
+                }
+                if (manualProbes.decrementAndGet() == 0) _state.update { it.copy(checking = false) }
+            }
         }
     }
 
@@ -206,7 +246,14 @@ object SignalsHealth {
             return
         }
         if (_state.value.state == BackendState.NOT_CONFIGURED) return
-        if (SystemClock.elapsedRealtime() - lastOkElapsed < CONCURRENT_WINDOW_MS) return
+        if (SystemClock.elapsedRealtime() - lastOkElapsed < CONCURRENT_WINDOW_MS) {
+            // Suppressing the state FLIP here is race protection. Suppressing the wake as well was a
+            // bug: the loop is asleep on the 5-minute online cadence, so a discarded observation was
+            // never re-tested and a genuine outage could go unannounced for the full nap. Re-probe
+            // instead — the probe is what decides, not this report.
+            wake.trySend(Unit)
+            return
+        }
         _state.update { it.copy(state = BackendState.OFFLINE, lastError = shortReason(e)) }
         wake.trySend(Unit)                      // engage the fast retry cadence immediately
     }

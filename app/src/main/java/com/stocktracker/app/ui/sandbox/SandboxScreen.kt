@@ -35,6 +35,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -88,7 +90,17 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
     // open, and returning from settings should reflect anything changed there.
     LaunchedEffect(Unit) { vm.refresh() }
 
+    // Every action set `message` ("Ran - 2 trade(s) executed", "Tick failed - couldn't reach the
+    // service", "Sandbox reset") and NOTHING rendered it: the only reference was a LaunchedEffect
+    // that cleared it 2.6s later. So funding, resetting and running a tick all completed in total
+    // silence, including when they failed. A snackbar is the right surface - it doesn't shift layout.
+    val snackbarHost = remember { SnackbarHostState() }
+    LaunchedEffect(ui.message) {
+        ui.message?.let { snackbarHost.showSnackbar(it) }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
             TopAppBar(
                 title = {

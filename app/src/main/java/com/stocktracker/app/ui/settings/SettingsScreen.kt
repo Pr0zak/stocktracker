@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -34,6 +36,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import com.stocktracker.app.data.remote.SignalsHealth
+import com.stocktracker.app.data.remote.BackendState
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -296,6 +301,44 @@ fun SettingsScreen() {
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // The diagnosis belongs HERE, not in the banner. The banner is deliberately one
+                    // terse line above real content, but SignalsHealth.lastError already distinguishes
+                    // "host not found - check the URL" from "connection refused - is the service
+                    // running?", and this screen is the only place a wrong URL can actually be fixed.
+                    // Without it, a typo and a down homelab were the same undiagnosable "offline".
+                    if (savedSignalsUrl.isNotBlank()) {
+                        val health by SignalsHealth.state.collectAsState()
+                        val ok = health.state == BackendState.ONLINE
+                        val dotColor = when {
+                            health.checking -> MaterialTheme.colorScheme.onSurfaceVariant
+                            ok -> Color(0xFF2E7D32)
+                            health.state == BackendState.OFFLINE -> Color(0xFFC64040)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Box(Modifier.size(8.dp).background(dotColor, RoundedCornerShape(50)))
+                            Text(
+                                when {
+                                    health.checking -> "Checking\u2026"
+                                    ok -> "Connected"
+                                    health.state == BackendState.OFFLINE ->
+                                        health.lastError ?: "Can't reach the service"
+                                    else -> "Not checked yet"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
+                                enabled = !health.checking,
+                                onClick = { SignalsHealth.retry() },
+                            ) { Text("Test") }
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { scope.launch { settings.setSignalsApiUrl(signalsUrlField.orEmpty()) } }) {
                             Text("Save URL")

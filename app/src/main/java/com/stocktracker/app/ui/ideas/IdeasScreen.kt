@@ -82,6 +82,7 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
         ) {
             // Only when the backend is the relevant problem. If the AI switch is off, the notice
             // below is the accurate diagnosis and a "tap to retry" would fix nothing on this screen.
+            val backendOffline = com.stocktracker.app.ui.components.backendOffline()
             if (state.enabled) com.stocktracker.app.ui.components.BackendStatusBanner()
             if (!state.enabled) {
                 Text(
@@ -138,8 +139,14 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
                     )
                 }
             }
-            state.error?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            // Suppressed while the banner is up: "Couldn't reach the analyst service" and
+            // "Backend offline" are the same news twice, with two retries that do different things.
+            // (Sandbox already guards this way; Ideas did not.) It also outlived the outage - only a
+            // new request cleared it - so recovery left a red error under a healthy screen.
+            if (!backendOffline) {
+                state.error?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
             }
 
             state.result?.let { r ->

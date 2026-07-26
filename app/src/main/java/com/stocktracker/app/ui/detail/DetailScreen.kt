@@ -450,6 +450,7 @@ fun DetailScreen(
                         signal = state.signal,
                         verdict = state.aiVerdict,
                         aiEnabled = state.aiEnabled,
+                        aiError = state.aiError,
                         trend = state.stockTrend,
                         quality = state.quality,
                         insider = state.insider,
@@ -906,6 +907,9 @@ private fun SnapshotCard(
     signal: SignalResult?,
     verdict: AiVerdict?,
     aiEnabled: Boolean,
+    // Distinguishes "never asked" from "asked and it failed" - the collapsed rollup reported both
+    // as "AI not run", so a failed call looked like one the user simply hadn't made.
+    aiError: String? = null,
     trend: TrendResponse?,
     quality: QualityResponse?,
     insider: InsiderResponse?,
@@ -945,7 +949,7 @@ private fun SnapshotCard(
                 signal?.let { "Rules ${it.label.display} ${it.score}" },
                 when {
                     verdict != null -> "AI ${verdict.signal.replace('_', ' ')}"
-                    aiEnabled -> "AI not run"
+                    aiEnabled -> if (aiError != null) "AI failed" else "AI not run"
                     else -> null
                 },
             ).joinToString(" · ")
@@ -1209,7 +1213,7 @@ private fun SignalsCard(
             val rulesPart = signal?.let { "Rules ${it.label.display} ${it.score}" } ?: "Rules —"
             val aiPart = when {
                 verdict != null -> "AI ${verdict.signal.replace('_', ' ')} ${aiDirectionalScore(verdict)}"
-                aiEnabled -> "AI not run"
+                aiEnabled -> if (error != null) "AI failed" else "AI not run"
                 else -> null
             }
             Text(

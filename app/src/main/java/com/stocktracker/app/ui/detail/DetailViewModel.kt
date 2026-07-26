@@ -8,6 +8,7 @@ import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.remote.SignalsHealth
 import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
 import com.stocktracker.app.data.remote.CoveredCallResponse
@@ -392,7 +393,15 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     options = resp ?: it.options, // keep the prior suggestion on a failed refresh
                     optionsLoading = false,
                     optionsError = if (resp == null) {
-                        analystErrorDetail(res.exceptionOrNull()) ?: "No options chain for this symbol"
+                        // analystErrorDetail only decodes an HttpStatusException body, so a ConnectException or
+                        // timeout fell through to "No options chain for this symbol" - an unreachable
+                        // backend reported as a permanent fact about the ticker. Worse than silence.
+                        analystErrorDetail(res.exceptionOrNull())
+                            ?: if (SignalsHealth.state.value.isOffline) {
+                                "Can't reach the service - options unavailable right now."
+                            } else {
+                                "No options chain for this symbol"
+                            }
                     } else {
                         null
                     },
@@ -462,7 +471,15 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     puts = resp ?: it.puts, // keep the prior suggestion on a failed refresh
                     putsLoading = false,
                     putsError = if (resp == null) {
-                        analystErrorDetail(res.exceptionOrNull()) ?: "No options chain for this symbol"
+                        // analystErrorDetail only decodes an HttpStatusException body, so a ConnectException or
+                        // timeout fell through to "No options chain for this symbol" - an unreachable
+                        // backend reported as a permanent fact about the ticker. Worse than silence.
+                        analystErrorDetail(res.exceptionOrNull())
+                            ?: if (SignalsHealth.state.value.isOffline) {
+                                "Can't reach the service - options unavailable right now."
+                            } else {
+                                "No options chain for this symbol"
+                            }
                     } else {
                         null
                     },

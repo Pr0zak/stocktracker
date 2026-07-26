@@ -84,6 +84,8 @@ dependencies {
     // Lifecycle / navigation
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    // ProcessLifecycleOwner — re-probe backend health when the app returns to the foreground.
+    implementation("androidx.lifecycle:lifecycle-process:2.8.6")
     implementation("androidx.navigation:navigation-compose:2.8.0")
 
     // Glance (home-screen widgets)

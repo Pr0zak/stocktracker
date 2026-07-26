@@ -131,10 +131,24 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             if (ui.error != null && st == null && !backendOffline) {
                 item { InfoCard(ui.error!!) }
             }
-            if (st == null || st.fundedTotal <= 0.0) {
+            // A null state means we could not LOAD the account, which is not the same as the account
+            // being empty. Showing first-run onboarding here told a funded user their sandbox did not
+            // exist and offered a prefilled $10,000 Fund button — one tap from double-funding a live
+            // account over a transient outage.
+            if (st == null) {
+                item { Spacer(Modifier.height(8.dp)) }
+                item {
+                    InfoCard(
+                        "Can't load the sandbox right now, so its balance and holdings aren't shown. " +
+                            "Nothing has changed — this is a connection problem, not an empty account."
+                    )
+                }
+                return@LazyColumn
+            }
+            if (st.fundedTotal <= 0.0) {
                 item { Spacer(Modifier.height(8.dp)) }
                 item { EmptyState(onFund = { vm.fund(it) }) }
-                if (st != null) item { SettingsSummary(st, onOpen = onOpenSettings) }
+                item { SettingsSummary(st, onOpen = onOpenSettings) }
                 return@LazyColumn
             }
 

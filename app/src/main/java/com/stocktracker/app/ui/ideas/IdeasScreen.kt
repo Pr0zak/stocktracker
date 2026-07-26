@@ -80,7 +80,9 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            com.stocktracker.app.ui.components.BackendStatusBanner()
+            // Only when the backend is the relevant problem. If the AI switch is off, the notice
+            // below is the accurate diagnosis and a "tap to retry" would fix nothing on this screen.
+            if (state.enabled) com.stocktracker.app.ui.components.BackendStatusBanner()
             if (!state.enabled) {
                 Text(
                     "AI analyst is off. Enable it and set your Signals service URL in " +

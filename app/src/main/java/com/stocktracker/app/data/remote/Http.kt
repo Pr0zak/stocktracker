@@ -112,7 +112,19 @@ fun String.urlEncode(): String = URLEncoder.encode(this, "UTF-8")
  * surface a server-provided error message.
  */
 class HttpStatusException(val code: Int, url: String, val body: String?) :
-    IOException("HTTP $code for $url: ${body?.take(200)}")
+    IOException("HTTP $code for $url: ${body?.take(200)}") {
+
+    /**
+     * Whether this status means the Signals service itself is unreachable rather than merely unhappy.
+     *
+     * The self-hosted service usually sits behind a reverse proxy, and a proxy that cannot reach its
+     * upstream answers 502/503/504 itself. Treating "something answered with HTTP" as proof of
+     * reachability therefore cleared the offline banner while nothing actually worked — a tap on
+     * "retry" looked like it fixed the problem. A 4xx is a real answer from a live service; a
+     * bad-gateway family response is the opposite.
+     */
+    val meansBackendDown: Boolean get() = code in 502..504
+}
 
 /**
  * A user-showable message for a failed signals-service call: FastAPI's {"detail": "..."} body when

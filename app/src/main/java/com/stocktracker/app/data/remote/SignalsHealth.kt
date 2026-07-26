@@ -24,8 +24,9 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** Reachability of the self-hosted Signals backend. */
 enum class BackendState {
-    /** No Signals URL saved, or the AI analyst is switched off — the features are simply not in use,
-     *  which is not an error and must never surface as one. */
+    /** No Signals URL saved — the service is simply not in use, which is not an error and must never
+     *  surface as one. (The AI master switch is NOT part of this: it pauses Claude calls, but the
+     *  service still serves free non-LLM data and the sandbox.) */
     NOT_CONFIGURED,
 
     /** Reachable as of [SignalsHealthState.lastOkAt]. */
@@ -135,11 +136,13 @@ object SignalsHealth {
     suspend fun check(manual: Boolean = true): Boolean {
         val settings = ServiceLocator.settingsStore
         val base = runCatching { settings.signalsApiUrl.first() }.getOrDefault("")
-        val aiOn = runCatching { settings.aiAnalystEnabled.first() }.getOrDefault(true)
-        // AI switched off is the same situation as no URL: the feature is not in use. Without this the
-        // banner competes with each screen's own "AI analyst is off" notice, giving two different
-        // diagnoses for one state and offering a retry that cannot fix anything.
-        if (base.isBlank() || !aiOn) {
+        // Gated on the URL ALONE, deliberately. Tying this to the AI master switch was wrong: that
+        // switch only pauses Claude calls to save tokens, while the service also serves a lot of
+        // free, non-LLM data (short interest, seasonality, quality, movers, the whole sandbox). With
+        // AI off, an outage in any of those became invisible. Screens where AI-off is the relevant
+        // explanation suppress the banner themselves — health answers one question, and it is
+        // "can we reach the service", not "should we be calling it".
+        if (base.isBlank()) {
             _state.update { it.copy(state = BackendState.NOT_CONFIGURED, lastError = null) }
             return false
         }
@@ -160,9 +163,10 @@ object SignalsHealth {
                 else -> {
                     val e = result.exceptionOrNull()
                     reportFailure(e)
-                    // An HTTP response (even 404) proves something answered — reportFailure treats that
-                    // as reachable, so mirror its verdict rather than hard-coding false.
-                    e is HttpStatusException
+                    // A 4xx answer proves the service is alive — reportFailure treats it as reachable,
+                    // so mirror that verdict. A 502/504 does NOT: that is usually the reverse proxy
+                    // reporting it cannot reach the upstream.
+                    e is HttpStatusException && !e.meansBackendDown
                 }
             }
         } finally {
@@ -195,7 +199,9 @@ object SignalsHealth {
      */
     fun reportFailure(e: Throwable?) {
         if (e is CancellationException) return
-        if (e is HttpStatusException) {
+        if (e is HttpStatusException && !e.meansBackendDown) {
+            // A 4xx proves the SERVICE answered — a 404 on an endpoint, or a 422 from the analyst, is
+            // a feature-level problem, not unreachability, so it must not flip the banner.
             reportSuccess()
             return
         }

@@ -3,7 +3,6 @@ package com.stocktracker.app.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,15 +25,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.data.remote.SignalsHealth
 import kotlinx.coroutines.launch
-import java.util.concurrent.TimeUnit
 
 /**
  * The single, consistent "can't reach the AI service" indicator.
  *
  * The backend is self-hosted, so the phone loses it routinely — off the home network, VPN down, service
- * restarting. Without this, every AI feature just silently returned nothing and looked broken. Shows
- * only when a URL IS configured and the service is unreachable (an unconfigured service isn't an error,
- * it's an unused feature). Tap to retry immediately.
+ * restarting. Without this, every AI feature just silently returned nothing and looked broken.
+ *
+ * Deliberately ONE compact line: this sits above real content on several screens, so it states the fact
+ * and the remedy and nothing else. The specific cause is still tracked in SignalsHealth.lastError for
+ * debugging. Shows only when a URL IS configured and unreachable — an unconfigured service isn't an
+ * error, it's an unused feature.
  */
 @Composable
 fun BackendStatusBanner(modifier: Modifier = Modifier) {
@@ -43,54 +44,25 @@ fun BackendStatusBanner(modifier: Modifier = Modifier) {
 
     val scope = rememberCoroutineScope()
     val red = Color(0xFFC64040)
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(red.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+            .background(red.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
             .clickable(enabled = !health.checking) { scope.launch { SignalsHealth.check() } }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (health.checking) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = red)
-            } else {
-                Icon(Icons.Filled.CloudOff, contentDescription = null, tint = red, modifier = Modifier.size(18.dp))
-            }
-            Text(
-                if (health.checking) "Reconnecting…" else "AI service unreachable",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = red,
-            )
+        if (health.checking) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = red)
+        } else {
+            Icon(Icons.Filled.CloudOff, contentDescription = null, tint = red, modifier = Modifier.size(16.dp))
         }
         Text(
-            buildString {
-                append(health.lastError ?: "Can't reach the Signals service")
-                append(" · ")
-                append(lastSeen(health.lastOkAt))
-                if (!health.checking) append(" · tap to retry")
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (health.checking) "Reconnecting…" else "Backend offline · tap to retry",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            color = red,
         )
-        Text(
-            "AI features (verdicts, ideas, sandbox) are paused until it's back. Prices still work.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-private fun lastSeen(lastOkAt: Long): String {
-    if (lastOkAt <= 0L) return "never connected"
-    val ms = System.currentTimeMillis() - lastOkAt
-    val mins = TimeUnit.MILLISECONDS.toMinutes(ms)
-    val hrs = TimeUnit.MILLISECONDS.toHours(ms)
-    return when {
-        mins < 1 -> "last seen just now"
-        mins < 60 -> "last seen ${mins}m ago"
-        hrs < 24 -> "last seen ${hrs}h ago"
-        else -> "last seen ${TimeUnit.MILLISECONDS.toDays(ms)}d ago"
     }
 }

@@ -82,6 +82,8 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
     val vm: SandboxViewModel = sandboxViewModel()
     val ui by vm.state.collectAsState()
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val backendOffline by com.stocktracker.app.data.remote.SignalsHealth.state.collectAsState()
+        .let { st -> androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { st.value.isOffline } } }
     // Re-pull whenever this screen is shown: the server-side timer may have traded while the app sat
     // open, and returning from settings should reflect anything changed there.
     LaunchedEffect(Unit) { vm.refresh() }
@@ -120,7 +122,9 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                 item { InfoCard("Set the Signals service URL in Settings to use the AI sandbox.") }
                 return@LazyColumn
             }
-            if (ui.error != null && st == null) {
+            // Only surface a per-screen error when it ISN'T plain unreachability — the banner above
+            // already says that, and repeating it just burns space.
+            if (ui.error != null && st == null && !backendOffline) {
                 item { InfoCard(ui.error!!) }
             }
             if (st == null || st.fundedTotal <= 0.0) {

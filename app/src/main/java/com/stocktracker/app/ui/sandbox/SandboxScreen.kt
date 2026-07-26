@@ -113,11 +113,15 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
         },
     ) { padding ->
         val st = ui.state
+        // Hoisted: an empty lazy item still consumes its 14dp of spacedBy (see backendOffline docs).
+        val backendOffline = com.stocktracker.app.ui.components.backendOffline()
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item { com.stocktracker.app.ui.components.BackendStatusBanner() }
+            if (backendOffline) {
+                item { com.stocktracker.app.ui.components.BackendStatusBanner() }
+            }
             if (!ui.configured) {
                 item { InfoCard("Set the Signals service URL in Settings to use the AI sandbox.") }
                 return@LazyColumn

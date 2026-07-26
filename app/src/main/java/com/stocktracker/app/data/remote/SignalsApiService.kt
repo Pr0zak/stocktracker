@@ -18,21 +18,22 @@ class SignalsApiService {
      * inventing its own message. Deliberately NOT hooked into [Http] itself: that client is shared with
      * Yahoo/Finnhub/CoinGecko, and their outages say nothing about the self-hosted service.
      */
+    // Health is reported at COMPLETION, never from a start timestamp: the two are not comparable, and
+    // ordering a slow call's failure by when it BEGAN discarded evidence that was actually the newest
+    // (a 240s analyst call dying is later news than a 1s call that succeeded while it was in flight).
     private suspend fun sGet(url: String, slow: Boolean = false): String {
-        val t0 = System.currentTimeMillis()
         try {
             return Http.getString(url, slow).also { SignalsHealth.reportSuccess() }
         } catch (e: Throwable) {
-            SignalsHealth.reportFailure(e, t0); throw e
+            SignalsHealth.reportFailure(e); throw e
         }
     }
 
     private suspend fun sPost(url: String, body: String, slow: Boolean = false): String {
-        val t0 = System.currentTimeMillis()
         try {
             return Http.postJson(url, body, slow).also { SignalsHealth.reportSuccess() }
         } catch (e: Throwable) {
-            SignalsHealth.reportFailure(e, t0); throw e
+            SignalsHealth.reportFailure(e); throw e
         }
     }
 

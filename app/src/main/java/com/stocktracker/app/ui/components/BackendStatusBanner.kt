@@ -37,6 +37,17 @@ import kotlinx.coroutines.launch
  * debugging. Shows only when a URL IS configured and unreachable — an unconfigured service isn't an
  * error, it's an unused feature.
  */
+/**
+ * Whether the banner would render anything.
+ *
+ * Needed because a `LazyColumn` item that emits no node still consumes its `spacedBy` spacing, so an
+ * unconditional banner item leaves a permanent dead band above the first row in the normal (healthy)
+ * case. `LazyListScope` isn't composable, so callers must hoist this above the list and gate the
+ * `item {}` with it.
+ */
+@Composable
+fun backendOffline(): Boolean = SignalsHealth.state.collectAsState().value.isOffline
+
 @Composable
 fun BackendStatusBanner(modifier: Modifier = Modifier) {
     val health by SignalsHealth.state.collectAsState()

@@ -18,19 +18,23 @@ class SignalsApiService {
      * inventing its own message. Deliberately NOT hooked into [Http] itself: that client is shared with
      * Yahoo/Finnhub/CoinGecko, and their outages say nothing about the self-hosted service.
      */
-    private suspend fun sGet(url: String, slow: Boolean = false): String =
+    private suspend fun sGet(url: String, slow: Boolean = false): String {
+        val t0 = System.currentTimeMillis()
         try {
-            Http.getString(url, slow).also { SignalsHealth.reportSuccess() }
+            return Http.getString(url, slow).also { SignalsHealth.reportSuccess() }
         } catch (e: Throwable) {
-            SignalsHealth.reportFailure(e); throw e
+            SignalsHealth.reportFailure(e, t0); throw e
         }
+    }
 
-    private suspend fun sPost(url: String, body: String, slow: Boolean = false): String =
+    private suspend fun sPost(url: String, body: String, slow: Boolean = false): String {
+        val t0 = System.currentTimeMillis()
         try {
-            Http.postJson(url, body, slow).also { SignalsHealth.reportSuccess() }
+            return Http.postJson(url, body, slow).also { SignalsHealth.reportSuccess() }
         } catch (e: Throwable) {
-            SignalsHealth.reportFailure(e); throw e
+            SignalsHealth.reportFailure(e, t0); throw e
         }
+    }
 
     /**
      * @param baseUrl e.g. "http://your-host:8000"; blank returns null (feature off).

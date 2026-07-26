@@ -177,6 +177,7 @@ fun WatchlistScreen(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                item(key = "hdr:offline") { com.stocktracker.app.ui.components.BackendStatusBanner() }
                 item(key = "hdr:tabs") {
                     val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
                     val tabs = listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) + belowTab + groups

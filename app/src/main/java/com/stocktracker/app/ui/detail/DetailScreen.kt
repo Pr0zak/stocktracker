@@ -458,6 +458,7 @@ fun DetailScreen(
                 }
             }
 
+            com.stocktracker.app.ui.components.BackendStatusBanner()
             if (state.signal != null || state.aiEnabled) {
                 SignalsCard(
                     signal = state.signal,

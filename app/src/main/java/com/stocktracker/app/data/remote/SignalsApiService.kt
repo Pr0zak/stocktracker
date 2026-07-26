@@ -22,18 +22,24 @@ class SignalsApiService {
     // ordering a slow call's failure by when it BEGAN discarded evidence that was actually the newest
     // (a 240s analyst call dying is later news than a 1s call that succeeded while it was in flight).
     private suspend fun sGet(url: String, slow: Boolean = false): String {
+        if (slow) SignalsHealth.slowCallsInFlight.incrementAndGet()
         try {
             return Http.getString(url, slow).also { SignalsHealth.reportSuccess() }
         } catch (e: Throwable) {
             SignalsHealth.reportFailure(e); throw e
+        } finally {
+            if (slow) SignalsHealth.slowCallsInFlight.decrementAndGet()
         }
     }
 
     private suspend fun sPost(url: String, body: String, slow: Boolean = false): String {
+        if (slow) SignalsHealth.slowCallsInFlight.incrementAndGet()
         try {
             return Http.postJson(url, body, slow).also { SignalsHealth.reportSuccess() }
         } catch (e: Throwable) {
             SignalsHealth.reportFailure(e); throw e
+        } finally {
+            if (slow) SignalsHealth.slowCallsInFlight.decrementAndGet()
         }
     }
 

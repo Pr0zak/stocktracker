@@ -241,6 +241,9 @@ fun DetailScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // At the TOP, not mid-page. It used to sit after the Snapshot card, so it both landed
+            // below the fold and shoved whatever the user was reading downward when it appeared.
+            com.stocktracker.app.ui.components.BackendStatusBanner()
             Text(
                 text = quote?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
                 style = PriceLarge,
@@ -459,7 +462,6 @@ fun DetailScreen(
                 }
             }
 
-            com.stocktracker.app.ui.components.BackendStatusBanner()
             if (state.signal != null || state.aiEnabled) {
                 SignalsCard(
                     signal = state.signal,

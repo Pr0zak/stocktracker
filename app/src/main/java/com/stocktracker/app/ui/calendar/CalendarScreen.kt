@@ -24,6 +24,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,7 +53,11 @@ private sealed interface CalState {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarScreen(onBack: () -> Unit, symbol: String? = null) {
-    val state by produceState<CalState>(CalState.Loading, symbol) {
+    // Keyed on `reload` as well as `symbol` so the retry below can actually re-run the fetch — the
+    // screen is entirely backend-dependent and previously had no way to try again at all.
+    var reload by remember { mutableIntStateOf(0) }
+    val state by produceState<CalState>(CalState.Loading, symbol, reload) {
+        value = CalState.Loading
         val base = ServiceLocator.settingsStore.signalsApiUrl.first()
         value = if (base.isBlank()) {
             CalState.Error("Set your Signals service URL in Settings → AI analyst to see the calendar.")
@@ -78,12 +85,20 @@ fun CalendarScreen(onBack: () -> Unit, symbol: String? = null) {
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator() }
-            is CalState.Error -> Text(
-                s.message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            is CalState.Error -> Column(
                 modifier = Modifier.padding(padding).padding(16.dp),
-            )
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+            ) {
+                // This screen loads entirely from the backend, so it gets the same offline banner as
+                // everywhere else — and a real retry, which it never had.
+                com.stocktracker.app.ui.components.BackendStatusBanner()
+                Text(
+                    s.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                androidx.compose.material3.OutlinedButton(onClick = { reload++ }) { Text("Try again") }
+            }
             is CalState.Ready -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),

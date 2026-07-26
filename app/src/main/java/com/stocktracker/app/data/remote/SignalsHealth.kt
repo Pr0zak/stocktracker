@@ -87,6 +87,17 @@ object SignalsHealth {
      *  until the loop's (up to 5 minute) ONLINE-cadence sleep expired before the fast 30s retry engaged. */
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
+    /**
+     * Slow (analyst) calls currently in flight.
+     *
+     * Those run on a 180s read / 240s call timeout while this probe is capped at 6s, so the two
+     * indicators genuinely disagree: a probe can time out on a busy backend or high-RTT cellular
+     * while a real analyst request is alive and about to succeed. The banner then said "offline"
+     * on a screen that simultaneously said "Analyzing…". A probe timeout is now treated as
+     * inconclusive while any slow call is still outstanding.
+     */
+    internal val slowCallsInFlight = AtomicInteger(0)
+
     /** How many user-initiated retries are in flight. A plain boolean let the background poll clear a
      *  user's spinner (and vice-versa) whenever the two overlapped. */
     private val manualProbes = AtomicInteger(0)
@@ -190,11 +201,11 @@ object SignalsHealth {
                 runCatching { Http.getString("${base.trimEnd('/')}/health") }
             }
             return when {
-                result == null -> { reportFailure(IOException("timed out")); false }
+                result == null -> { reportFailure(ProbeTimeout(), direct = true); false }
                 result.isSuccess -> { reportSuccess(); true }
                 else -> {
                     val e = result.exceptionOrNull()
-                    reportFailure(e)
+                    reportFailure(e, direct = true)
                     // A 4xx answer proves the service is alive — reportFailure treats it as reachable,
                     // so mirror that verdict. A 502/504 does NOT: that is usually the reverse proxy
                     // reporting it cannot reach the upstream.
@@ -237,7 +248,7 @@ object SignalsHealth {
      *   strictly later evidence, leaving the banner up to 5 minutes stale on exactly the screens where
      *   the long call just died.
      */
-    fun reportFailure(e: Throwable?) {
+    fun reportFailure(e: Throwable?, direct: Boolean = false) {
         if (e is CancellationException) return
         if (e is HttpStatusException && !e.meansBackendDown) {
             // A 4xx proves the SERVICE answered — a 404 on an endpoint, or a 422 from the analyst, is
@@ -246,7 +257,10 @@ object SignalsHealth {
             return
         }
         if (_state.value.state == BackendState.NOT_CONFIGURED) return
-        if (SystemClock.elapsedRealtime() - lastOkElapsed < CONCURRENT_WINDOW_MS) {
+        // A slow analyst call can time out while an in-flight one is still running, so treat a
+        // PROBE timeout as inconclusive rather than proof of an outage.
+        if (direct && e is java.io.InterruptedIOException && slowCallsInFlight.get() > 0) return
+        if (!direct && SystemClock.elapsedRealtime() - lastOkElapsed < CONCURRENT_WINDOW_MS) {
             // Suppressing the state FLIP here is race protection. Suppressing the wake as well was a
             // bug: the loop is asleep on the 5-minute online cadence, so a discarded observation was
             // never re-tested and a genuine outage could go unannounced for the full nap. Re-probe
@@ -258,9 +272,12 @@ object SignalsHealth {
         wake.trySend(Unit)                      // engage the fast retry cadence immediately
     }
 
+    /** Marks a `/health` probe that exceeded [PROBE_TIMEOUT_MS], distinct from a socket timeout. */
+    internal class ProbeTimeout : java.io.InterruptedIOException("timed out")
+
     private fun shortReason(e: Throwable?): String = when {
         e == null -> "unreachable"
-        e is java.net.SocketTimeoutException -> "timed out"
+        e is java.io.InterruptedIOException -> "timed out"
         e is java.net.UnknownHostException -> "host not found — check the URL or your network"
         e is java.net.ConnectException -> "connection refused — is the service running?"
         e is IOException -> e.message?.take(90) ?: "network error"

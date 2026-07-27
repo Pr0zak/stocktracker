@@ -65,6 +65,11 @@ data class PortfolioUiState(
     val totalGain: Double = 0.0,
     val totalGainPercent: Double = 0.0,
     val hasCostBasis: Boolean = false,
+    /** True only when every priced holding has a cost basis. The chart's cost line is the sum over
+     *  holdings WITH a cost, while the curve is the value of ALL holdings — so when those two
+     *  memberships differ the line sits below the curve for a reason unrelated to performance, and
+     *  reads as a gain that isn't there. */
+    val allHaveCostBasis: Boolean = false,
     /** Holdings excluded from every total because no live or cached price was available. Non-empty
      *  means the figures above cover only part of the portfolio and must be labelled as such. */
     val unpricedSymbols: List<String> = emptyList(),
@@ -326,6 +331,8 @@ class PortfolioViewModel : ViewModel() {
                 holdings = rows, totalValue = total, dayChange = dayChange, dayChangePercent = pct,
                 totalCost = totalCost, totalGain = totalGain, totalGainPercent = gainPct,
                 hasCostBasis = withCost.isNotEmpty(),
+                // The cost line may only be drawn when EVERY charted holding has a cost — see below.
+                allHaveCostBasis = rows.isNotEmpty() && withCost.size == rows.size,
                 unpricedSymbols = unpriced, staleSymbols = staleSymbols,
                 mixedCurrencies = if (currencies.size > 1) foreign else emptyList(),
                 loading = false,

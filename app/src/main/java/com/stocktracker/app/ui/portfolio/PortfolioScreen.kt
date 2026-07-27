@@ -217,7 +217,10 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
                         showHighLow = true,
                         showAxis = true,
                         overlays = benchOverlay,
-                        costLine = if (percentMode) null else state.totalCost.takeIf { state.hasCostBasis && it > 0.0 },
+                        // Drawn only when the cost line and the curve cover the SAME holdings.
+                        // Otherwise the gap between them is missing cost data, not profit.
+                        costLine = if (percentMode) null
+                        else state.totalCost.takeIf { state.allHaveCostBasis && it > 0.0 },
                         valueFormatter = {
                             if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
                             else Formatting.price(it, hideZeroCents = hideZeroCents)

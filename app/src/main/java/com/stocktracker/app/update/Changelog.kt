@@ -16,6 +16,11 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.60.0" to listOf(
+            "Widgets now say when their price stopped being current",
+            "Stock sparklines only appear when there's a real recent window behind them",
+            "The chart's cost line is hidden when some holdings have no cost entered",
+        ),
         "0.59.0" to listOf(
             "Portfolio totals now flag when they mix currencies — no exchange rate is applied",
             "Switching chart ranges quickly no longer leaves the wrong window on screen",

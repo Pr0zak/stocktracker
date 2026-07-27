@@ -56,9 +56,22 @@ class TickerWidget : GlanceAppWidget() {
                 quote = TickerWidgetState.readQuote(prefs),
                 spark = TickerWidgetState.readSpark(prefs),
                 error = prefs[TickerWidgetState.ERROR],
+                lastSuccessMs = prefs[TickerWidgetState.LAST_SUCCESS] ?: 0L,
                 hideZeroCents = prefs[TickerWidgetState.HIDE_ZERO_CENTS] ?: false,
             )
         }
+    }
+}
+
+/** Beyond this the displayed price is no longer "now" and the widget says so. */
+private const val STALE_AFTER_MS = 45L * 60 * 1000
+
+private fun staleLabel(ageMs: Long): String {
+    val mins = ageMs / 60_000
+    return when {
+        mins < 120 -> "${mins}m ago"
+        mins < 60 * 48 -> "${mins / 60}h ago"
+        else -> "${mins / (60 * 24)}d ago"
     }
 }
 
@@ -68,6 +81,7 @@ private fun TickerContent(
     quote: Quote?,
     spark: List<Double>,
     error: String?,
+    lastSuccessMs: Long = 0L,
     hideZeroCents: Boolean,
 ) {
     val context = LocalContext.current
@@ -111,6 +125,17 @@ private fun TickerContent(
                 style = TextStyle(color = ColorProvider(changeColor), fontSize = 13.sp, fontWeight = FontWeight.Medium),
                 maxLines = 1,
             )
+            // A widget that can't refresh kept rendering its last payload indefinitely with no cue —
+            // the error state was only reachable when there was NO cached data at all, i.e. never
+            // after the first successful fetch. Say when the number stopped being current.
+            val ageMs = if (lastSuccessMs > 0L) System.currentTimeMillis() - lastSuccessMs else 0L
+            if (ageMs > STALE_AFTER_MS) {
+                Text(
+                    text = "as of " + staleLabel(ageMs),
+                    style = TextStyle(color = ColorProvider(Muted), fontSize = 10.sp),
+                    maxLines = 1,
+                )
+            }
         } else {
             Text(
                 text = if (error != null) "Tap to open" else "Loading…",

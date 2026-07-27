@@ -8,6 +8,7 @@ import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.MarketNowResponse
 import com.stocktracker.app.data.remote.RegimeResponse
 import com.stocktracker.app.data.remote.SignalsApiService
+import com.stocktracker.app.data.prefs.PriceCache
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.downsample
 import kotlinx.coroutines.async
@@ -293,6 +294,22 @@ class WatchlistViewModel : ViewModel() {
 
     private class Fetched(val asset: Asset, val quote: Quote?, val cryptoSpark: List<Double>)
 
+    /**
+     * A stock sparkline from the rolling price buffer, or NOTHING.
+     *
+     * Unlike crypto (which gets a real series from CoinGecko), stocks have no intraday history here —
+     * these are just the prices this app happened to observe. That's defensible as a shape only if
+     * it covers a bounded, recent window with enough points to mean something; the buffer used to be
+     * unbounded and undated, so a "sparkline" beside today's change could span weeks of refreshes.
+     * PriceCache now trims to 24h; below a handful of samples we draw nothing rather than imply a
+     * trend from two dots.
+     */
+    private fun sparkFrom(samples: List<PriceCache.Sample>?): List<Double> {
+        val s = samples.orEmpty()
+        if (s.size < PriceCache.MIN_SPARK_SAMPLES) return emptyList()
+        return s.map { it.price }.downsample(40)
+    }
+
     private suspend fun loadQuotes(assets: List<Asset>) {
         val gen = ++loadGeneration
 
@@ -304,7 +321,7 @@ class WatchlistViewModel : ViewModel() {
             st.copy(
                 items = assets.map { a ->
                     WatchlistItemUi(
-                        a, seedQuotes[a.id], (seedBuffers[a.id] ?: emptyList()).downsample(40),
+                        a, seedQuotes[a.id], sparkFrom(seedBuffers[a.id]),
                         below200wma = belowLineMap[scanKey(a)],
                     )
                 },
@@ -351,7 +368,7 @@ class WatchlistViewModel : ViewModel() {
             val quote = f.quote ?: cachedQuotes[f.asset.id]
             val spark = when (f.asset.type) {
                 AssetType.CRYPTO -> f.cryptoSpark
-                AssetType.STOCK -> (buffers[f.asset.id] ?: emptyList()).downsample(40)
+                AssetType.STOCK -> sparkFrom(buffers[f.asset.id])
             }
             WatchlistItemUi(f.asset, quote, spark, below200wma = belowLineMap[scanKey(f.asset)])
         }

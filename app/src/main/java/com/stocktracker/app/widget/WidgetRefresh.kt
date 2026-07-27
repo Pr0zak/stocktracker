@@ -47,6 +47,11 @@ object WidgetRefresh {
         } catch (e: Exception) {
             updateAppWidgetState(context, glanceId) { mutable ->
                 mutable[TickerWidgetState.ERROR] = e.message ?: "Update failed"
+                // Drop the previous payload too. Writing only ERROR left the OLD symbol's price and
+                // sparkline in state, so after a reconfigure the widget rendered the previous
+                // ticker's numbers under the new ticker's name — not stale, just wrong.
+                mutable.remove(TickerWidgetState.QUOTE)
+                mutable.remove(TickerWidgetState.SPARK)
             }
         }
         TickerWidget().update(context, glanceId)
@@ -105,22 +110,27 @@ object WidgetRefresh {
         try {
             var total = 0.0
             var day = 0.0
+            // A failed quote used to `continue` silently, so the widget's total was a sum over an
+            // arbitrary subset presented as the whole portfolio — and unlike the in-app screen there
+            // was no other number nearby to notice the discrepancy against. Count the misses.
+            var missing = 0
             if (held.isNotEmpty()) {
                 val markets = runCatching { ServiceLocator.repository.cryptoMarkets(held) }.getOrDefault(emptyMap())
                 for (asset in held) {
-                    val shares = asset.shares ?: continue
-                    val (price, change) = when (asset.type) {
-                        AssetType.CRYPTO -> markets[asset.coinGeckoId]?.let { it.price to it.change } ?: continue
+                    val shares = asset.shares ?: continue      // no position — not a missing quote
+                    val quoted = when (asset.type) {
+                        AssetType.CRYPTO -> markets[asset.coinGeckoId]?.let { it.price to it.change }
                         AssetType.STOCK -> runCatching { ServiceLocator.repository.quote(asset) }
-                            .getOrNull()?.let { it.price to it.change } ?: continue
+                            .getOrNull()?.let { it.price to it.change }
                     }
-                    total += shares * price
-                    day += shares * change
+                    if (quoted == null) { missing++; continue }
+                    total += shares * quoted.first
+                    day += shares * quoted.second
                 }
             }
             val prev = total - day
             val pct = if (prev != 0.0) day / prev * 100.0 else 0.0
-            val summary = PortfolioSummary(total, day, pct, held.size)
+            val summary = PortfolioSummary(total, day, pct, held.size, missing)
             val json = Http.json.encodeToString(summary)
             ids.forEach { id ->
                 updateAppWidgetState(context, id) { mutable ->

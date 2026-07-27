@@ -140,10 +140,22 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
             )
             val up = state.dayChange >= 0
             Text(
-                text = "${Formatting.changeLine(state.dayChange, state.dayChangePercent, up, hideZeroCents)} Today",
+                // "Today" is only honest when every quote behind it is from today. When some came
+                // from an old cache entry the label changes rather than the number quietly lying.
+                text = Formatting.changeLine(state.dayChange, state.dayChangePercent, up, hideZeroCents) +
+                    if (state.staleSymbols.isEmpty()) " Today" else " (last known)",
                 color = if (up) GainGreen else LossRed,
                 fontWeight = FontWeight.Medium,
             )
+            // The totals above are a sum over what could be priced. Saying so is the difference
+            // between an incomplete number and a wrong one.
+            if (state.unpricedSymbols.isNotEmpty()) {
+                Text(
+                    text = "Excludes ${state.unpricedSymbols.joinToString(", ")} — no price available",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             if (state.hasCostBasis) {
                 val gUp = state.totalGain >= 0
                 Text(

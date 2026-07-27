@@ -54,6 +54,9 @@ data class RebalanceUi(
     val targetPct: Int = 25,
 )
 
+/** A cached quote older than this is reported as stale rather than rendered as current. */
+const val STALE_QUOTE_MS = 6L * 60 * 60 * 1000   // 6 hours — comfortably inside one trading session
+
 data class PortfolioUiState(
     val totalValue: Double = 0.0,
     val dayChange: Double = 0.0,
@@ -62,6 +65,11 @@ data class PortfolioUiState(
     val totalGain: Double = 0.0,
     val totalGainPercent: Double = 0.0,
     val hasCostBasis: Boolean = false,
+    /** Holdings excluded from every total because no live or cached price was available. Non-empty
+     *  means the figures above cover only part of the portfolio and must be labelled as such. */
+    val unpricedSymbols: List<String> = emptyList(),
+    /** Holdings priced from a cache entry older than [STALE_QUOTE_MS] — their day change is not today's. */
+    val staleSymbols: List<String> = emptyList(),
     val holdings: List<Holding> = emptyList(),
     val chart: List<PricePoint> = emptyList(),
     /** The same starting value invested in the S&P 500, aligned to the portfolio's days (chart overlay). */
@@ -264,6 +272,11 @@ class PortfolioViewModel : ViewModel() {
                 }
             }.awaitAll()
         }
+        // A holding whose quote failed AND has no cached price used to be dropped from `rows`
+        // entirely — so `totalValue` became a sum over an arbitrary SUBSET of the portfolio and was
+        // still presented as "the" total. A number that is quietly missing a position is worse than
+        // an obviously incomplete one, so track them and say so.
+        val unpriced = quotes.filter { (_, q) -> q == null }.map { (a, _) -> a.symbol }
         val rows = quotes.mapNotNull { (asset, q) ->
             if (q == null) null else {
                 val shares = asset.shares ?: 0.0
@@ -271,6 +284,14 @@ class PortfolioViewModel : ViewModel() {
                 Holding(asset, shares, q.price, shares * q.price, shares * q.change, costBasis)
             }
         }.sortedByDescending { it.value }
+
+        // Quotes served from PriceCache carry the timestamp of their ORIGINAL fetch, which nothing
+        // read — so a day-change from last Thursday rendered under a "Today" label. Anything older
+        // than this is reported as stale rather than passed off as current.
+        val now = System.currentTimeMillis()
+        val staleSymbols = quotes.mapNotNull { (a, q) ->
+            a.symbol.takeIf { q != null && q.asOfEpochMs > 0L && now - q.asOfEpochMs > STALE_QUOTE_MS }
+        }
 
         val total = rows.sumOf { it.value }
         val dayChange = rows.sumOf { it.dayChange }
@@ -288,6 +309,7 @@ class PortfolioViewModel : ViewModel() {
                 holdings = rows, totalValue = total, dayChange = dayChange, dayChangePercent = pct,
                 totalCost = totalCost, totalGain = totalGain, totalGainPercent = gainPct,
                 hasCostBasis = withCost.isNotEmpty(),
+                unpricedSymbols = unpriced, staleSymbols = staleSymbols,
                 loading = false,
             )
         }

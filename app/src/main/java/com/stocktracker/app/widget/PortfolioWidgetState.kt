@@ -14,7 +14,11 @@ data class PortfolioSummary(
     val dayChange: Double = 0.0,
     val dayChangePercent: Double = 0.0,
     val holdingCount: Int = 0,
+    /** Holdings excluded because no quote could be fetched. Non-zero means [totalValue] covers only
+     *  part of the portfolio — the widget has to say so rather than show a confidently short number. */
+    val missingCount: Int = 0,
 ) {
+    val isPartial: Boolean get() = missingCount > 0
     val isUp: Boolean get() = dayChange >= 0.0
 }
 

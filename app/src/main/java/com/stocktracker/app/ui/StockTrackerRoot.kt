@@ -73,6 +73,9 @@ fun StockTrackerRoot() {
     LaunchedEffect(Unit) { updater.check(silent = true) }
     UpdateDialog(updater)
 
+    // Shown once after an upgrade — silent on a fresh install and on builds with no notes.
+    com.stocktracker.app.update.WhatsNewSheet()
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {

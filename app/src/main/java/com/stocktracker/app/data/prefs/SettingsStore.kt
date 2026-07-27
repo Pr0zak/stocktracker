@@ -41,6 +41,10 @@ class SettingsStore(private val context: Context) {
     private val lastAfterHoursSummaryKey = stringPreferencesKey("last_after_hours_summary_date")
     private val aiDailyBriefEnabledKey = booleanPreferencesKey("ai_daily_brief_enabled")
     private val lastDailyBriefKey = stringPreferencesKey("last_daily_brief_date")
+
+    /** The versionName the user was last SHOWN the changelog for. Absent on a fresh install, which
+     *  is how "first run" is told apart from "just upgraded" — a new user gets no release notes. */
+    private val lastSeenVersionKey = stringPreferencesKey("last_seen_version")
     private val lastSandboxTradeTsKey = doublePreferencesKey("last_sandbox_trade_ts")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
@@ -52,6 +56,9 @@ class SettingsStore(private val context: Context) {
 
     /** Free cash the user considers investable (drives the Ideas screen + entry plans). 0 = unset. */
     val investableCash: Flow<Double> = context.dataStore.data.map { it[investableCashKey] ?: 0.0 }
+
+    val lastSeenVersion: Flow<String?> = context.dataStore.data.map { it[lastSeenVersionKey] }
+    suspend fun setLastSeenVersion(v: String) = context.dataStore.edit { it[lastSeenVersionKey] = v }
     suspend fun setInvestableCash(amount: Double) = context.dataStore.edit {
         it[investableCashKey] = amount.coerceAtLeast(0.0)
     }

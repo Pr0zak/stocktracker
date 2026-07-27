@@ -14,7 +14,13 @@ object TickerWidgetState {
     val QUOTE = stringPreferencesKey("quote")
     val SPARK = stringPreferencesKey("spark")
     val ERROR = stringPreferencesKey("error")
+    /** When a refresh was last ATTEMPTED — stamped before the fetch, so the interval gate measures
+     *  attempts rather than successes (stamping after made every other run fall just inside the
+     *  window and get skipped). */
     val LAST_REFRESH = longPreferencesKey("last_refresh")
+    /** When data last actually arrived. The widget renders staleness from this, not from the
+     *  attempt time — otherwise a failing widget looks freshly updated. */
+    val LAST_SUCCESS = longPreferencesKey("last_success")
     val HIDE_ZERO_CENTS = booleanPreferencesKey("hide_zero_cents")
 
     fun readConfig(prefs: Preferences): TickerWidgetConfig =

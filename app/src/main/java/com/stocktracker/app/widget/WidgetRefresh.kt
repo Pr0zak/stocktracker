@@ -19,6 +19,10 @@ import kotlinx.serialization.encodeToString
 /** Fetches fresh prices and pushes them into widget state. Used by the worker + config activity. */
 object WidgetRefresh {
 
+    /** Tolerance on the refresh interval. The driving worker fires on its own ~15-minute cadence, so
+     *  an exact comparison lands microseconds inside the window and skips the run entirely. */
+    private const val REFRESH_SLACK_MS = 60_000L
+
     /**
      * @param force refresh regardless of the widget's configured interval (used right after config).
      * Otherwise the fetch is skipped until [TickerWidgetConfig.refreshMinutes] has elapsed, so the
@@ -29,7 +33,15 @@ object WidgetRefresh {
         val config = TickerWidgetState.readConfig(prefs)
         val lastRefresh = prefs[TickerWidgetState.LAST_REFRESH] ?: 0L
         val now = System.currentTimeMillis()
-        if (!force && now - lastRefresh < config.refreshMinutes * 60_000L) return // not due yet
+        // Stamp the attempt BEFORE fetching, not after. LAST_REFRESH used to be written only once the
+        // quote and sparkline had come back, so on a 15-minute widget driven by a 15-minute worker
+        // the elapsed time at the next tick was (15 min - fetch duration) — just under the interval —
+        // and the gate skipped it. The widget then refreshed every 30 minutes instead of every 15,
+        // systematically dropping every other run.
+        if (!force && now - lastRefresh < config.refreshMinutes * 60_000L - REFRESH_SLACK_MS) {
+            return // not due yet
+        }
+        updateAppWidgetState(context, glanceId) { it[TickerWidgetState.LAST_REFRESH] = now }
 
         val asset = config.toAsset()
         val hideZeroCents = ServiceLocator.settingsStore.hideZeroCents.first()
@@ -41,6 +53,7 @@ object WidgetRefresh {
                 mutable[TickerWidgetState.QUOTE] = Http.json.encodeToString(quote)
                 mutable[TickerWidgetState.SPARK] = Http.json.encodeToString(spark)
                 mutable[TickerWidgetState.LAST_REFRESH] = System.currentTimeMillis()
+                mutable[TickerWidgetState.LAST_SUCCESS] = System.currentTimeMillis()
                 mutable[TickerWidgetState.HIDE_ZERO_CENTS] = hideZeroCents
                 mutable.remove(TickerWidgetState.ERROR)
             }
@@ -75,7 +88,11 @@ object WidgetRefresh {
                         if (m != null) add(WatchlistRow(asset.symbol, asset.displayName, m.price, m.changePercent))
                     }
                     AssetType.STOCK -> {
+                        // Fall back to the cache like the app's own screens do. Dropping the row
+                        // instead meant a partially-failed fetch rendered a SUBSET of the watchlist
+                        // as though it were the whole thing, with nothing marking the omission.
                         val q = runCatching { ServiceLocator.repository.quote(asset) }.getOrNull()
+                            ?: ServiceLocator.priceCache.getQuote(asset.id)
                         if (q != null) {
                             ServiceLocator.priceCache.putQuote(asset.id, q)
                             add(WatchlistRow(asset.symbol, asset.displayName, q.price, q.changePercent, q.currency))
@@ -85,7 +102,9 @@ object WidgetRefresh {
             }
         }
         // A fetch failure (non-empty watchlist but no rows) is distinct from an empty watchlist.
-        val fetchFailed = assets.isNotEmpty() && rows.isEmpty()
+        // A PARTIAL failure counts too: showing 6 of 9 tickers with no indication reads as a
+        // complete list, so treat any missing row as a failure the widget must surface.
+        val fetchFailed = assets.isNotEmpty() && rows.size < assets.size
         val hideZeroCents = ServiceLocator.settingsStore.hideZeroCents.first()
         val json = Http.json.encodeToString(rows)
         ids.forEach { id ->

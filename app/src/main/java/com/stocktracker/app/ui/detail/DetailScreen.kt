@@ -788,16 +788,35 @@ private fun buildIndicators(points: List<com.stocktracker.app.data.model.PricePo
 }
 
 /** Benchmark % series (S&P 500) aligned by calendar day to the ticker's points, rebased to 0% at the start. */
-private fun benchmarkPercent(
+internal fun benchmarkPercent(
     tickerPoints: List<com.stocktracker.app.data.model.PricePoint>,
     benchPoints: List<com.stocktracker.app.data.model.PricePoint>,
 ): List<Double?> {
     if (tickerPoints.isEmpty() || benchPoints.size < 2) return List(tickerPoints.size) { null }
-    val dayMs = 86_400_000L
-    val byDay = HashMap<Long, Double>()
-    benchPoints.forEach { byDay[it.epochMs / dayMs] = it.price }
-    val aligned = tickerPoints.map { byDay[it.epochMs / dayMs] }
+
+    // Align by NEAREST TIMESTAMP, not by calendar day. Bucketing on `epochMs / 86_400_000` was
+    // last-write-wins per day, which collapsed an intraday ^GSPC series to a single price — so on a
+    // 1D range every ticker point resolved to the SAME benchmark price and the overlay rendered a
+    // flat 0% line. That is not a missing comparison, it is an invented one: a line asserting the
+    // index went nowhere all day.
+    val sorted = benchPoints.sortedBy { it.epochMs }
+    // A match further away than this isn't a comparison worth drawing. Half a day covers a daily
+    // series; an intraday series will land far closer.
+    val toleranceMs = 12 * 60 * 60 * 1000L
+    var j = 0
+    val aligned = tickerPoints.map { p ->
+        while (j + 1 < sorted.size &&
+            kotlin.math.abs(sorted[j + 1].epochMs - p.epochMs) <= kotlin.math.abs(sorted[j].epochMs - p.epochMs)
+        ) {
+            j++
+        }
+        val best = sorted[j]
+        if (kotlin.math.abs(best.epochMs - p.epochMs) <= toleranceMs) best.price else null
+    }
     val base = aligned.firstOrNull { it != null } ?: return List(tickerPoints.size) { null }
+    // If every point resolved to the same benchmark price the overlay would be a flat fabrication —
+    // draw nothing rather than assert the index was unchanged.
+    if (aligned.filterNotNull().distinct().size < 2) return List(tickerPoints.size) { null }
     return aligned.map { if (it != null) (it / base - 1.0) * 100.0 else null }
 }
 

@@ -70,6 +70,9 @@ data class PortfolioUiState(
     val unpricedSymbols: List<String> = emptyList(),
     /** Holdings priced from a cache entry older than [STALE_QUOTE_MS] — their day change is not today's. */
     val staleSymbols: List<String> = emptyList(),
+    /** Non-USD currencies present alongside USD holdings. The totals sum them one-for-one because
+     *  the app has no FX rates, so a non-empty list means the total is NOT a real currency amount. */
+    val mixedCurrencies: List<String> = emptyList(),
     val holdings: List<Holding> = emptyList(),
     val chart: List<PricePoint> = emptyList(),
     /** The same starting value invested in the S&P 500, aligned to the portfolio's days (chart overlay). */
@@ -256,9 +259,16 @@ class PortfolioViewModel : ViewModel() {
         }
     }
 
+    /** Bumped on every range switch; a load whose generation is stale must not publish. */
+    private var chartGeneration = 0
+
     fun selectRange(range: ChartRange) {
         _state.update { it.copy(range = range, loadingChart = true) }
-        if (holdings.isNotEmpty()) viewModelScope.launch { loadChart(holdings, range) }
+        // Tapping 1M then 1Y fired two loads with no supersede guard, so whichever finished LAST
+        // won — and a slow earlier range routinely overwrote the newer one, leaving the chart
+        // showing a window the selector says you are not looking at.
+        val gen = ++chartGeneration
+        if (holdings.isNotEmpty()) viewModelScope.launch { loadChart(holdings, range, gen) }
     }
 
     private suspend fun loadCurrent(held: List<Asset>) {
@@ -277,6 +287,13 @@ class PortfolioViewModel : ViewModel() {
         // still presented as "the" total. A number that is quietly missing a position is worse than
         // an obviously incomplete one, so track them and say so.
         val unpriced = quotes.filter { (_, q) -> q == null }.map { (a, _) -> a.symbol }
+        // The app holds no FX rates, so a GBP or EUR holding was summed into the USD total
+        // one-for-one — a silently wrong number, not a rounding issue. Converting properly needs a
+        // rate source; until then, name the mismatch rather than present the sum as if it were
+        // meaningful. Per-row prices already render in their own currency.
+        val currencies = quotes.mapNotNull { (_, q) -> q?.currency?.uppercase()?.takeIf { it.isNotBlank() } }
+            .distinct()
+        val foreign = currencies.filterNot { it == "USD" }
         val rows = quotes.mapNotNull { (asset, q) ->
             if (q == null) null else {
                 val shares = asset.shares ?: 0.0
@@ -310,6 +327,7 @@ class PortfolioViewModel : ViewModel() {
                 totalCost = totalCost, totalGain = totalGain, totalGainPercent = gainPct,
                 hasCostBasis = withCost.isNotEmpty(),
                 unpricedSymbols = unpriced, staleSymbols = staleSymbols,
+                mixedCurrencies = if (currencies.size > 1) foreign else emptyList(),
                 loading = false,
             )
         }
@@ -320,7 +338,7 @@ class PortfolioViewModel : ViewModel() {
      * summed per calendar day with each asset's last-known price forward-filled. Approximation:
      * assumes today's share counts across the whole window.
      */
-    private suspend fun loadChart(held: List<Asset>, range: ChartRange) {
+    private suspend fun loadChart(held: List<Asset>, range: ChartRange, gen: Int = chartGeneration) {
         val perAsset = coroutineScope {
             held.map { asset ->
                 async { asset to runCatching { repo.history(asset, range) }.getOrDefault(emptyList()).sortedBy { it.epochMs } }
@@ -367,6 +385,7 @@ class PortfolioViewModel : ViewModel() {
         } else {
             null
         }
+        if (gen != chartGeneration) return   // a newer range was selected while this was loading
         _state.update {
             it.copy(chart = series, benchmarkChart = benchSeries, maxDrawdownPct = maxDd,
                 vsSpyPct = vsSpy, loadingChart = false)

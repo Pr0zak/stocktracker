@@ -40,7 +40,12 @@ data class CallRow(
     /** Days to expiry — from the live quote, else computed from the stored expiry (so it shows offline). */
     val dte: Int
         get() = quote?.dte?.roundToInt()
-            ?: (((position.expiryTs * 1000L - System.currentTimeMillis()) / 86_400_000L).toInt()).coerceAtLeast(0)
+            // Ceiling, not floor. expiryTs is stored at midnight, so flooring the remaining
+            // milliseconds read a full day short for all but the first moments of each day — firing
+            // "expires tomorrow" alerts a day early and showing 0 DTE on a contract with a day left.
+            ?: kotlin.math.ceil(
+                (position.expiryTs * 1000L - System.currentTimeMillis()) / 86_400_000.0,
+            ).toInt().coerceAtLeast(0)
 
     /** In-the-money per the server, else inferred from spot vs strike (a call is ITM when spot ≥ strike). */
     val inTheMoney: Boolean?

@@ -21,6 +21,10 @@ import kotlin.math.abs
  */
 object SandboxTradeNotifier {
 
+    /** Trades older than this are never announced — they are backlog, not news. Guards against a
+     *  restored watermark replaying weeks of activity as though it had just happened. */
+    private const val MAX_BACKLOG_SECONDS = 2 * 24 * 60 * 60.0
+
     private val signalsApi = SignalsApiService()
 
     suspend fun check(context: Context) {
@@ -42,8 +46,19 @@ object SandboxTradeNotifier {
             settings.setLastSandboxTradeTs(newest)
             return
         }
-        val fresh = trades.filter { it.ts > watermark }.sortedBy { it.ts }
+        var fresh = trades.filter { it.ts > watermark }.sortedBy { it.ts }
         if (fresh.isEmpty()) return
+        // A cloud restore or device transfer brings the DataStore back with an OLD watermark (the
+        // holdings in the same store must be restored, so it can't simply be excluded), which would
+        // re-announce every trade since. Anything older than this isn't news — adopt it silently.
+        val cutoff = (System.currentTimeMillis() / 1000.0) - MAX_BACKLOG_SECONDS
+        if (fresh.first().ts < cutoff) {
+            fresh = fresh.filter { it.ts >= cutoff }
+            if (fresh.isEmpty()) {
+                settings.setLastSandboxTradeTs(newest)
+                return
+            }
+        }
 
         val (title, body) = summarize(fresh, state.equity)
         // A per-batch id, not one constant. NotificationManager REPLACES on a repeated id, so a

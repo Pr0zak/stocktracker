@@ -16,6 +16,13 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.59.0" to listOf(
+            "Portfolio totals now flag when they mix currencies — no exchange rate is applied",
+            "Switching chart ranges quickly no longer leaves the wrong window on screen",
+            "Price alerts no longer fire on a stale quote from a previous session",
+            "Option expiry countdowns and alerts are no longer a day early",
+            "Double-tapping \"Record sale\" can no longer double-count realized P&L",
+        ),
         "0.58.0" to listOf(
             "A comma or currency symbol in a position field no longer wipes your shares and cost",
             "Alerts are no longer marked as sent when they were never actually delivered",

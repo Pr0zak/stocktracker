@@ -2,6 +2,7 @@ package com.stocktracker.app.notify
 
 import android.content.Context
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.portfolio.STALE_QUOTE_MS
 import com.stocktracker.app.util.Formatting
 import kotlinx.coroutines.flow.first
 
@@ -16,11 +17,16 @@ object AlertChecker {
         val stateStore = AlertStateStore(context)
         val fired = stateStore.fired().toMutableSet()
         val hideZeroCents = ServiceLocator.settingsStore.hideZeroCents.first()
+        val now = System.currentTimeMillis()
 
         for (asset in assets) {
             val alerts = asset.alerts ?: continue
+            // A cached quote with no age bound could be days old, so a threshold "crossing" could be
+            // announced from a price that hasn't been current since a previous session. PriceCache
+            // has no TTL, so the bound has to be applied here.
             val quote = runCatching { ServiceLocator.repository.quote(asset) }.getOrNull()
                 ?: ServiceLocator.priceCache.getQuote(asset.id)
+                    ?.takeIf { it.asOfEpochMs <= 0L || now - it.asOfEpochMs <= STALE_QUOTE_MS }
                 ?: continue
             val price = quote.price
             val pct = quote.changePercent

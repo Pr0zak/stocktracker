@@ -149,6 +149,14 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
             )
             // The totals above are a sum over what could be priced. Saying so is the difference
             // between an incomplete number and a wrong one.
+            if (state.mixedCurrencies.isNotEmpty()) {
+                Text(
+                    "Includes ${state.mixedCurrencies.joinToString(", ")} holdings added at face " +
+                        "value — no exchange rate is applied, so this total mixes currencies",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             if (state.unpricedSymbols.isNotEmpty()) {
                 Text(
                     text = "Excludes ${state.unpricedSymbols.joinToString(", ")} — no price available",

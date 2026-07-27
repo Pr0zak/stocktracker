@@ -383,7 +383,14 @@ private fun SellToCloseDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = exit != null && exit >= 0.0, onClick = { onConfirm(exit!!) }) {
+            // Latch on first press. The dialog unmounts asynchronously, so a fast double-tap fired
+            // onConfirm twice — writing two closed-call records and double-counting the realized P&L
+            // that drives the total and win-rate card.
+            var submitting by remember { mutableStateOf(false) }
+            TextButton(
+                enabled = exit != null && exit >= 0.0 && !submitting,
+                onClick = { submitting = true; onConfirm(exit!!) },
+            ) {
                 Text("Record sale")
             }
         },

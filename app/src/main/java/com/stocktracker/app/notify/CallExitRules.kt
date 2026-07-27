@@ -62,7 +62,10 @@ object CallExitRules {
         val alerts = mutableListOf<CallExitAlert>()
         val label = "${position.symbol.uppercase()} \$${fmtStrike(position.strike)}C"
 
-        val dte = ((position.expiryTs * 1000L - nowEpochMs) / 86_400_000L).toInt().coerceAtLeast(0)
+        // Ceiling — see CallsViewModel.dte. Flooring fired the expiry warning a day early.
+        val dte = kotlin.math.ceil(
+            (position.expiryTs * 1000L - nowEpochMs) / 86_400_000.0,
+        ).toInt().coerceAtLeast(0)
 
         // --- P/L rules (need a live premium) ---
         val plPct = currentPremiumPerShare?.let {

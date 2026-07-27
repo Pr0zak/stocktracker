@@ -47,7 +47,12 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
 
     init { refresh() }
 
+    /** Bumped per refresh; a slower earlier response must not overwrite a newer one — that is how a
+     *  completed reset got the pre-reset book restored underneath it. */
+    private var refreshGeneration = 0
+
     fun refresh() {
+        val gen = ++refreshGeneration
         viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
             if (base.isBlank()) {
@@ -59,29 +64,45 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
             val navRows = api.sandboxNav(base, days = 180)
             val trades = api.sandboxTrades(base, limit = 120)
             val mem = api.memoryStats(base)
+            if (gen != refreshGeneration) return@launch   // superseded by a newer refresh
             _state.update {
                 it.copy(
                     loading = false,
                     state = st ?: it.state,
-                    nav = navRows.map { p -> PricePoint((p.ts * 1000).toLong(), p.equity) },
-                    benchmarkValues = navRows.map { p -> p.benchmarkValue },
-                    trendValues = trendLine(navRows.map { p -> p.equity }),
-                    vsBenchmarkSeries = relativePerformance(navRows),
-                    trendPctPerMonth = trendPerMonth(navRows),
-                    trades = trades,
+                    // A null list means the CALL failed — keep what we had rather than rendering an
+                    // empty curve and "No trades yet." beside a confident (stale) equity figure.
+                    nav = navRows?.map { p -> PricePoint((p.ts * 1000).toLong(), p.equity) } ?: it.nav,
+                    benchmarkValues = navRows?.map { p -> p.benchmarkValue } ?: it.benchmarkValues,
+                    trendValues = navRows?.let { r -> trendLine(r.map { p -> p.equity }) } ?: it.trendValues,
+                    vsBenchmarkSeries = navRows?.let { r -> relativePerformance(r) } ?: it.vsBenchmarkSeries,
+                    trendPctPerMonth = navRows?.let { r -> trendPerMonth(r) } ?: it.trendPctPerMonth,
+                    trades = trades ?: it.trades,
                     memory = mem ?: it.memory,
-                    error = if (st == null) "Couldn't reach the sandbox service." else null,
+                    error = when {
+                        st == null -> "Couldn't reach the sandbox service."
+                        navRows == null || trades == null -> "Some sandbox data couldn't be loaded — showing the last known values."
+                        else -> null
+                    },
                 )
             }
         }
     }
 
+    /** Guards the money-shaped actions. Fund/withdraw and reset are not idempotent — two taps meant
+     *  two deposits, with no undo — and the dialog/button stays live while the request is in flight. */
+    private val actionInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun fund(amount: Double) {
         if (amount == 0.0) return
+        if (!actionInFlight.compareAndSet(false, true)) return
         viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
             _state.update { it.copy(message = "Updating funds…") }
-            val ok = api.sandboxFund(base, amount)
+            val ok = try {
+                api.sandboxFund(base, amount)
+            } finally {
+                actionInFlight.set(false)
+            }
             _state.update { it.copy(message = if (ok) "Funds updated" else "Couldn't update funds") }
             refresh()
         }
@@ -94,7 +115,10 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
             _state.update { st ->
                 st.copy(
                     state = st.state?.let { s -> res?.let { s.copy(settings = it, enabled = it.masterEnabled) } ?: s },
-                    message = note,
+                    // On failure the server settings are unchanged, so the control silently snaps
+                    // back — announcing the intended change as done was actively misleading about
+                    // the state of an account that trades on its own.
+                    message = if (res != null) note else "Couldn't save that setting — nothing changed",
                 )
             }
         }
@@ -178,11 +202,19 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
     }
 
     fun reset() {
+        if (!actionInFlight.compareAndSet(false, true)) return
         viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
             _state.update { it.copy(message = "Resetting…") }
-            api.sandboxReset(base)
-            _state.update { it.copy(message = "Sandbox reset") }
+            // Report what actually happened. Announcing "Sandbox reset" unconditionally meant a
+            // failed reset looked identical to a successful one, on the single most destructive
+            // action in the app.
+            val ok = try {
+                api.sandboxReset(base)
+            } finally {
+                actionInFlight.set(false)
+            }
+            _state.update { it.copy(message = if (ok) "Sandbox reset" else "Reset failed — nothing was changed") }
             refresh()
         }
     }

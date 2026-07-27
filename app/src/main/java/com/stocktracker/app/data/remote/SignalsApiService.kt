@@ -256,21 +256,24 @@ class SignalsApiService {
     }
 
     /** The equity-curve series (NAV + benchmark) for the value chart. */
-    suspend fun sandboxNav(baseUrl: String, days: Int = 120): List<SandboxNavPoint> {
-        if (baseUrl.isBlank()) return emptyList()
+    /** NULL when the call failed; an empty list genuinely means "no points yet". Collapsing the two
+     *  made a failed fetch render as an empty equity curve beside a stale, confident equity figure. */
+    suspend fun sandboxNav(baseUrl: String, days: Int = 120): List<SandboxNavPoint>? {
+        if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxNavResponse>(
                 sGet("${baseUrl.trimEnd('/')}/sandbox/nav?days=$days")).series
-        }.getOrDefault(emptyList())
+        }.getOrNull()
     }
 
     /** The trade log (executed + skipped, newest first). */
-    suspend fun sandboxTrades(baseUrl: String, limit: Int = 100): List<SandboxTrade> {
-        if (baseUrl.isBlank()) return emptyList()
+    /** NULL when the call failed; empty means genuinely no trades — see [sandboxNav]. */
+    suspend fun sandboxTrades(baseUrl: String, limit: Int = 100): List<SandboxTrade>? {
+        if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxTradesResponse>(
                 sGet("${baseUrl.trimEnd('/')}/sandbox/trades?limit=$limit")).trades
-        }.getOrDefault(emptyList())
+        }.getOrNull()
     }
 
     /** Add (or withdraw, negative) fictional cash. */
@@ -298,7 +301,7 @@ class SignalsApiService {
         return runCatching {
             Http.json.decodeFromString<SandboxTickResult>(
                 sPost("${baseUrl.trimEnd('/')}/sandbox/tick",
-                    Http.json.encodeToString(SandboxTickRequest(force = force)), slow = true))
+                    Http.json.encodeToString(SandboxTickRequest(force = force, manual = true)), slow = true))
         }.getOrNull()
     }
 
@@ -902,7 +905,15 @@ data class SandboxTickResult(
 data class SandboxFundRequest(val amount: Double)
 
 @Serializable
-data class SandboxTickRequest(val force: Boolean = true, val manual: Boolean = true)
+/**
+ * No default values, deliberately.
+ *
+ * `Http.json` leaves `encodeDefaults` at false, so a field equal to its class default is OMITTED —
+ * and `SandboxTickRequest(force = true)` serialized to `{}`. The server then applied its normal
+ * cadence gate, so "Run a decision cycle now" silently did nothing outside the scheduled window
+ * while still returning 200. Required parameters can't be dropped.
+ */
+data class SandboxTickRequest(val force: Boolean, val manual: Boolean)
 
 @Serializable
 data class SandboxResetRequest(val confirm: Boolean)
@@ -914,8 +925,11 @@ data class SandboxSettingsPatch(
     @SerialName("retirement_date") val retirementDate: String? = null,
     @SerialName("current_age") val currentAge: Int? = null,
     @SerialName("retirement_age") val retirementAge: Int? = null,
-    @SerialName("account_type") val accountType: String = "cash",
-    @SerialName("avoid_wash_sales") val avoidWashSales: Boolean = true,
+    // Nullable like every other field here. As non-nullable defaults they vanished from the JSON
+    // whenever set to "cash"/true, so margin could never be switched OFF and wash-sale avoidance
+    // could never be switched back ON — the POST returned 200 with the settings unchanged.
+    @SerialName("account_type") val accountType: String? = null,
+    @SerialName("avoid_wash_sales") val avoidWashSales: Boolean? = null,
     @SerialName("exit_date") val exitDate: String? = null,
     @SerialName("goal_amount") val goalAmount: Double? = null,
     @SerialName("goal_date") val goalDate: String? = null,

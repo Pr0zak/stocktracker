@@ -16,6 +16,13 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.62.0" to listOf(
+            "\"Run a decision cycle now\" actually runs one — the request was being sent empty",
+            "Margin mode can be switched back off, and wash-sale avoidance back on",
+            "A sandbox setting that fails to save now says so instead of claiming success",
+            "Funding and reset can't be double-submitted",
+            "A half-loaded sandbox no longer shows \"No trades yet\" over real data",
+        ),
         "0.61.0" to listOf(
             "Sparklines are back for stocks — and now drawn from real intraday prices, not guesswork",
         ),

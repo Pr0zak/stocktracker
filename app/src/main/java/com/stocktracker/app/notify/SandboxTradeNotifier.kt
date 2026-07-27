@@ -36,7 +36,9 @@ object SandboxTradeNotifier {
         if (!state.settings.notifyOnTrade) return
 
         val watermark = settings.lastSandboxTradeTs.first()
-        val trades = signalsApi.sandboxTrades(base, limit = 40)
+        // A null list means the FETCH failed — bail rather than treat it as "no trades", which
+        // would otherwise be indistinguishable from a quiet day.
+        val trades = (signalsApi.sandboxTrades(base, limit = 40) ?: return)
             .filter { it.status == "filled" && (it.side == "buy" || it.side == "sell") }
         if (trades.isEmpty()) return
 

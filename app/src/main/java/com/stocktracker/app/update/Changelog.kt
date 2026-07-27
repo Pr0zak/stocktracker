@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.61.0" to listOf(
+            "Sparklines are back for stocks — and now drawn from real intraday prices, not guesswork",
+        ),
         "0.60.0" to listOf(
             "Widgets now say when their price stopped being current",
             "Stock sparklines only appear when there's a real recent window behind them",

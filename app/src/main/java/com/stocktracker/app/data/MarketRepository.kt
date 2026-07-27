@@ -114,6 +114,19 @@ class MarketRepository(
     }
 
     /** 52-week high/low. Stocks use Yahoo's meta; crypto derives from 1Y history. */
+    /**
+     * A compact intraday series for a watchlist sparkline.
+     *
+     * Shares Yahoo's chart data with [history] but caches on its own, much longer TTL: a sparkline
+     * is a SHAPE, and re-fetching it every minute for every row would roughly double the watchlist's
+     * network traffic to redraw a line that hasn't visibly changed. Returns empty on any failure —
+     * the row simply renders without one.
+     */
+    suspend fun sparkline(asset: Asset): List<Double> =
+        cached("spark:${asset.id}", SPARKLINE_TTL) {
+            runCatching { history(asset, ChartRange.DAY).map { it.price } }.getOrDefault(emptyList())
+        }
+
     suspend fun fiftyTwoWeek(asset: Asset): Pair<Double, Double>? = cached("52:${asset.id}", HISTORY_TTL) {
         when (asset.type) {
             AssetType.STOCK -> yahoo.fiftyTwoWeek(asset.symbol)
@@ -165,6 +178,9 @@ class MarketRepository(
         const val QUOTE_TTL = 15_000L
         const val INTRADAY_HISTORY_TTL = 60_000L
         const val HISTORY_TTL = 5 * 60_000L
+        /** Sparklines are decorative shape, not a live reading — refetching them per row per refresh
+         *  would double watchlist traffic for no visible gain. */
+        const val SPARKLINE_TTL = 10 * 60_000L
         const val NEGATIVE_TTL = 10_000L // empty/failed lookups expire fast so a retry actually retries
     }
 }

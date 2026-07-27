@@ -3,6 +3,7 @@ package com.stocktracker.app.ui.watchlist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.Asset
+import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.MarketNowResponse
@@ -292,6 +293,7 @@ class WatchlistViewModel : ViewModel() {
 
     fun clearUndo() = _state.update { it.copy(recentlyRemoved = null) }
 
+    /** `spark` is a real price series: CoinGecko for crypto, intraday history for stocks. */
     private class Fetched(val asset: Asset, val quote: Quote?, val cryptoSpark: List<Double>)
 
     /**
@@ -354,7 +356,13 @@ class WatchlistViewModel : ViewModel() {
                         AssetType.STOCK -> {
                             val fresh = runCatching { repo.quote(asset) }.getOrNull()
                             if (fresh != null) cache.putQuote(asset.id, fresh)
-                            Fetched(asset, fresh, emptyList())
+                            // REAL intraday history, the same source the detail chart uses, rather
+                            // than the rolling observed-price buffer. Crypto always had a genuine
+                            // series; stocks were drawing whatever prices this app happened to see,
+                            // and after that buffer was time-bounded they had nothing to draw at all.
+                            // repo.history caches on an intraday TTL, so this is not a fetch per refresh.
+                            val hist = repo.sparkline(asset)
+                            Fetched(asset, fresh, hist.downsample(40))
                         }
                     }
                 }
@@ -368,7 +376,8 @@ class WatchlistViewModel : ViewModel() {
             val quote = f.quote ?: cachedQuotes[f.asset.id]
             val spark = when (f.asset.type) {
                 AssetType.CRYPTO -> f.cryptoSpark
-                AssetType.STOCK -> sparkFrom(buffers[f.asset.id])
+                // Real history when we have it; the observed-price buffer only as a fallback.
+                AssetType.STOCK -> f.cryptoSpark.ifEmpty { sparkFrom(buffers[f.asset.id]) }
             }
             WatchlistItemUi(f.asset, quote, spark, below200wma = belowLineMap[scanKey(f.asset)])
         }

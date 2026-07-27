@@ -130,6 +130,7 @@ import com.stocktracker.app.ui.theme.TrafficAmber
 import com.stocktracker.app.ui.theme.TrafficGreen
 import com.stocktracker.app.ui.theme.TrafficRed
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.app.util.NumberInput
 import com.stocktracker.app.util.asPercentChange
 import com.stocktracker.app.util.bollingerBands
 import com.stocktracker.app.util.exponentialMovingAverage
@@ -2749,16 +2750,35 @@ private fun EditPositionSheet(
                 OutlinedTextField(pctUp, { pctUp = it }, label = { Text("Up ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
                 OutlinedTextField(pctDown, { pctDown = it }, label = { Text("Down ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
             }
+            // A field that can't be read must BLOCK the save, never be written as null. These two
+            // hold hand-entered shares and cost basis that exist nowhere else, and the old code
+            // parsed with toDoubleOrNull — so "1,000", "0,5" or "$150" silently erased both.
+            val badFields = buildList {
+                if (NumberInput.isInvalid(sharesText)) add("Shares")
+                if (NumberInput.isInvalid(costText)) add("Avg cost")
+                if (NumberInput.isInvalid(above)) add("Above")
+                if (NumberInput.isInvalid(below)) add("Below")
+                if (NumberInput.isInvalid(pctUp)) add("Up %")
+                if (NumberInput.isInvalid(pctDown)) add("Down %")
+            }
+            if (badFields.isNotEmpty()) {
+                Text(
+                    "Check ${badFields.joinToString(", ")} — that isn't a number. Nothing was saved.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             Button(
+                enabled = badFields.isEmpty(),
                 onClick = {
                     onSave(
-                        sharesText.toDoubleOrNull()?.takeIf { it > 0.0 },
-                        costText.toDoubleOrNull()?.takeIf { it > 0.0 },
+                        NumberInput.parseOrNull(sharesText)?.takeIf { it > 0.0 },
+                        NumberInput.parseOrNull(costText)?.takeIf { it > 0.0 },
                         AssetAlerts(
-                            priceAbove = above.toDoubleOrNull(),
-                            priceBelow = below.toDoubleOrNull(),
-                            percentUp = pctUp.toDoubleOrNull(),
-                            percentDown = pctDown.toDoubleOrNull(),
+                            priceAbove = NumberInput.parseOrNull(above),
+                            priceBelow = NumberInput.parseOrNull(below),
+                            percentUp = NumberInput.parseOrNull(pctUp),
+                            percentDown = NumberInput.parseOrNull(pctDown),
                         ),
                     )
                 },

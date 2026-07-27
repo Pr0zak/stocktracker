@@ -77,21 +77,31 @@ object AlertNotifier {
     }
 
     /** Post a price-alert notification (high-importance channel). */
-    fun notify(context: Context, id: Int, title: String, text: String) =
+    fun notify(context: Context, id: Int, title: String, text: String): Boolean =
         post(context, CHANNEL_ID, NotificationCompat.PRIORITY_HIGH, id, title, text)
 
     /** Post a market-summary notification (its own default-importance channel). */
-    fun notifyMarket(context: Context, id: Int, title: String, text: String) =
+    fun notifyMarket(context: Context, id: Int, title: String, text: String): Boolean =
         post(context, MARKET_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
 
     /** Post the AI morning brief (its own default-importance channel). */
-    fun notifyBrief(context: Context, id: Int, title: String, text: String) =
+    fun notifyBrief(context: Context, id: Int, title: String, text: String): Boolean =
         post(context, BRIEF_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
 
     /** Post a sandbox paper-trade notification (its own default-importance channel). */
-    fun notifySandbox(context: Context, id: Int, title: String, text: String) =
+    fun notifySandbox(context: Context, id: Int, title: String, text: String): Boolean =
         post(context, SANDBOX_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
 
+    /**
+     * Post one notification. Returns TRUE only when it was actually handed to the system.
+     *
+     * It used to return Unit and skip silently when POST_NOTIFICATIONS was denied, so callers that
+     * advance a watermark after "notifying" (the sandbox trade notifier, the scan notifier) recorded
+     * alerts as delivered that the user never saw — and, having moved the watermark past them, could
+     * never send them again. Permission is not requested anywhere except the ticker-alert sheet, so
+     * for the market recap (on by default), the AI brief and call tracking this is the normal path,
+     * not an edge case.
+     */
     private fun post(
         context: Context,
         channelId: String,
@@ -99,12 +109,12 @@ object AlertNotifier {
         id: Int,
         title: String,
         text: String,
-    ) {
+    ): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
-            return // no notification permission — silently skip
+            return false // no notification permission — the caller must NOT record this as sent
         }
         when (channelId) {
             MARKET_CHANNEL_ID -> ensureMarketChannel(context)
@@ -129,6 +139,12 @@ object AlertNotifier {
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
-        NotificationManagerCompat.from(context).notify(id, notification)
+        return try {
+            NotificationManagerCompat.from(context).notify(id, notification)
+            true
+        } catch (e: SecurityException) {
+            // Permission revoked between the check above and the post.
+            false
+        }
     }
 }

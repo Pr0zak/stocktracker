@@ -46,8 +46,16 @@ object SandboxTradeNotifier {
         if (fresh.isEmpty()) return
 
         val (title, body) = summarize(fresh, state.equity)
-        AlertNotifier.notifySandbox(context, "sandbox_trades".hashCode(), title, body)
-        settings.setLastSandboxTradeTs(newest)
+        // A per-batch id, not one constant. NotificationManager REPLACES on a repeated id, so a
+        // second batch destroyed an unread first one — and the watermark had already moved past it,
+        // making those trades unannounceable forever. Keyed on the newest ts so each batch is its
+        // own tray entry.
+        val id = ("sandbox_trades:" + newest.toLong()).hashCode()
+        // Only advance the watermark when the notification actually reached the system. Recording a
+        // delivery that never happened is how alerts silently disappear.
+        if (AlertNotifier.notifySandbox(context, id, title, body)) {
+            settings.setLastSandboxTradeTs(newest)
+        }
     }
 
     /**

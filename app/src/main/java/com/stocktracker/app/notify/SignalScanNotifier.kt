@@ -38,7 +38,9 @@ object SignalScanNotifier {
             }
             val n = flips.size + squeezes.size
             val title = if (n == 1) "1 signal changed overnight" else "$n signals changed overnight"
-            AlertNotifier.notify(context, "signal_scan".hashCode(), title, parts.joinToString(", "))
+            // Per-batch id: a constant one made each new scan REPLACE an unread previous alert.
+            AlertNotifier.notify(context, ("signal_scan:" + parts.joinToString(",")).hashCode(),
+                                 title, parts.joinToString(", "))
         }
         // 200-week-line crosses — a stance-neutral "heads up" (below the line is long-term
         // mean-reversion context, NOT a buy signal); its own notification so it doesn't muddy flips.
@@ -46,7 +48,7 @@ object SignalScanNotifier {
             val n = scan.crossedBelow200wma.size
             AlertNotifier.notify(
                 context,
-                "wma_cross".hashCode(),
+                ("wma_cross:" + scan.crossedBelow200wma.joinToString(",")).hashCode(),
                 if (n == 1) "1 name crossed below its 200-week line" else "$n names crossed below their 200-week line",
                 scan.crossedBelow200wma.joinToString(", "),
             )
@@ -66,13 +68,13 @@ object SignalScanNotifier {
                 "${a.symbol.removeSuffix("-USD")}: $tier"
             }
             val title = if (hasMega) "📉 Deep dip — a moment to add extra" else "Good time to add"
-            AlertNotifier.notify(context, "dip_alerts".hashCode(), title, body)
+            AlertNotifier.notify(context, ("dip_alerts:" + body).hashCode(), title, body)
         }
         // Key-date warnings get their own notification so they don't drown in signal noise.
         if (scan.dateAlerts.isNotEmpty()) {
             AlertNotifier.notify(
                 context,
-                "date_alerts".hashCode(),
+                ("date_alerts:" + scan.dateAlerts.joinToString(",")).hashCode(),
                 "Market dates to watch",
                 scan.dateAlerts.joinToString("\n"),
             )

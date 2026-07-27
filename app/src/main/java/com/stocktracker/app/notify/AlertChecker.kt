@@ -27,12 +27,16 @@ object AlertChecker {
             val priceStr = Formatting.price(price, quote.currency, hideZeroCents)
             val subtitle = "${asset.displayName} · $priceStr (${Formatting.percent(pct)} today)"
 
+            var changed = false
             fun evaluate(name: String, triggered: Boolean, title: String) {
                 val key = "${asset.id}:$name"
                 if (triggered) {
-                    if (fired.add(key)) AlertNotifier.notify(context, key.hashCode(), title, subtitle)
+                    if (fired.add(key)) {
+                        AlertNotifier.notify(context, key.hashCode(), title, subtitle)
+                        changed = true
+                    }
                 } else {
-                    fired.remove(key)
+                    if (fired.remove(key)) changed = true
                 }
             }
 
@@ -48,6 +52,14 @@ object AlertChecker {
             alerts.percentDown?.let {
                 evaluate("down", pct <= -it, "${asset.symbol} down ${Formatting.percent(pct)} today")
             }
+
+            // Persist per ASSET, not once at the end. Notifications are posted inside this loop and
+            // each remaining iteration makes a sequential network call, so saving only after the
+            // whole loop meant a crash, a kill, or a doze-killed worker discarded the record of
+            // every alert already delivered — and the next run re-announced all of them. The
+            // remaining replay window is now the four evaluations of a single asset, which have no
+            // I/O between them.
+            if (changed) stateStore.save(fired)
         }
 
         stateStore.save(fired)

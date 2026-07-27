@@ -60,6 +60,8 @@ data class WatchlistUiState(
     val dips: List<DipEntry> = emptyList(),
     val marketNow: MarketNowUi = MarketNowUi(),
     val regime: RegimeUi = RegimeUi(),
+    /** Last deleted asset, held so the UI can offer UNDO. Non-null means the snackbar is due. */
+    val recentlyRemoved: Asset? = null,
 )
 
 class WatchlistViewModel : ViewModel() {
@@ -265,9 +267,29 @@ class WatchlistViewModel : ViewModel() {
         // Drop it from the UI immediately — don't wait for the DataStore write + quote refetch —
         // and invalidate any in-flight load so it can't re-add the row.
         loadGeneration++
-        _state.update { it.copy(items = it.items.filterNot { i -> i.asset.id == asset.id }) }
+        _state.update {
+            it.copy(
+                items = it.items.filterNot { i -> i.asset.id == asset.id },
+                // Held for UNDO. `Asset` carries shares, avgCost and alerts, and the app stores
+                // them nowhere else — no broker sync, no server copy — so a mis-tapped delete used
+                // to be an unrecoverable loss of hand-entered data.
+                recentlyRemoved = asset,
+            )
+        }
         viewModelScope.launch { store.remove(asset) }
     }
+
+    /** Put back the last removed asset, with its shares, cost basis and alerts intact. */
+    fun undoRemove() {
+        val asset = _state.value.recentlyRemoved ?: return
+        _state.update { it.copy(recentlyRemoved = null) }
+        viewModelScope.launch {
+            store.add(asset)
+            refresh()
+        }
+    }
+
+    fun clearUndo() = _state.update { it.copy(recentlyRemoved = null) }
 
     private class Fetched(val asset: Asset, val quote: Quote?, val cryptoSpark: List<Double>)
 

@@ -36,6 +36,11 @@ class ClosedCallPositionStore(private val context: Context) {
         prefs[key] = encode(cur.filterNot { it.id == id })
     }
 
+    /** Wholesale replace — used only by a backup restore, which is destructive by design. */
+    suspend fun setAll(positions: List<ClosedCallPosition>) = context.dataStore.edit { prefs ->
+        prefs[key] = encode(positions)
+    }
+
     private fun decode(raw: String?): List<ClosedCallPosition>? =
         raw?.let { runCatching { Http.json.decodeFromString<List<ClosedCallPosition>>(it) }.getOrNull() }
 

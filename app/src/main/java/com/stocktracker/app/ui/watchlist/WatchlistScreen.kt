@@ -44,6 +44,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -132,7 +136,22 @@ fun WatchlistScreen(
         if (!reorderState.isAnyItemDragging) vm.persistOrder()
     }
 
+    // A deleted ticker takes its shares, cost basis and alerts with it, and nothing else in the app
+    // holds them — so the delete has to be reversible rather than merely hard to trigger.
+    val snackbarHost = remember { SnackbarHostState() }
+    LaunchedEffect(state.recentlyRemoved) {
+        val gone = state.recentlyRemoved ?: return@LaunchedEffect
+        val held = (gone.shares ?: 0.0) > 0.0
+        val result = snackbarHost.showSnackbar(
+            message = if (held) "Removed ${gone.symbol} and its position" else "Removed ${gone.symbol}",
+            actionLabel = "Undo",
+            duration = if (held) SnackbarDuration.Long else SnackbarDuration.Short,
+        )
+        if (result == SnackbarResult.ActionPerformed) vm.undoRemove() else vm.clearUndo()
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
             TopAppBar(
                 title = { Text("StockTracker") },

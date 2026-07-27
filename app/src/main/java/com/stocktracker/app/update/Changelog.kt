@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.57.0" to listOf(
+            "Tap the version in Settings → About to see what changed in recent releases",
+        ),
         "0.56.0" to listOf(
             "The app now shows a short summary of what changed after each update",
             "Options suggestions no longer claim an expiry is clear of earnings when the date is unknown",
@@ -40,6 +43,10 @@ object Changelog {
 
     /** Bullets for [version], or empty when that build shipped no user-facing notes. */
     fun forVersion(version: String): List<String> = entries[version].orEmpty()
+
+    /** Recent releases, newest first, for the on-demand view in Settings → About. */
+    fun recent(limit: Int = 10): List<Pair<String, List<String>>> =
+        entries.entries.take(limit).map { it.key to it.value }
 
     /**
      * Everything worth showing when moving [from] → [to], newest first.

@@ -60,29 +60,52 @@ fun WhatsNewSheet() {
     }
 
     if (notes.isEmpty()) return
-    val sheetState = rememberModalBottomSheetState()
+    ChangelogSheet(
+        title = "What's new in $version",
+        sections = listOf("" to notes),
+        onDismiss = { notes = emptyList() },
+    )
+}
 
-    ModalBottomSheet(
-        onDismissRequest = { notes = emptyList() },
-        sheetState = sheetState,
-    ) {
+/**
+ * The changelog surface, shared by the post-upgrade popup and Settings → About.
+ *
+ * [sections] is (heading, bullets); an empty heading renders the bullets alone, which is what the
+ * single-version upgrade case wants. Same component both ways so the two can't drift apart.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChangelogSheet(
+    title: String,
+    sections: List<Pair<String, List<String>>>,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                "What's new in $version",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            notes.forEach { line ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("•", style = MaterialTheme.typography.bodyMedium)
-                    Text(line, style = MaterialTheme.typography.bodyMedium)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            sections.forEach { (heading, lines) ->
+                if (heading.isNotEmpty()) {
+                    Text(
+                        heading,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                lines.forEach { line ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("•", style = MaterialTheme.typography.bodyMedium)
+                        Text(line, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(onClick = { notes = emptyList() }) { Text("Got it") }
+                Button(onClick = onDismiss) { Text("Got it") }
             }
         }
     }

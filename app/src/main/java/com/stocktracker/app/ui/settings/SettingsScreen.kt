@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
@@ -397,8 +398,31 @@ fun SettingsScreen() {
             UpdateDialog(updater) // shows the Available/Downloading modal
 
             SettingsSection("About") {
-                Text("StockTracker v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyLarge)
+                var showChangelog by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showChangelog = true }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("StockTracker v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "What's new",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 HelperText("Stocks: Yahoo · Crypto: CoinGecko · Search extra: Finnhub")
+                if (showChangelog) {
+                    val recent = com.stocktracker.app.update.Changelog.recent()
+                    com.stocktracker.app.update.ChangelogSheet(
+                        title = "What's new",
+                        sections = recent.map { (v, lines) -> "v$v" to lines },
+                        onDismiss = { showChangelog = false },
+                    )
+                }
             }
         }
     }

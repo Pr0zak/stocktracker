@@ -62,4 +62,19 @@ class ChangelogTest {
             }
         }
     }
+
+    @Test
+    fun `recent returns releases newest first for the on-demand view`() {
+        val recent = Changelog.recent()
+        assertTrue("expected several releases", recent.size >= 3)
+        assertEquals("0.57.0", recent.first().first)
+        // Every listed release must actually have notes — an empty section would render as a bare
+        // version heading with nothing under it.
+        assertTrue(recent.all { it.second.isNotEmpty() })
+    }
+
+    @Test
+    fun `recent is capped`() {
+        assertEquals(2, Changelog.recent(limit = 2).size)
+    }
 }

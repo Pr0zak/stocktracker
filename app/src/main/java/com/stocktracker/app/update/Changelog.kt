@@ -16,6 +16,13 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.58.0" to listOf(
+            "A comma or currency symbol in a position field no longer wipes your shares and cost",
+            "Alerts are no longer marked as sent when they were never actually delivered",
+            "A new batch of alerts no longer replaces an unread one",
+            "The S&P overlay no longer draws a flat line on intraday charts",
+            "Widgets show all your tickers, or say when they couldn't",
+        ),
         "0.57.0" to listOf(
             "Tap the version in Settings → About to see what changed in recent releases",
         ),

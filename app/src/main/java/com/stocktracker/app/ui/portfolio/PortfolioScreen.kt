@@ -416,13 +416,22 @@ private fun PortfolioReviewDialog(
                 Text("Portfolio review", style = MaterialTheme.typography.titleLarge)
                 ui.result?.portfolio?.let { p ->
                     Text(
-                        "$" + Formatting.compact(p.totalValue) + " · " + String.format("%.0f", p.cashPct) + "% cash",
+                        "$" + Formatting.compact(p.totalValue) +
+                            (p.cashPct?.let { " · " + String.format("%.0f", it) + "% cash" } ?: ""),
                         style = MaterialTheme.typography.labelSmall, color = neutral,
                     )
                     // A holding the backend could not price is carried at COST, so every weight and
                     // the cash % above are approximate. Saying nothing would present a partial book
                     // as the user's real allocation.
-                    if (p.unpriced.isNotEmpty()) {
+                    // Two strengths of warning. Carried-at-cost is a rough mark; unvalued means the
+                    // denominator is missing a position outright and NO weight here is computable.
+                    if (p.unvalued.isNotEmpty()) {
+                        Text(
+                            "No price or cost basis for " + p.unvalued.joinToString(", ") +
+                                " — weights can't be calculated for this book",
+                            style = MaterialTheme.typography.labelSmall, color = amber,
+                        )
+                    } else if (p.unpriced.isNotEmpty()) {
                         Text(
                             "Couldn't price " + p.unpriced.joinToString(", ") { it.symbol } +
                                 " — valued at cost, so these weights are approximate",

@@ -1086,7 +1086,12 @@ data class PortfolioAction(
 @Serializable
 data class PortfolioSummary(
     @SerialName("total_value") val totalValue: Double = 0.0,
-    @SerialName("cash_pct") val cashPct: Double = 0.0,
+    /**
+     * Null when the book contains an [unvalued] holding: the denominator is missing a whole
+     * position, so no percentage in this book is computable. Non-nullable it would coerce to a
+     * confident "0% cash".
+     */
+    @SerialName("cash_pct") val cashPct: Double? = null,
     val positions: List<PortfolioPosition> = emptyList(),
     /**
      * Holdings the backend could not price. They are carried at cost in [totalValue], so the review's
@@ -1094,6 +1099,9 @@ data class PortfolioSummary(
      * asserts an allocation that isn't theirs.
      */
     val unpriced: List<UnpricedHolding> = emptyList(),
+    /** Holdings with neither a price nor a cost basis — while non-empty, every weight here is null. */
+    val unvalued: List<String> = emptyList(),
+    @SerialName("weights_approximate") val weightsApproximate: Boolean = false,
 )
 
 @Serializable

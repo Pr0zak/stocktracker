@@ -111,6 +111,7 @@ class PortfolioViewModel : ViewModel() {
     val state = _state.asStateFlow()
 
     private var holdings: List<Asset> = emptyList()
+    private var lastHoldingsIdent: String? = null
 
     init {
         // Seed the cash field from the shared investable-cash setting (set on Ideas / entry plans).
@@ -124,6 +125,20 @@ class PortfolioViewModel : ViewModel() {
                 .map { list -> list.filter { (it.shares ?: 0.0) > 0.0 } }
                 .distinctUntilChanged()
                 .collect { held ->
+                    // A cached review/rebalance is only valid for the book it was computed from.
+                    // setCash already drops them when the cash changes; nothing did so when the
+                    // HOLDINGS changed, so the dialog could re-serve a plan naming a position the
+                    // user had since sold. Key on identity (symbol/shares/cost), not on price, so a
+                    // routine quote refresh does not throw the plan away.
+                    val ident = held.sortedBy { it.symbol }
+                        .joinToString("|") { "${it.symbol}:${it.shares}:${it.avgCost}" }
+                    if (ident != lastHoldingsIdent) {
+                        lastHoldingsIdent = ident
+                        _state.update {
+                            it.copy(review = it.review.copy(result = null),
+                                    rebalance = it.rebalance.copy(result = null))
+                        }
+                    }
                     holdings = held
                     if (held.isEmpty()) {
                         _state.update {
@@ -173,6 +188,21 @@ class PortfolioViewModel : ViewModel() {
     }
 
     /** One structured LLM review over the whole book. Gated on a configured Signals URL + the AI switch. */
+
+    /**
+     * The payload for the AI endpoints, built from the RAW holdings — not from [PortfolioUiState.holdings],
+     * which drops anything the app could not quote.
+     *
+     * Dropping before sending made the backend compute total_value and every weight over a silent
+     * subset, and it reported unpriced=[] because it never heard about the position at all — which
+     * defeats the backend's own carry-at-cost handling. The backend prices via a different provider
+     * and usually succeeds where the app failed; when it cannot, it now says so honestly.
+     */
+    private fun syncPayload(): List<HoldingSync> = holdings.map { a ->
+        val sym = if (a.type == AssetType.CRYPTO) "${a.symbol.uppercase()}-USD" else a.symbol.uppercase()
+        HoldingSync(sym, a.shares ?: 0.0, a.avgCost ?: 0.0)
+    }
+
     fun loadReview(force: Boolean) {
         viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
@@ -192,12 +222,7 @@ class PortfolioViewModel : ViewModel() {
             }
             if (!force && _state.value.review.result != null) return@launch
             _state.update { it.copy(review = it.review.copy(loading = true, error = null)) }
-            val syncs = held.map { h ->
-                val avg = h.costBasis?.takeIf { it > 0 && h.shares > 0 }?.div(h.shares) ?: (h.asset.avgCost ?: 0.0)
-                val sym = if (h.asset.type == AssetType.CRYPTO) "${h.asset.symbol.uppercase()}-USD"
-                          else h.asset.symbol.uppercase()
-                HoldingSync(sym, h.shares, avg)
-            }
+            val syncs = syncPayload()
             val res = runCatching { signalsApi.portfolioReview(base, cashValue(), syncs) }
             _state.update { st ->
                 st.copy(review = st.review.copy(
@@ -246,12 +271,7 @@ class PortfolioViewModel : ViewModel() {
             }
             if (!force && _state.value.rebalance.result != null) return@launch
             _state.update { it.copy(rebalance = it.rebalance.copy(loading = true, error = null)) }
-            val syncs = held.map { h ->
-                val avg = h.costBasis?.takeIf { it > 0 && h.shares > 0 }?.div(h.shares) ?: (h.asset.avgCost ?: 0.0)
-                val sym = if (h.asset.type == AssetType.CRYPTO) "${h.asset.symbol.uppercase()}-USD"
-                          else h.asset.symbol.uppercase()
-                HoldingSync(sym, h.shares, avg)
-            }
+            val syncs = syncPayload()
             val target = _state.value.rebalance.targetPct
             val res = runCatching { signalsApi.rebalance(base, cashValue(), target, syncs) }
             _state.update { st ->

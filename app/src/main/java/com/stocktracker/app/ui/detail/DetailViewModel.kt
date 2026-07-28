@@ -22,6 +22,7 @@ import com.stocktracker.app.data.remote.InsiderResponse
 import com.stocktracker.app.data.remote.OptionsResponse
 import com.stocktracker.app.data.remote.PutsResponse
 import com.stocktracker.app.data.remote.QualityResponse
+import com.stocktracker.app.data.remote.ValueTrapResponse
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.data.remote.TouchStudyResponse
@@ -120,6 +121,8 @@ data class DetailUiState(
     val newsMovesLoaded: Boolean = false,  // true once a fetch has completed (drives the empty state)
     /** Quality tags (ROE/margins/D-E + Buffett/wide-moat/aristocrat flags) — free, auto-fetched for stocks. */
     val quality: QualityResponse? = null,
+    /** MB-17 — discount vs deterioration. Free (no LLM), loaded alongside quality. */
+    val valueTrap: ValueTrapResponse? = null,
     /** Halving-cycle + multi-year trend — free data, auto-fetched for crypto. */
     val cycleInfo: CycleResponse? = null,
     /** Below-the-200-week-line trend (SMA, zone, direction, weekly RSI) — free, auto-fetched for stocks. */
@@ -214,6 +217,11 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 // Business-quality descriptors — stance-neutral context; show when there's anything to show.
                 val q = runCatching { signalsApi.quality(base, asset.symbol) }.getOrNull()
                 if (q != null && (q.hasAnyFlag || q.hasMetrics)) _state.update { it.copy(quality = q) }
+                // MB-17: only worth showing for a name that is actually cheap versus its own trend.
+                // On a name trading above its line the question "is this a value trap" is not one
+                // the user is asking, and a "discount" badge there would read as a buy nudge.
+                val vt = runCatching { signalsApi.valueTrap(base, asset.symbol) }.getOrNull()
+                if (vt != null && vt.belowLine == true) _state.update { it.copy(valueTrap = vt) }
             }
             // Below-the-200-week-line context (the equity mirror of crypto's cycle card) + the touch
             // study — both free, no LLM. 404s for names with under ~4 years of weekly history → stay null.

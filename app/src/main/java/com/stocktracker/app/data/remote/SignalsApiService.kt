@@ -119,6 +119,16 @@ class SignalsApiService {
         return Http.json.decodeFromString<TrendResponse>(body)
     }
 
+    /** MB-17 — discount or deteriorating? Reasons over FCF trend, share count, debt/ROE, insider
+     *  buying and the 200-week direction for one name. FREE (no LLM). Evidence, not a
+     *  recommendation: an "unclear" with a non-empty `missing` means the data was unavailable, NOT
+     *  that the business looks fine. */
+    suspend fun valueTrap(baseUrl: String, symbol: String): ValueTrapResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = sGet("${baseUrl.trimEnd('/')}/valuetrap/${symbol.uppercase()}", slow = true)
+        return Http.json.decodeFromString<ValueTrapResponse>(body)
+    }
+
     /** MB-15/MB-18 — the 200-week value screen: a value-tilted universe ranked by how far below its
      *  own 200-week trend each name sits. FREE (no LLM), so it works with the AI analyst switched
      *  off. Context, not a buy signal — the payload carries that caveat and so must the UI. */
@@ -668,6 +678,13 @@ data class QualityResponse(
     @SerialName("fcf_positive_years") val fcfPositiveYears: Int? = null,
     @SerialName("fcf_years") val fcfYears: Int? = null,
     @SerialName("shares_change_pct") val sharesChangePct: Double? = null, // + dilution / − buybacks
+    /**
+     * False when the change is too large to be organic — a stock split moves raw reported share
+     * counts without diluting anyone (SMCI's 10-for-1 read as "+1074% dilution"). When false the
+     * number must NOT be rendered as buybacks or dilution.
+     */
+    @SerialName("shares_change_reliable") val sharesChangeReliable: Boolean? = null,
+    @SerialName("shares_change_note") val sharesChangeNote: String? = null,
     @SerialName("shares_years") val sharesYears: Int? = null,
 ) {
     val hasAnyFlag: Boolean get() = highRoe || lowDebt || wideMoat || buffettQuality || dividendAristocrat
@@ -1580,4 +1597,24 @@ data class ValueScreenRow(
     val direction: String? = null,
     val zone: String? = null,
     @SerialName("pct_off_10y_high") val pctOff10yHigh: Double? = null,
+)
+
+/** GET /valuetrap/{symbol} — discount vs deterioration (MB-17). Free, no LLM. */
+@Serializable
+data class ValueTrapResponse(
+    val symbol: String = "",
+    /** "discount" | "deteriorating" | "unclear". */
+    val verdict: String = "unclear",
+    val confidence: String = "low",
+    /**
+     * False when there was not enough evidence to judge. "Unclear because balanced" and "unclear
+     * because we saw almost nothing" are different facts and must not render the same way.
+     */
+    val assessable: Boolean = false,
+    val red: List<String> = emptyList(),
+    val green: List<String> = emptyList(),
+    /** What could not be seen. Rendered, so an absence never passes as a clean bill of health. */
+    val missing: List<String> = emptyList(),
+    val note: String = "",
+    @SerialName("below_line") val belowLine: Boolean? = null,
 )

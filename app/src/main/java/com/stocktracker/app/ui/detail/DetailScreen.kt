@@ -100,6 +100,7 @@ import com.stocktracker.app.data.remote.OptionsResponse
 import com.stocktracker.app.data.remote.PutCandidate
 import com.stocktracker.app.data.remote.PutsResponse
 import com.stocktracker.app.data.remote.QualityResponse
+import com.stocktracker.app.data.remote.ValueTrapResponse
 import com.stocktracker.app.data.remote.ShortPressureResponse
 import com.stocktracker.app.data.remote.TouchStudyResponse
 import com.stocktracker.app.data.remote.TrendResponse
@@ -494,6 +495,7 @@ fun DetailScreen(
             state.cycleInfo?.let { HalvingCycleCard(it) }
             state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
             state.quality?.let { QualityCard(it) }
+            state.valueTrap?.let { ValueTrapCard(it) }
 
             if (state.aiEnabled) {
                 EntryPlanCard(
@@ -2176,12 +2178,22 @@ private fun QualityCard(q: QualityResponse) {
             }
             // Share count (MB-14) — falling = buybacks (green), rising = dilution (clay).
             q.sharesChangePct?.let { chg ->
-                val back = chg < 0
-                Text(
-                    "Share count: ${"%+.1f".format(chg)}% / ${q.sharesYears ?: 5}y · ${if (back) "buybacks" else "dilution"}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (back) Color(0xFF2E9E57) else Color(0xFFB0543D),
-                )
+                if (q.sharesChangeReliable == false) {
+                    // A split moves the raw share count without diluting anyone. Printing it as
+                    // "+1074% dilution" is not a rounding problem, it is the opposite of the truth.
+                    Text(
+                        "Share count: change looks like a stock split, not buybacks or dilution",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    val back = chg < 0
+                    Text(
+                        "Share count: ${"%+.1f".format(chg)}% / ${q.sharesYears ?: 5}y · ${if (back) "buybacks" else "dilution"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (back) Color(0xFF2E9E57) else Color(0xFFB0543D),
+                    )
+                }
             }
             if (q.hasAnyFlag) {
                 Row(
@@ -3711,5 +3723,61 @@ private fun StatCell(
     Column(modifier) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = valueColor)
+    }
+}
+
+
+/**
+ * MB-17 — for a name trading below its 200-week line, is that a discount or is the business
+ * deteriorating?
+ *
+ * Two things this card must never do. It must not present "unclear" as reassurance — an unclear
+ * verdict with things in `missing` means we could not see enough, which is why `assessable` drives
+ * the wording rather than the verdict alone. And it must show what was NOT available, because an
+ * absent input silently omitted reads as an input that came back clean.
+ */
+@Composable
+private fun ValueTrapCard(v: ValueTrapResponse) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val red = Color(0xFFB0543D)
+    val green = Color(0xFF2E9E57)
+    val amber = Color(0xFFB0872B)
+    val accent = when {
+        !v.assessable -> neutral
+        v.verdict == "deteriorating" -> red
+        v.verdict == "discount" -> green
+        else -> amber
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        run {
+            Text("Cheap — or broken?", style = MaterialTheme.typography.titleSmall)
+            Text(
+                when {
+                    !v.assessable -> "Not enough data to judge"
+                    v.verdict == "deteriorating" -> "Leaning deteriorating"
+                    v.verdict == "discount" -> "Leaning genuine discount"
+                    else -> "Evidence is mixed"
+                } + if (v.assessable) " · ${v.confidence} confidence" else "",
+                style = MaterialTheme.typography.bodyMedium, color = accent,
+            )
+            v.red.forEach { Text("− $it", style = MaterialTheme.typography.labelSmall, color = red) }
+            v.green.forEach { Text("+ $it", style = MaterialTheme.typography.labelSmall, color = green) }
+            if (v.missing.isNotEmpty()) {
+                Text(
+                    "Couldn't check: ${v.missing.joinToString(", ")}",
+                    style = MaterialTheme.typography.labelSmall, color = neutral,
+                )
+            }
+            Text(
+                "Evidence, not a recommendation.",
+                style = MaterialTheme.typography.labelSmall, color = neutral,
+            )
+        }
     }
 }

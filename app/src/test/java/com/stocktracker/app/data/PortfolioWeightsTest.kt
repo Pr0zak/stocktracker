@@ -46,4 +46,26 @@ class PortfolioWeightsTest {
         assertTrue(r.portfolio.unvalued.isEmpty())
         assertTrue(!r.portfolio.weightsApproximate)
     }
+
+    @Test
+    fun `a mixed-currency total is flagged so the dialogs can caveat it`() {
+        // No FX rate is applied server-side, so a GBP holding enters the USD total at face value.
+        val json = """
+            {"review":{"health":"ok"},
+             "portfolio":{"total_value":2000.0,"cash_pct":0.0,
+               "positions":[{"symbol":"AAPL","weight_pct":50.0,"value":1000.0}],
+               "mixed_currencies":["GBP"]}}
+        """.trimIndent()
+        val r = Http.json.decodeFromString<PortfolioReviewResponse>(json)
+        assertEquals(listOf("GBP"), r.portfolio.mixedCurrencies)
+    }
+
+    @Test
+    fun `a single-currency book carries no currency caveat`() {
+        val json = """{"review":{"health":"ok"},"portfolio":{"total_value":1.0,"positions":[]}}"""
+        assertTrue(Http.json.decodeFromString<PortfolioReviewResponse>(json).mixedCurrenciesEmpty())
+    }
+
+    private fun com.stocktracker.app.data.remote.PortfolioReviewResponse.mixedCurrenciesEmpty() =
+        portfolio.mixedCurrencies.isEmpty()
 }

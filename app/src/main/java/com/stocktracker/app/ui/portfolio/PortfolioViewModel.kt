@@ -220,7 +220,11 @@ class PortfolioViewModel : ViewModel() {
                 _state.update { it.copy(review = it.review.copy(loading = false, error = "No holdings to review.")) }
                 return@launch
             }
-            if (!force && _state.value.review.result != null) return@launch
+            // A failed refresh keeps the previous result AND sets error, so both are non-null. The
+            // early return used to fire before the error reset below, so every later open skipped it:
+            // the dialog's `when` puts error ahead of result, so it showed a stale error and hid a
+            // perfectly good plan indefinitely. Only retry-on-error escapes that.
+            if (!force && _state.value.review.result != null && _state.value.review.error == null) return@launch
             _state.update { it.copy(review = it.review.copy(loading = true, error = null)) }
             val syncs = syncPayload()
             val res = runCatching { signalsApi.portfolioReview(base, cashValue(), syncs, refresh = force) }
@@ -269,7 +273,8 @@ class PortfolioViewModel : ViewModel() {
                 _state.update { it.copy(rebalance = it.rebalance.copy(loading = false, error = "No holdings to rebalance.")) }
                 return@launch
             }
-            if (!force && _state.value.rebalance.result != null) return@launch
+            // See loadReview: a stale error must not both survive the reopen and block the retry.
+            if (!force && _state.value.rebalance.result != null && _state.value.rebalance.error == null) return@launch
             _state.update { it.copy(rebalance = it.rebalance.copy(loading = true, error = null)) }
             val syncs = syncPayload()
             val target = _state.value.rebalance.targetPct

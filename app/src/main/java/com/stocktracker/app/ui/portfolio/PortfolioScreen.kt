@@ -416,7 +416,7 @@ private fun PortfolioReviewDialog(
                 Text("Portfolio review", style = MaterialTheme.typography.titleLarge)
                 ui.result?.portfolio?.let { p ->
                     Text(
-                        "$" + Formatting.compact(p.totalValue) +
+                        "$" + Formatting.compact(p.totalValue) + " incl. cash" +
                             (p.cashPct?.let { " · " + String.format("%.0f", it) + "% cash" } ?: ""),
                         style = MaterialTheme.typography.labelSmall, color = neutral,
                     )
@@ -425,6 +425,22 @@ private fun PortfolioReviewDialog(
                     // as the user's real allocation.
                     // Two strengths of warning. Carried-at-cost is a rough mark; unvalued means the
                     // denominator is missing a position outright and NO weight here is computable.
+                    if (p.mixedCurrencies.isNotEmpty()) {
+                        Text(
+                            "Includes " + p.mixedCurrencies.joinToString(", ") +
+                                " holdings at face value — no exchange rate is applied, so this " +
+                                "total mixes currencies",
+                            style = MaterialTheme.typography.labelSmall, color = amber,
+                        )
+                    }
+                    if (p.mixedCurrencies.isNotEmpty()) {
+                        Text(
+                            "Includes " + p.mixedCurrencies.joinToString(", ") +
+                                " holdings at face value — no exchange rate is applied, so this " +
+                                "total mixes currencies",
+                            style = MaterialTheme.typography.labelSmall, color = amber,
+                        )
+                    }
                     if (p.unvalued.isNotEmpty()) {
                         Text(
                             "No price or cost basis for " + p.unvalued.joinToString(", ") +
@@ -531,7 +547,7 @@ private fun RebalancePlanDialog(
                 Text("Rebalance plan", style = MaterialTheme.typography.titleLarge)
                 ui.result?.portfolio?.let { p ->
                     Text(
-                        "$" + Formatting.compact(p.totalValue) + " · target ≤ ${ui.targetPct}% per name",
+                        "$" + Formatting.compact(p.totalValue) + " incl. cash · target ≤ ${ui.targetPct}% per name",
                         style = MaterialTheme.typography.labelSmall, color = neutral,
                     )
                 }

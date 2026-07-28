@@ -1106,6 +1106,8 @@ data class PortfolioSummary(
     val unpriced: List<UnpricedHolding> = emptyList(),
     /** Holdings with neither a price nor a cost basis — while non-empty, every weight here is null. */
     val unvalued: List<String> = emptyList(),
+    /** Non-USD currencies summed into [totalValue] at face value — no FX rate is applied. */
+    @SerialName("mixed_currencies") val mixedCurrencies: List<String> = emptyList(),
     @SerialName("weights_approximate") val weightsApproximate: Boolean = false,
 )
 

@@ -16,6 +16,11 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.69.0" to listOf(
+            "AI totals now warn when your book mixes currencies",
+            "A failed review or plan retries when you reopen it instead of sticking",
+            "The AI dialogs label their total as including cash, unlike the screen behind them",
+        ),
         "0.68.0" to listOf(
             "Refresh on the portfolio review and rebalance now really refetches",
             "The rebalance screen warns when part of your book couldn't be priced",

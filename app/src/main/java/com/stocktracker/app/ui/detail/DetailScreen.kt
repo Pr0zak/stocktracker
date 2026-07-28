@@ -2868,6 +2868,29 @@ private fun EditPositionSheet(
  * no LLM — gated on the Signals URL, not the AI switch. Lazy: nothing fetched until "Suggest a call".
  * Not investment advice.
  */
+
+/**
+ * "priced 12 min ago"-style age for an options card, or null when it isn't worth saying.
+ *
+ * All three options payloads carry `as_of` and none of it was rendered. The only staleness hint was
+ * the server's `quote_delayed` flag, which says "market closed" and says nothing at all about a card
+ * generated an hour ago during the session — these are strikes, premiums and break-evens that the
+ * user copies onto a broker ticket, and options prices move fast.
+ */
+internal fun pricedAgo(asOf: String?): String? {
+    if (asOf.isNullOrBlank()) return null
+    val ts = runCatching { java.time.Instant.parse(asOf).toEpochMilli() }
+        .getOrElse { runCatching { (asOf.toDouble() * 1000).toLong() }.getOrNull() } ?: return null
+    val mins = (System.currentTimeMillis() - ts) / 60_000
+    return when {
+        mins < 0 -> null
+        mins < 2 -> "priced just now"
+        mins < 60 -> "priced $mins min ago"
+        mins < 60 * 24 -> "priced ${mins / 60}h ago"
+        else -> "priced ${mins / (60 * 24)}d ago"
+    }
+}
+
 @Composable
 private fun PlayWithCallsCard(
     symbol: String,
@@ -3049,6 +3072,9 @@ private fun PlayWithCallsCard(
                 Text("⚠ $w", style = MaterialTheme.typography.labelSmall, color = TrafficAmber)
             }
 
+            pricedAgo(options.asOf)?.let { age ->
+                Text(age, style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
             if (options.quoteDelayed) {
                 Text(
                     "Delayed · market closed — prices are indicative; confirm the live quote on Fidelity.",
@@ -3362,6 +3388,9 @@ private fun CashSecuredPutCard(
                 Text("⚠ $w", style = MaterialTheme.typography.labelSmall, color = TrafficAmber)
             }
 
+            pricedAgo(puts.asOf)?.let { age ->
+                Text(age, style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
             if (puts.quoteDelayed) {
                 Text(
                     "Delayed · market closed — prices are indicative; confirm the live quote on Fidelity.",
@@ -3633,6 +3662,9 @@ private fun CoveredCallCard(
             Text("⚠ $w", style = MaterialTheme.typography.labelSmall, color = TrafficAmber)
         }
 
+        pricedAgo(coveredCall?.asOf)?.let { age ->
+            Text(age, style = MaterialTheme.typography.labelSmall, color = neutral)
+        }
         if (coveredCall?.quoteDelayed == true) {
             Text(
                 "Delayed · market closed — prices are indicative; confirm the live quote on Fidelity.",

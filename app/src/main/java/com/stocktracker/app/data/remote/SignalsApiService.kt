@@ -161,10 +161,11 @@ class SignalsApiService {
      *  gate on the AI switch. Crypto holdings must be sent as <SYM>-USD. Null on a blank URL / no holdings. */
     suspend fun rebalance(
         baseUrl: String, cash: Double, maxPositionPct: Int, holdings: List<HoldingSync>, deep: Boolean = false,
+        refresh: Boolean = false,
     ): RebalanceResponse? {
         if (baseUrl.isBlank() || holdings.isEmpty()) return null
         val body = Http.json.encodeToString(
-            RebalanceRequestBody(cash, deep, maxPositionPct.toDouble(), holdings),
+            RebalanceRequestBody(cash, deep, refresh, maxPositionPct.toDouble(), holdings),
         )
         return Http.json.decodeFromString<RebalanceResponse>(
             sPost("${baseUrl.trimEnd('/')}/portfolio/rebalance", body, slow = true),
@@ -189,9 +190,10 @@ class SignalsApiService {
      *  cash-deployment note. POSTs the holdings (crypto must be sent as <SYM>-USD). Gate on the AI switch. */
     suspend fun portfolioReview(
         baseUrl: String, cash: Double, holdings: List<HoldingSync>, deep: Boolean = false,
+        refresh: Boolean = false,
     ): PortfolioReviewResponse? {
         if (baseUrl.isBlank() || holdings.isEmpty()) return null
-        val body = Http.json.encodeToString(PortfolioReviewRequest(cash, deep, holdings))
+        val body = Http.json.encodeToString(PortfolioReviewRequest(cash, deep, refresh, holdings))
         return Http.json.decodeFromString<PortfolioReviewResponse>(
             sPost("${baseUrl.trimEnd('/')}/portfolio/review", body, slow = true),
         )
@@ -1056,6 +1058,9 @@ data class SeasonExtreme(
 data class PortfolioReviewRequest(
     val cash: Double,
     val deep: Boolean = false,
+    /** No default ON PURPOSE: Http.json leaves encodeDefaults false, so a field equal to its class
+     *  default is omitted from the body. Three request bodies in this app shipped broken that way. */
+    val refresh: Boolean,
     val holdings: List<HoldingSync>,
 )
 
@@ -1158,6 +1163,8 @@ data class HoldingSync(
 data class RebalanceRequestBody(
     val cash: Double,
     val deep: Boolean = false,
+    /** No default — see PortfolioReviewRequest.refresh. */
+    val refresh: Boolean,
     @SerialName("max_position_pct") val maxPositionPct: Double,
     val holdings: List<HoldingSync>,
 )

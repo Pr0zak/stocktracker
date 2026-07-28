@@ -54,4 +54,19 @@ class RequestBodyTest {
         assertTrue("a patch must not carry unrelated nulls: $body", !body.contains("retirement_date"))
         assertTrue(!body.contains("master_enabled"))
     }
+
+    @Test
+    fun `refresh survives serialization on both portfolio bodies`() {
+        // encodeDefaults is false, so a defaulted field equal to its default is DROPPED. Both
+        // refresh fields are declared without a default for exactly that reason — if either grows
+        // one, "Refresh" silently stops bypassing the cache and re-serves an old plan as current.
+        val rev = Http.json.encodeToString(
+            com.stocktracker.app.data.remote.PortfolioReviewRequest(
+                cash = 0.0, deep = false, refresh = false, holdings = emptyList()))
+        assertTrue("refresh dropped from the review body: $rev", rev.contains("\"refresh\""))
+        val reb = Http.json.encodeToString(
+            com.stocktracker.app.data.remote.RebalanceRequestBody(
+                cash = 0.0, deep = false, refresh = false, maxPositionPct = 25.0, holdings = emptyList()))
+        assertTrue("refresh dropped from the rebalance body: $reb", reb.contains("\"refresh\""))
+    }
 }

@@ -16,6 +16,10 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.68.0" to listOf(
+            "Refresh on the portfolio review and rebalance now really refetches",
+            "The rebalance screen warns when part of your book couldn't be priced",
+        ),
         "0.67.0" to listOf(
             "Portfolio review now sends every holding, not just the ones the app could price",
             "A plan is dropped when your holdings change, so it can't name a position you sold",

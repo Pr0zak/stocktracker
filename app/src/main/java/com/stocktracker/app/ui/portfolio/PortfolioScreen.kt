@@ -538,6 +538,23 @@ private fun RebalancePlanDialog(
                 // What the server corrected or dropped in the model's plan, and whether the plan
                 // actually reaches the target. A plan that misses its target reads as success if
                 // nothing says otherwise.
+                // This is the screen that emits share counts, so it needs the partial-book warning
+                // at least as much as the review dialog does.
+                ui.result?.portfolio?.let { p ->
+                    if (p.unvalued.isNotEmpty()) {
+                        Text(
+                            "No price or cost basis for " + p.unvalued.joinToString(", ") +
+                                " — weights can't be calculated for this book",
+                            style = MaterialTheme.typography.labelSmall, color = amber,
+                        )
+                    } else if (p.unpriced.isNotEmpty()) {
+                        Text(
+                            "Couldn't price " + p.unpriced.joinToString(", ") { it.symbol } +
+                                " — valued at cost, so these sizes are approximate",
+                            style = MaterialTheme.typography.labelSmall, color = amber,
+                        )
+                    }
+                }
                 ui.result?.planWarnings?.forEach { w ->
                     Text(w, style = MaterialTheme.typography.labelSmall, color = amber)
                 }

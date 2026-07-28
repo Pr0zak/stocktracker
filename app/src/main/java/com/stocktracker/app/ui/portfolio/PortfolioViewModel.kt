@@ -223,7 +223,7 @@ class PortfolioViewModel : ViewModel() {
             if (!force && _state.value.review.result != null) return@launch
             _state.update { it.copy(review = it.review.copy(loading = true, error = null)) }
             val syncs = syncPayload()
-            val res = runCatching { signalsApi.portfolioReview(base, cashValue(), syncs) }
+            val res = runCatching { signalsApi.portfolioReview(base, cashValue(), syncs, refresh = force) }
             _state.update { st ->
                 st.copy(review = st.review.copy(
                     loading = false,
@@ -273,7 +273,7 @@ class PortfolioViewModel : ViewModel() {
             _state.update { it.copy(rebalance = it.rebalance.copy(loading = true, error = null)) }
             val syncs = syncPayload()
             val target = _state.value.rebalance.targetPct
-            val res = runCatching { signalsApi.rebalance(base, cashValue(), target, syncs) }
+            val res = runCatching { signalsApi.rebalance(base, cashValue(), target, syncs, refresh = force) }
             _state.update { st ->
                 st.copy(rebalance = st.rebalance.copy(
                     loading = false,

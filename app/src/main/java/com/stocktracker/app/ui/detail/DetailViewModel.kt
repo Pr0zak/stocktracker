@@ -68,6 +68,13 @@ data class DetailUiState(
     val aiModel: String = "",
     val aiUsage: AiUsage? = null,
     val aiCached: Boolean = false,
+    /** True when the verdict on screen came from the expensive "Deep dive" (Opus) path. The one-tap
+     *  refresh must not silently replace it with a scan-model read. */
+    val aiWasDeep: Boolean = false,
+    /** The candidate profile the options deep-dive paragraph describes. The style chip re-picks the
+     *  displayed contract from already-fetched candidates WITHOUT refetching, so the prose can end up
+     *  attached to a contract it never analysed — the card compares this against its selection. */
+    val optionsDeepProfile: String? = null,
     /** Epoch ms the verdict on screen was produced by the backend (0 = unknown). Rendered so a
      *  server-cached read can't pass for a fresh one beside a live price. */
     val aiVerdictAtMs: Long = 0L,
@@ -143,10 +150,15 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
         viewModelScope.launch {
             store.watchlist.collect { list ->
                 val stored = list.firstOrNull { it.id == asset.id }
+                val sharesChanged = _state.value.shares != stored?.shares
                 _state.update {
                     it.copy(
                         inWatchlist = stored != null,
                         shares = stored?.shares,
+                        // The covered-call suggestion is sized against the share count at tap time
+                        // (contracts = shares/100) and the wheel put against available cash, so both
+                        // become wrong the moment the holding is edited on this very screen.
+                        coveredCall = if (sharesChanged) null else it.coveredCall,
                         avgCost = stored?.avgCost,
                         alerts = stored?.alerts ?: AssetAlerts(),
                         groups = stored?.groups ?: emptyList(),
@@ -251,6 +263,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     aiModel = resp?.model ?: it.aiModel,
                     aiUsage = resp?.usage ?: it.aiUsage,
                     aiCached = resp?.cached ?: it.aiCached,
+                    aiWasDeep = if (resp != null) deep else it.aiWasDeep,
                     aiVerdictAtMs = resp?.let { r ->
                         if (r.asOf > 0) (r.asOf * 1000).toLong() else System.currentTimeMillis()
                     } ?: it.aiVerdictAtMs,
@@ -285,7 +298,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 }
                 return@launch
             }
-            requestAiVerdict(deep = false, refresh = true)
+            // Preserve the tier the user actually chose. Hard-coding deep=false replaced an Opus
+            // deep-dive with a cheap scan-model read, and the only tell was the small model tag.
+            requestAiVerdict(deep = _state.value.aiWasDeep, refresh = true)
             if (_state.value.newsMovesLoaded) requestNewsMoves(refresh = true)
             val cash = settings.investableCash.first()
             if (_state.value.plan != null && cash > 0) requestPlan(cash, refresh = true)
@@ -422,6 +437,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
      * paragraph into the displayed suggestion. A real LLM call, so it respects the AI kill-switch — a
      * no-op when the switch is off. Only meaningful after [requestOptions] has produced a suggestion.
      */
+    /** Profile the options deep-dive paragraph actually describes. The style chip swaps the displayed
+     *  contract from local composable state, but the prose is fixed at the moment Deep dive ran — so
+     *  without this the paragraph stayed attached to a contract it does not describe. */
     fun requestOptionsDeep() {
         val budget = lastOptionsBudget
         val style = lastOptionsStyle
@@ -438,6 +456,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             val analyst = resp?.analyst
             _state.update {
                 it.copy(
+                    optionsDeepProfile = if (analyst != null) style else it.optionsDeepProfile,
                     // Merge only the analyst paragraph so the shown contract numbers don't visibly shift.
                     options = if (!analyst.isNullOrBlank()) (it.options?.copy(analyst = analyst) ?: resp) else it.options,
                     optionsDeepLoading = false,

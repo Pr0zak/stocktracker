@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.64.0" to listOf(
+            "The one-tap AI refresh keeps the deep model instead of quietly downgrading it",
+            "A covered-call suggestion clears when you change the shares it was sized against",
+            "Adding an exclusion can no longer wipe the rest of the list",
+            "Fund and withdraw now show the server's actual reason when they fail",
+        ),
         "0.63.0" to listOf(
             "A failed AI refresh now says so instead of leaving yesterday's verdict looking current",
             "AI verdicts show when they were produced, so a cached one can't pass for fresh",

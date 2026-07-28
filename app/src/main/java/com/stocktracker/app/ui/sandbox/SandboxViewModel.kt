@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 data class SandboxUiState(
     val configured: Boolean = true,   // a Signals URL is set
@@ -98,18 +99,26 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
         viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
             _state.update { it.copy(message = "Updating funds…") }
-            val ok = try {
+            val failure = try {
                 api.sandboxFund(base, amount)
             } finally {
                 actionInFlight.set(false)
             }
-            _state.update { it.copy(message = if (ok) "Funds updated" else "Couldn't update funds") }
+            // The server names the real numbers ("withdrawal exceeds cash on hand ($X)") — that is
+            // exactly what the user needs and it was being thrown away.
+            _state.update { it.copy(message = failure ?: "Funds updated") }
             refresh()
         }
     }
 
     fun patchSettings(patch: SandboxSettingsPatch, note: String? = null) {
-        viewModelScope.launch {
+        viewModelScope.launch { applyPatch(patch, note) }
+    }
+
+    /** The write itself, awaitable — the exclusion mutator must hold its lock across the round trip,
+     *  otherwise two quick adds still both read the pre-write list. */
+    private suspend fun applyPatch(patch: SandboxSettingsPatch, note: String? = null) {
+        run {
             val base = settings.signalsApiUrl.first()
             val res = api.sandboxUpdateSettings(base, patch)
             _state.update { st ->
@@ -153,14 +162,38 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
     fun setExclusions(list: List<String>) =
         patchSettings(SandboxSettingsPatch(exclusions = list), note = "Exclusions updated")
 
+    /** Serialises the exclusion read-modify-write. Two quick adds both read the same base list and
+     *  the second replaced the first, because the server REPLACES the whole list on each patch. */
+    private val exclusionLock = kotlinx.coroutines.sync.Mutex()
+
     fun addExclusion(ticker: String) {
         val t = ticker.trim().uppercase()
         if (t.isBlank()) return
-        setExclusions((currentSettings.exclusions + t).distinct())
+        mutateExclusions { (it + t).distinct() }
     }
 
-    fun removeExclusion(ticker: String) =
-        setExclusions(currentSettings.exclusions.filterNot { it.equals(ticker, true) })
+    fun removeExclusion(ticker: String) = mutateExclusions { list ->
+        list.filterNot { it.equals(ticker, true) }
+    }
+
+    private fun mutateExclusions(transform: (List<String>) -> List<String>) {
+        viewModelScope.launch {
+            exclusionLock.withLock {
+                // Only ever compute from the list the SERVER actually has. `currentSettings` falls
+                // back to a default SandboxSettings() with an EMPTY exclusion list when state hasn't
+                // loaded (first paint, or after a failed refresh) — so adding one ticker then sent
+                // just that ticker and wiped every other exclusion the user had set.
+                val known = _state.value.state?.settings?.exclusions ?: run {
+                    _state.update { it.copy(message = "Couldn't update exclusions — settings not loaded yet") }
+                    return@withLock
+                }
+                applyPatch(
+                    SandboxSettingsPatch(exclusions = transform(known)),
+                    note = "Exclusions updated",
+                )
+            }
+        }
+    }
 
     fun setCadence(c: String) = patchSettings(SandboxSettingsPatch(cadence = c))
 

@@ -276,14 +276,23 @@ class SignalsApiService {
         }.getOrNull()
     }
 
-    /** Add (or withdraw, negative) fictional cash. */
-    suspend fun sandboxFund(baseUrl: String, amount: Double): Boolean {
-        if (baseUrl.isBlank()) return false
+    /**
+     * Add (or withdraw, negative) fictional cash. Returns null on success, or the reason it failed.
+     *
+     * It used to collapse to a Boolean, so the UI could only ever say "Couldn't update funds" — while
+     * the server returns the specific, actionable reason: a 422 "withdrawal exceeds cash on hand
+     * ($X)" naming the real balance, or a 503 saying the benchmark couldn't be priced so the deposit
+     * was deliberately not applied. Those are the only place the actual numbers appear.
+     */
+    suspend fun sandboxFund(baseUrl: String, amount: Double): String? {
+        if (baseUrl.isBlank()) return "No Signals service URL is set"
         return runCatching {
             sPost("${baseUrl.trimEnd('/')}/sandbox/fund",
                 Http.json.encodeToString(SandboxFundRequest(amount)))
-            true
-        }.getOrDefault(false)
+            null
+        }.getOrElse { e ->
+            analystErrorDetail(e) ?: "Couldn't update funds"
+        }
     }
 
     /** Patch the sandbox settings (risk, dates, caps, master switch). Returns the new settings. */

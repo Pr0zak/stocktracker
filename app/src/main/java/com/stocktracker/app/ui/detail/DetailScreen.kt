@@ -546,6 +546,7 @@ fun DetailScreen(
                     deepError = state.optionsDeepError,
                     onSuggest = { budget, style -> vm.requestOptions(budget, style) },
                     onDeepDive = { vm.requestOptionsDeep() },
+                    deepProfile = state.optionsDeepProfile,
                     onTrack = { draft -> callDraft = draft },
                 )
 
@@ -2878,6 +2879,10 @@ private fun PlayWithCallsCard(
     deepError: String?,
     onSuggest: (Double, String) -> Unit,
     onDeepDive: () -> Unit,
+    /** Profile the analyst paragraph describes. The style chip re-picks the displayed contract from
+     *  already-fetched candidates without refetching, so the prose can outlive the contract it was
+     *  written about. */
+    deepProfile: String? = null,
     onTrack: (CallDraft) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2996,6 +3001,13 @@ private fun PlayWithCallsCard(
                             color = neutral,
                         )
                         Text(options.analyst!!, style = MaterialTheme.typography.bodySmall)
+                        if (deepProfile != null && deepProfile != style) {
+                            Text(
+                                "Written for the ${deepProfile} contract — you're viewing ${style}.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TrafficAmber,
+                            )
+                        }
                     }
                 }
                 deepError?.let {

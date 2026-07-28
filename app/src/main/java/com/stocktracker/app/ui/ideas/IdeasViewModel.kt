@@ -54,11 +54,19 @@ class IdeasViewModel : ViewModel() {
         }
     }
 
-    fun setCash(text: String) = _state.update { it.copy(cashText = text, error = null) }
-    fun setDeep(deep: Boolean) = _state.update { it.copy(deep = deep) }
-    fun setMarket(market: Boolean) = _state.update { it.copy(market = market) }
+    // Changing any INPUT invalidates the answer. The picks, their share counts and their dollar
+    // allocations are all a function of the cash amount, the scope and the model — leaving them on
+    // screen after those change presents an answer to a question the user is no longer asking.
+    fun setCash(text: String) = _state.update { it.copy(cashText = text, error = null, result = null) }
+    fun setDeep(deep: Boolean) = _state.update { it.copy(deep = deep, result = null, error = null) }
+    fun setMarket(market: Boolean) = _state.update { it.copy(market = market, result = null, error = null) }
+
+    /** Guards against a second paid analyst call from a double-tap; also makes the later response
+     *  authoritative rather than whichever happened to land last. */
+    private var requestGeneration = 0
 
     fun getIdeas() {
+        if (_state.value.loading) return   // already running — a second tap costs real tokens
         val cash = _state.value.cashText.replace(",", "").removePrefix("$").trim().toDoubleOrNull()
         if (cash == null || cash <= 0) {
             _state.update { it.copy(error = "Enter the cash amount you want to deploy") }
@@ -71,6 +79,7 @@ class IdeasViewModel : ViewModel() {
                 return@launch
             }
             settings.setInvestableCash(cash) // remembered — also drives detail-screen entry plans
+            val gen = ++requestGeneration
             _state.update { it.copy(loading = true, error = null) }
             // Holdings ride along transiently so the analyst can weigh existing exposure.
             val holdings = store.snapshot()
@@ -82,6 +91,7 @@ class IdeasViewModel : ViewModel() {
             val s0 = _state.value
             val res = runCatching { api.recommendations(base, cash, s0.deep, holdings, market = s0.market) }
             val resp = res.getOrNull()
+            if (gen != requestGeneration) return@launch   // superseded by a newer request
             _state.update {
                 it.copy(
                     loading = false,

@@ -53,7 +53,7 @@ class ChangelogTest {
 
     @Test
     fun `every entry is short enough to read at a glance`() {
-        for ((version, lines) in listOf("0.62.0", "0.61.0", "0.60.0").map { it to Changelog.forVersion(it) }) {
+        for ((version, lines) in listOf("0.63.0", "0.62.0", "0.61.0").map { it to Changelog.forVersion(it) }) {
             assertTrue("$version has no notes", lines.isNotEmpty())
             assertTrue("$version has too many bullets: ${lines.size}", lines.size <= 5)
             for (l in lines) {
@@ -67,7 +67,7 @@ class ChangelogTest {
     fun `recent returns releases newest first for the on-demand view`() {
         val recent = Changelog.recent()
         assertTrue("expected several releases", recent.size >= 3)
-        assertEquals("0.62.0", recent.first().first)
+        assertEquals("0.63.0", recent.first().first)
         // Every listed release must actually have notes — an empty section would render as a bare
         // version heading with nothing under it.
         assertTrue(recent.all { it.second.isNotEmpty() })

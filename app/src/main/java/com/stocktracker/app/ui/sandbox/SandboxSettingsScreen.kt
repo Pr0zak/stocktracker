@@ -19,7 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import com.stocktracker.app.ui.ideas.formatCashPlain
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -99,6 +101,7 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     }
                     Spacer(Modifier.height(10.dp))
                     var amt by remember { mutableStateOf("") }
+                    var confirmWithdraw by remember { mutableStateOf<Double?>(null) }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = amt, onValueChange = { amt = it }, prefix = { Text("$") },
@@ -106,12 +109,37 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f),
                         )
-                        Button(onClick = {
-                            parseMoney(amt)?.let { vm.fund(it) }; amt = ""
-                        }) { Text("Add") }
-                        OutlinedButton(onClick = {
-                            parseMoney(amt)?.let { vm.fund(-it) }; amt = ""
-                        }) { Text("Withdraw") }
+                        Button(
+                            enabled = parseMoney(amt) != null,
+                            onClick = { parseMoney(amt)?.let { vm.fund(it) }; amt = "" },
+                        ) { Text("Add") }
+                        // Withdraw sits one tap from Add, takes the same typed amount, and is not
+                        // reversible — it moves the account's funded basis and its benchmark shadow.
+                        // Confirm it rather than let a mis-tap through.
+                        OutlinedButton(
+                            enabled = parseMoney(amt) != null,
+                            onClick = { confirmWithdraw = parseMoney(amt) },
+                        ) { Text("Withdraw") }
+                    }
+                    confirmWithdraw?.let { pending ->
+                        AlertDialog(
+                            onDismissRequest = { confirmWithdraw = null },
+                            title = { Text("Withdraw ${'$'}${formatCashPlain(pending)}?") },
+                            text = {
+                                Text(
+                                    "This takes the cash out of the sandbox and reduces the benchmark " +
+                                        "it's measured against. It can't be undone.",
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    vm.fund(-pending); amt = ""; confirmWithdraw = null
+                                }) { Text("Withdraw") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { confirmWithdraw = null }) { Text("Cancel") }
+                            },
+                        )
                     }
                     Helper("A deposit also buys the S&P benchmark on the same day, so the comparison stays fair.")
 

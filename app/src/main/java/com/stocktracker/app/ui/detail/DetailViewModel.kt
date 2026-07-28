@@ -68,6 +68,9 @@ data class DetailUiState(
     val aiModel: String = "",
     val aiUsage: AiUsage? = null,
     val aiCached: Boolean = false,
+    /** Epoch ms the verdict on screen was produced by the backend (0 = unknown). Rendered so a
+     *  server-cached read can't pass for a fresh one beside a live price. */
+    val aiVerdictAtMs: Long = 0L,
     val aiEnabled: Boolean = false,
     val aiLoading: Boolean = false,
     val aiError: String? = null,
@@ -248,6 +251,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     aiModel = resp?.model ?: it.aiModel,
                     aiUsage = resp?.usage ?: it.aiUsage,
                     aiCached = resp?.cached ?: it.aiCached,
+                    aiVerdictAtMs = resp?.let { r ->
+                        if (r.asOf > 0) (r.asOf * 1000).toLong() else System.currentTimeMillis()
+                    } ?: it.aiVerdictAtMs,
                     aiLoading = false,
                     aiError = if (resp == null) {
                         analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't reach the analyst service"

@@ -272,7 +272,10 @@ private fun PickCard(pick: EntryPlan, isNew: Boolean = false, onClick: () -> Uni
         ) {
             Text("Conviction ${pick.conviction}/100", style = MaterialTheme.typography.labelMedium, color = neutral)
             Text(
-                "${sharesText(pick.suggestedShares)} sh · ${usd(pick.allocationUsd)}",
+                // "0 sh · $0" is not a suggestion; when the analyst gave no size, say so.
+                (pick.suggestedShares?.takeIf { it > 0.0 }?.let { "${sharesText(it)} sh" }
+                    ?: "size not given") +
+                    (pick.allocationUsd?.takeIf { it > 0.0 }?.let { " · ${usd(it)}" } ?: ""),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
             )
@@ -291,7 +294,14 @@ private fun PickCard(pick: EntryPlan, isNew: Boolean = false, onClick: () -> Uni
             )
         }
         Text(
-            "Entry ${usd(pick.entryLow)}–${usd(pick.entryHigh)} · stop ${usd(pick.stop)} · target ${usd(pick.target)}",
+            // Each level is printed only when the analyst actually supplied it — a missing one used
+            // to decode to 0.0 and render as an authoritative "$0".
+            listOfNotNull(
+                if (pick.entryLow != null && pick.entryHigh != null && pick.entryLow > 0.0)
+                    "Entry ${usd(pick.entryLow)}–${usd(pick.entryHigh)}" else null,
+                pick.stop?.takeIf { it > 0.0 }?.let { "stop ${usd(it)}" },
+                pick.target?.takeIf { it > 0.0 }?.let { "target ${usd(it)}" },
+            ).joinToString(" · ").ifBlank { "No levels given" },
             style = MaterialTheme.typography.bodySmall,
         )
         if (pick.timing.isNotBlank()) {

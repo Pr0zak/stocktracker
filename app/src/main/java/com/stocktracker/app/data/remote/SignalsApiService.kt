@@ -1173,12 +1173,17 @@ data class EntryPlan(
     val symbol: String = "",
     val action: String = "", // buy_now | buy_on_pullback | wait | avoid
     val conviction: Int = 0,
-    @SerialName("entry_low") val entryLow: Double = 0.0,
-    @SerialName("entry_high") val entryHigh: Double = 0.0,
-    @SerialName("suggested_shares") val suggestedShares: Double = 0.0,
-    @SerialName("allocation_usd") val allocationUsd: Double = 0.0,
-    val stop: Double = 0.0,
-    val target: Double = 0.0,
+    // NULLABLE, deliberately. These were non-nullable Doubles defaulting to 0.0, and Http.json sets
+    // coerceInputValues = true, so both an omitted key and an explicit null from the analyst decoded
+    // to 0.0 — which then rendered as a confident "Stop $0 · target $0" on a money decision. The
+    // analyst legitimately returns null when it can't justify a level; absence has to be
+    // representable so the UI can omit it instead of inventing zero.
+    @SerialName("entry_low") val entryLow: Double? = null,
+    @SerialName("entry_high") val entryHigh: Double? = null,
+    @SerialName("suggested_shares") val suggestedShares: Double? = null,
+    @SerialName("allocation_usd") val allocationUsd: Double? = null,
+    val stop: Double? = null,
+    val target: Double? = null,
     val timing: String = "",
     val thesis: String = "",
 )
@@ -1452,6 +1457,9 @@ data class AiSignalResponse(
     val symbol: String,
     val model: String = "",
     val cached: Boolean = false,
+    /** Epoch SECONDS when the backend produced this verdict. It always sent this; the app just never
+     *  modelled it, so a server-cached verdict up to 4h old rendered identically to a fresh read. */
+    @SerialName("as_of") val asOf: Double = 0.0,
     val verdict: AiVerdict,
     val usage: AiUsage? = null,
 )

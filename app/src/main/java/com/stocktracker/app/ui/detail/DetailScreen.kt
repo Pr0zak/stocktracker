@@ -469,6 +469,7 @@ fun DetailScreen(
                     backtest = state.backtest,
                     verdict = state.aiVerdict,
                     model = state.aiModel,
+                    verdictAtMs = state.aiVerdictAtMs,
                     loading = state.aiLoading,
                     error = state.aiError,
                     aiEnabled = state.aiEnabled,
@@ -970,6 +971,9 @@ private fun SnapshotCard(
             val sub = listOfNotNull(
                 signal?.let { "Rules ${it.label.display} ${it.score}" },
                 when {
+                    // A verdict PLUS an error means the last refresh failed — the read is real but
+                    // it is not the result of what the user just asked for.
+                    verdict != null && aiError != null -> "AI ${verdict.signal.replace('_', ' ')} (stale)"
                     verdict != null -> "AI ${verdict.signal.replace('_', ' ')}"
                     aiEnabled -> if (aiError != null) "AI failed" else "AI not run"
                     else -> null
@@ -1125,6 +1129,8 @@ private fun SignalsCard(
     backtest: BacktestResult?,
     verdict: AiVerdict?,
     model: String,
+    /** Epoch ms the verdict was produced by the backend; 0 when unknown. */
+    verdictAtMs: Long = 0L,
     loading: Boolean,
     error: String?,
     aiEnabled: Boolean,
@@ -1234,6 +1240,8 @@ private fun SignalsCard(
         if (!open) {
             val rulesPart = signal?.let { "Rules ${it.label.display} ${it.score}" } ?: "Rules —"
             val aiPart = when {
+                verdict != null && error != null ->
+                    "AI ${verdict.signal.replace('_', ' ')} ${aiDirectionalScore(verdict)} (stale)"
                 verdict != null -> "AI ${verdict.signal.replace('_', ' ')} ${aiDirectionalScore(verdict)}"
                 aiEnabled -> if (error != null) "AI failed" else "AI not run"
                 else -> null
@@ -1278,6 +1286,18 @@ private fun SignalsCard(
 
             // --- Claude analyst ---
             if (aiEnabled) {
+                // A failed refresh used to be INVISIBLE: this `when` matched `verdict != null` first,
+                // so the `error` branch below was unreachable once any verdict existed — yesterday's
+                // read stayed on screen byte-identical, including the levels drawn on the chart.
+                // Keep the verdict (it is still the last known read) but say plainly that it is not
+                // the result of the refresh that was just attempted.
+                if (verdict != null && error != null) {
+                    Text(
+                        "Couldn't refresh — showing the previous read. $error",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 when {
                     verdict != null -> {
                         meterRow(
@@ -1354,8 +1374,23 @@ private fun SignalsCard(
             }
 
             val modelTag = if (verdict != null && model.isNotBlank()) "$model · " else ""
+            // When the verdict was PRODUCED, not when it was rendered. The plain "Analyze" tap sends
+            // refresh=false, so the backend is free to return a cached verdict of arbitrary age —
+            // and it looked identical to a fresh read of the current tape, next to a live price and
+            // with its entry/stop/target levels drawn on the chart.
+            val ageTag = if (verdict != null && verdictAtMs > 0L) {
+                val mins = (System.currentTimeMillis() - verdictAtMs) / 60_000
+                when {
+                    mins < 2 -> "just now · "
+                    mins < 60 -> "$mins min ago · "
+                    mins < 60 * 36 -> "${mins / 60}h ago · "
+                    else -> "${mins / (60 * 24)}d ago · "
+                }
+            } else {
+                ""
+            }
             Text(
-                "${modelTag}daily bars · decision support, not advice",
+                "$ageTag${modelTag}daily bars · decision support, not advice",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
@@ -2430,13 +2465,23 @@ private fun EntryPlanCard(
             val c = planActionColor(plan.action, neutral)
             val blue = Color(0xFF4666CF)
             val dipAmber = Color(0xFFD29922)
-            val deploy = plan.allocationUsd
+            val deploy = plan.allocationUsd ?: 0.0
             // Stage the allocation ACROSS the entry zone — average in on weakness rather than one lump
             // entry. Levels step down from the top of the zone (or current price, if already in it).
-            val hi = currentPrice?.takeIf { it in plan.entryLow..plan.entryHigh } ?: plan.entryHigh
-            val levels = listOf(hi, (hi + plan.entryLow) / 2.0, plan.entryLow)
-                .filter { it > 0.0 }
-                .distinct()
+            // The zone is only usable when the analyst actually supplied BOTH bounds; a missing bound
+            // used to decode as 0.0 and produce a "$0" rung in the ladder.
+            val zoneLow = plan.entryLow?.takeIf { it > 0.0 }
+            val zoneHigh = plan.entryHigh?.takeIf { it > 0.0 }
+            val hi = when {
+                zoneLow != null && zoneHigh != null ->
+                    currentPrice?.takeIf { it in zoneLow..zoneHigh } ?: zoneHigh
+                else -> zoneHigh ?: zoneLow
+            }
+            val levels = if (hi != null && zoneLow != null) {
+                listOf(hi, (hi + zoneLow) / 2.0, zoneLow).filter { it > 0.0 }.distinct()
+            } else {
+                listOfNotNull(hi)
+            }
             val perTranche = if (levels.isNotEmpty()) deploy / levels.size else 0.0
 
             Row(
@@ -2465,7 +2510,7 @@ private fun EntryPlanCard(
             }
             if (deploy > 0.0) {
                 levels.forEachIndexed { i, price ->
-                    val dropPct = if (hi > 0.0) (price / hi - 1.0) * 100.0 else 0.0
+                    val dropPct = if ((hi ?: 0.0) > 0.0) (price / hi!! - 1.0) * 100.0 else 0.0
                     val near = i == 0 || dropPct > -1.0
                     val badge = if (near) "Now" else "%.0f%%".format(dropPct)
                     val badgeColor = when {
@@ -2497,7 +2542,15 @@ private fun EntryPlanCard(
                     }
                 }
             }
-            Text("Stop ${usd(plan.stop)} · target ${usd(plan.target)}", style = MaterialTheme.typography.bodySmall, color = neutral)
+            // Omit a level the analyst didn't supply rather than printing "$0" — a $0 stop reads as a
+            // real instruction, and this is a card people act on with money.
+            val levelBits = listOfNotNull(
+                plan.stop?.takeIf { it > 0.0 }?.let { "Stop ${usd(it)}" },
+                plan.target?.takeIf { it > 0.0 }?.let { "target ${usd(it)}" },
+            )
+            if (levelBits.isNotEmpty()) {
+                Text(levelBits.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
             if (plan.timing.isNotBlank()) {
                 Text("When: ${plan.timing}", style = MaterialTheme.typography.bodySmall, color = neutral)
             }

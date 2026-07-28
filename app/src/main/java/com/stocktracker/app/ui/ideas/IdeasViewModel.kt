@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.stocktracker.app.data.remote.ValueScreenResponse
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -58,7 +60,16 @@ class IdeasViewModel : ViewModel() {
             val cash = settings.investableCash.first()
             if (cash > 0) _state.update { it.copy(cashText = formatCash(cash)) }
         }
-        loadScreen(refresh = false)
+        // One-shot here would strand the card: loadScreen returns early on a blank URL and nothing
+        // retried, so configuring the Signals URL AFTER first opening Ideas left the screen empty
+        // until the process died. The comment on the collector above says exactly this; the fix has
+        // to follow the same reactive pattern rather than sit beside it.
+        viewModelScope.launch {
+            settings.signalsApiUrl
+                .map { it.trim() }
+                .distinctUntilChanged()
+                .collect { url -> if (url.isNotBlank()) loadScreen(refresh = false) }
+        }
     }
 
     /** Load the 200-week value screen. Needs only the Signals URL — no LLM, no AI-switch gate. */

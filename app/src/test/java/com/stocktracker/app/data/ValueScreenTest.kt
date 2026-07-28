@@ -56,4 +56,35 @@ class ValueScreenTest {
         assertNull(row.direction)
         assertNull(row.priceVs200wPct)
     }
+
+    @Test
+    fun `the pool it ran over, its staleness and fetch failures all reach the app`() {
+        // A fallback-sampled or stale run looked identical to a fresh curated one, and a fetch
+        // failure was indistinguishable from "not enough history" — a claim about the network
+        // rendered as a claim about the company.
+        val json = """
+            {"universe_size":58,"universe_source":"yahoo_screens","universe_stale":true,
+             "scored":50,"skipped":["FBTC"],"fetch_failed":["RATELIMITED"],
+             "results":[{"symbol":"X","value_score":10.0,"below_line":true,
+                         "unmeasured":["rsi_14w","direction"]}],
+             "note":"n"}
+        """.trimIndent()
+        val r = Http.json.decodeFromString<ValueScreenResponse>(json)
+        assertEquals("yahoo_screens", r.universeSource)
+        assertTrue(r.universeStale)
+        assertEquals(listOf("RATELIMITED"), r.fetchFailed)
+        assertEquals(listOf("FBTC"), r.skipped)
+        assertEquals(listOf("rsi_14w", "direction"), r.results.first().unmeasured)
+    }
+
+    @Test
+    fun `a curated fresh run carries no warning fields`() {
+        val json = """
+            {"universe_size":600,"universe_source":"curated","universe_stale":false,
+             "results":[],"note":"n"}
+        """.trimIndent()
+        val r = Http.json.decodeFromString<ValueScreenResponse>(json)
+        assertEquals("curated", r.universeSource)
+        assertTrue(!r.universeStale && r.fetchFailed.isEmpty())
+    }
 }

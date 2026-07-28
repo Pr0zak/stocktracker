@@ -388,7 +388,13 @@ private fun ValueScreenCard(ui: IdeasUiState, onRefresh: () -> Unit, onOpen: (St
                             row.rsi14w?.let { append(" · RSI ").append(String.format("%.0f", it)) }
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (row.direction == "recovering") neutral else amber,
+                        // A MISSING direction is not "still falling". Amber-by-default painted an
+                        // unknown as a specific negative, which is the same defect one colour up.
+                        color = when (row.direction) {
+                            "recovering" -> neutral
+                            null, "" -> neutral
+                            else -> amber
+                        },
                     )
                 }
             }
@@ -397,6 +403,21 @@ private fun ValueScreenCard(ui: IdeasUiState, onRefresh: () -> Unit, onOpen: (St
             if (s.skipped.isNotEmpty()) {
                 Text("Not enough history to score: ${s.skipped.joinToString(", ")}",
                      style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+            // A fetch failure is a fact about the network, not about the company — kept separate
+            // from "not enough history" for exactly that reason.
+            if (s.fetchFailed.isNotEmpty()) {
+                Text("Couldn't fetch: ${s.fetchFailed.joinToString(", ")}",
+                     style = MaterialTheme.typography.labelSmall, color = amber)
+            }
+            // Which pool this ran over, and whether it is current. A fallback or stale run looked
+            // identical to a fresh curated one.
+            if (s.universeSource == "yahoo_screens") {
+                Text("Screened a live sample, not the full curated list — results will shift between runs",
+                     style = MaterialTheme.typography.labelSmall, color = amber)
+            } else if (s.universeStale) {
+                Text("The screened list is out of date and due a refresh",
+                     style = MaterialTheme.typography.labelSmall, color = amber)
             }
             if (s.note.isNotBlank()) {
                 Text(s.note, style = MaterialTheme.typography.labelSmall, color = amber)

@@ -74,11 +74,20 @@ class IdeasViewModel : ViewModel() {
 
     /** Load the 200-week value screen. Needs only the Signals URL — no LLM, no AI-switch gate. */
     fun loadScreen(refresh: Boolean) {
-        if (_state.value.screenLoading) return
+        // The guard has to CLAIM the slot before any suspension point. Checking screenLoading here
+        // and setting it after `settings.signalsApiUrl.first()` left a window where two fast taps
+        // both passed the check and launched two full screens — each a fan-out over the universe.
+        if (!_state.compareAndSet(
+                _state.value,
+                _state.value.let { if (it.screenLoading) return else it.copy(screenLoading = true, screenError = null) },
+            )
+        ) return
         viewModelScope.launch {
             val base = settings.signalsApiUrl.first()
-            if (base.isBlank()) return@launch
-            _state.update { it.copy(screenLoading = true, screenError = null) }
+            if (base.isBlank()) {
+                _state.update { it.copy(screenLoading = false) }
+                return@launch
+            }
             val res = runCatching { api.valueScreen(base, limit = 15, refresh = refresh) }
             _state.update { st ->
                 st.copy(

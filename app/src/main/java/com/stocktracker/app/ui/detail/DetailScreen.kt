@@ -2187,11 +2187,25 @@ private fun QualityCard(q: QualityResponse) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    val back = chg < 0
+                    // Thresholds must match the backend's value-trap lens, which annualises and
+                    // requires >2%/yr before calling anything dilution. This card called +0.1% red
+                    // "dilution" while the lens beside it said nothing was wrong — the same book,
+                    // two verdicts.
+                    val yrs = (q.sharesYears ?: 5).coerceAtLeast(1)
+                    val annual = chg / yrs
+                    val label = when {
+                        annual < -1.0 -> "buybacks"
+                        annual > 2.0 -> "dilution"
+                        else -> "little changed"
+                    }
                     Text(
-                        "Share count: ${"%+.1f".format(chg)}% / ${q.sharesYears ?: 5}y · ${if (back) "buybacks" else "dilution"}",
+                        "Share count: ${"%+.1f".format(chg)}% / ${yrs}y · $label",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (back) Color(0xFF2E9E57) else Color(0xFFB0543D),
+                        color = when (label) {
+                            "buybacks" -> Color(0xFF2E9E57)
+                            "dilution" -> Color(0xFFB0543D)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                 }
             }

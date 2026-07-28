@@ -1576,6 +1576,16 @@ data class AiLevels(
 @Serializable
 data class ValueScreenResponse(
     @SerialName("universe_size") val universeSize: Int = 0,
+    /**
+     * Which pool the screen actually ran over: "curated" (the primary-sourced universe) or
+     * "yahoo_screens" (the fallback sampler, rebuilt server-side per call). Not rendering it made a
+     * fallback run look identical to a curated one.
+     */
+    @SerialName("universe_source") val universeSource: String = "",
+    /** True when the curated universe is older than its refresh window. */
+    @SerialName("universe_stale") val universeStale: Boolean = false,
+    /** Symbols whose data could not be FETCHED — distinct from [skipped], which lack history. */
+    @SerialName("fetch_failed") val fetchFailed: List<String> = emptyList(),
     val scored: Int = 0,
     /** Symbols that could NOT be scored (usually under ~4 years of weekly history). Named rather
      *  than dropped: "unscoreable" and "scored badly" are different facts. */
@@ -1597,6 +1607,8 @@ data class ValueScreenRow(
     val direction: String? = null,
     val zone: String? = null,
     @SerialName("pct_off_10y_high") val pctOff10yHigh: Double? = null,
+    /** Inputs that were not available; each contributed 0 to the score but was not measured. */
+    val unmeasured: List<String> = emptyList(),
 )
 
 /** GET /valuetrap/{symbol} — discount vs deterioration (MB-17). Free, no LLM. */

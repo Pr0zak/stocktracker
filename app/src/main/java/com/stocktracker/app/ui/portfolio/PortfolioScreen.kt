@@ -520,7 +520,10 @@ private fun RebalancePlanDialog(
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val amber = Color(0xFFB0872B)
     val plan = ui.result?.plan
-    fun shareText(s: Double) = if (s == kotlin.math.floor(s)) s.toInt().toString() else String.format("%.2f", s)
+    // Was String.format("%.2f", s), which renders a 0.004 BTC move as "0.00 sh" — a real instruction
+    // displayed as nothing. Formatting.shares is what the rest of the app uses: 4dp, trailing zeros
+    // trimmed, thousands separated.
+    fun shareText(s: Double) = Formatting.shares(s)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -531,6 +534,12 @@ private fun RebalancePlanDialog(
                         "$" + Formatting.compact(p.totalValue) + " · target ≤ ${ui.targetPct}% per name",
                         style = MaterialTheme.typography.labelSmall, color = neutral,
                     )
+                }
+                // What the server corrected or dropped in the model's plan, and whether the plan
+                // actually reaches the target. A plan that misses its target reads as success if
+                // nothing says otherwise.
+                ui.result?.planWarnings?.forEach { w ->
+                    Text(w, style = MaterialTheme.typography.labelSmall, color = amber)
                 }
             }
         },

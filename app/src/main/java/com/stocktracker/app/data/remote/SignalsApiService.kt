@@ -1165,6 +1165,12 @@ data class RebalanceRequestBody(
 @Serializable
 data class RebalanceResponse(
     val plan: RebalancePlan = RebalancePlan(),
+    /**
+     * What the server had to correct or drop in the model's plan — an over-sell capped to the shares
+     * actually held, an unaffordable buy trimmed, a move on a symbol not in the book removed, or the
+     * plan failing to reach its own target weight. Silence here means the plan passed clean.
+     */
+    @SerialName("plan_warnings") val planWarnings: List<String> = emptyList(),
     @SerialName("max_position_pct") val maxPositionPct: Double = 0.0,
     val portfolio: PortfolioSummary = PortfolioSummary(),
     val model: String = "",

@@ -19,6 +19,8 @@ object Changelog {
         "0.67.0" to listOf(
             "Portfolio review now sends every holding, not just the ones the app could price",
             "A plan is dropped when your holdings change, so it can't name a position you sold",
+            "Rebalance plans are checked against your real book before you see them",
+            "Fractional crypto trades no longer show as \"0.00 sh\"",
         ),
         "0.66.0" to listOf(
             "Portfolio review now flags any holding it couldn't price",

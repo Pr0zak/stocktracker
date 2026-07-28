@@ -119,6 +119,21 @@ class SignalsApiService {
         return Http.json.decodeFromString<TrendResponse>(body)
     }
 
+    /** MB-15/MB-18 — the 200-week value screen: a value-tilted universe ranked by how far below its
+     *  own 200-week trend each name sits. FREE (no LLM), so it works with the AI analyst switched
+     *  off. Context, not a buy signal — the payload carries that caveat and so must the UI. */
+    suspend fun valueScreen(
+        baseUrl: String, limit: Int = 15, belowLineOnly: Boolean = true, refresh: Boolean = false,
+    ): ValueScreenResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = sGet(
+            "${baseUrl.trimEnd('/')}/screener/value?limit=$limit" +
+                "&below_line_only=$belowLineOnly&refresh=$refresh",
+            slow = true,
+        )
+        return Http.json.decodeFromString<ValueScreenResponse>(body)
+    }
+
     /** Historical 200-week-line touch study — forward 12/24-month returns after past dips below the
      *  line, vs the S&P 500. Evidence context, not a signal. Free, no LLM. Null (404) if too new. */
     suspend fun touchStudy(baseUrl: String, symbol: String): TouchStudyResponse? {
@@ -1538,4 +1553,31 @@ data class AiLevels(
     val resistance: Double? = null,
     @SerialName("invalidation_price") val invalidationPrice: Double? = null,
     val target: Double? = null,
+)
+
+/** GET /screener/value — the 200-week value screen (free, no LLM). */
+@Serializable
+data class ValueScreenResponse(
+    @SerialName("universe_size") val universeSize: Int = 0,
+    val scored: Int = 0,
+    /** Symbols that could NOT be scored (usually under ~4 years of weekly history). Named rather
+     *  than dropped: "unscoreable" and "scored badly" are different facts. */
+    val skipped: List<String> = emptyList(),
+    val results: List<ValueScreenRow> = emptyList(),
+    /** The server's own framing. Rendered verbatim — this is context, not a buy signal. */
+    val note: String = "",
+    val cached: Boolean = false,
+    @SerialName("cached_age_seconds") val cachedAgeSeconds: Long? = null,
+)
+
+@Serializable
+data class ValueScreenRow(
+    val symbol: String = "",
+    @SerialName("value_score") val valueScore: Double = 0.0,
+    @SerialName("below_line") val belowLine: Boolean = false,
+    @SerialName("price_vs_200w_sma_pct") val priceVs200wPct: Double? = null,
+    @SerialName("rsi_14w") val rsi14w: Double? = null,
+    val direction: String? = null,
+    val zone: String? = null,
+    @SerialName("pct_off_10y_high") val pctOff10yHigh: Double? = null,
 )

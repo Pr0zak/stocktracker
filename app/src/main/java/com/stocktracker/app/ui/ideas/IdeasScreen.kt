@@ -20,6 +20,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -84,6 +85,20 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
             // below is the accurate diagnosis and a "tap to retry" would fix nothing on this screen.
             val backendOffline = com.stocktracker.app.ui.components.backendOffline()
             if (state.enabled) com.stocktracker.app.ui.components.BackendStatusBanner()
+
+            // ABOVE the AI-switch gate on purpose: this screen costs nothing to run (no LLM), so
+            // hiding it behind the analyst switch would withhold a free feature from anyone who
+            // turned the paid one off.
+            ValueScreenCard(
+                ui = state,
+                onRefresh = { vm.loadScreen(refresh = true) },
+                onOpen = { sym ->
+                    val asset = sym.takeUnless { it.uppercase().endsWith("-USD") }
+                        ?.let { Asset(it, AssetType.STOCK, it, null) }
+                    asset?.let(onOpenDetail)
+                },
+            )
+
             if (!state.enabled) {
                 Text(
                     "AI analyst is off. Enable it and set your Signals service URL in " +
@@ -309,6 +324,94 @@ private fun PickCard(pick: EntryPlan, isNew: Boolean = false, onClick: () -> Uni
         }
         if (pick.thesis.isNotBlank()) {
             Text(pick.thesis, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+
+/**
+ * The 200-week value screen (MB-15/MB-18) — names trading unusually far below their own long-term
+ * trend, ranked by our thesis, computed with no LLM.
+ *
+ * The server's own caveat is rendered verbatim and not paraphrased away: the historical touch study
+ * on this codebase found below-the-line dips UNDERPERFORMED the S&P over the following 12-24 months.
+ * This is a "what is unusually dislocated" list, not a buy list, and the card has to say so or it
+ * reads as the opposite.
+ */
+@Composable
+private fun ValueScreenCard(ui: IdeasUiState, onRefresh: () -> Unit, onOpen: (String) -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val amber = Color(0xFFB0872B)
+    val screen = ui.screen
+    if (screen == null && !ui.screenLoading && ui.screenError == null) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Below their 200-week line", style = MaterialTheme.typography.titleSmall)
+            if (ui.screenLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                TextButton(onClick = onRefresh) { Text("Refresh") }
+            }
+        }
+
+        ui.screenError?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = amber) }
+
+        screen?.let { s ->
+            if (s.results.isEmpty()) {
+                Text("Nothing in the screened universe is below its 200-week line right now.",
+                     style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
+            s.results.forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { onOpen(row.symbol) }
+                        .padding(vertical = 3.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(row.symbol, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        buildString {
+                            row.priceVs200wPct?.let { append(String.format("%.0f", it)).append("% vs line") }
+                            row.direction?.let { append(" · ").append(it.replace('_', ' ')) }
+                            row.rsi14w?.let { append(" · RSI ").append(String.format("%.0f", it)) }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (row.direction == "recovering") neutral else amber,
+                    )
+                }
+            }
+            // Say what was NOT scored. A name missing because it has under ~4 years of history is a
+            // different fact from a name that scored badly, and the list alone cannot show that.
+            if (s.skipped.isNotEmpty()) {
+                Text("Not enough history to score: ${s.skipped.joinToString(", ")}",
+                     style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+            if (s.note.isNotBlank()) {
+                Text(s.note, style = MaterialTheme.typography.labelSmall, color = amber)
+            }
+            val age = s.cachedAgeSeconds
+            if (s.cached && age != null) {
+                Text(
+                    "Screened " + when {
+                        age < 120 -> "just now"
+                        age < 3600 -> "${age / 60} min ago"
+                        else -> "${age / 3600}h ago"
+                    },
+                    style = MaterialTheme.typography.labelSmall, color = neutral,
+                )
+            }
         }
     }
 }

@@ -10,6 +10,7 @@ import com.stocktracker.app.data.remote.analystErrorDetail
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.stocktracker.app.data.remote.ValueScreenResponse
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -25,6 +26,11 @@ data class IdeasUiState(
     val loading: Boolean = false,
     val result: RecommendationsResponse? = null,
     val error: String? = null,
+    /** The 200-week value screen. FREE (no LLM), so it loads regardless of [enabled] — gating it on
+     *  the AI switch would hide a feature that costs nothing to run. */
+    val screen: ValueScreenResponse? = null,
+    val screenLoading: Boolean = false,
+    val screenError: String? = null,
 )
 
 /**
@@ -51,6 +57,27 @@ class IdeasViewModel : ViewModel() {
         viewModelScope.launch {
             val cash = settings.investableCash.first()
             if (cash > 0) _state.update { it.copy(cashText = formatCash(cash)) }
+        }
+        loadScreen(refresh = false)
+    }
+
+    /** Load the 200-week value screen. Needs only the Signals URL — no LLM, no AI-switch gate. */
+    fun loadScreen(refresh: Boolean) {
+        if (_state.value.screenLoading) return
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) return@launch
+            _state.update { it.copy(screenLoading = true, screenError = null) }
+            val res = runCatching { api.valueScreen(base, limit = 15, refresh = refresh) }
+            _state.update { st ->
+                st.copy(
+                    screenLoading = false,
+                    // Keep the previous screen on a failed refresh rather than blanking it, but say
+                    // so — a silent revert to older data is the failure mode this app keeps hitting.
+                    screen = res.getOrNull() ?: st.screen,
+                    screenError = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the screen." },
+                )
+            }
         }
     }
 

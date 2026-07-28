@@ -16,6 +16,10 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.70.0" to listOf(
+            "New: a 200-week value screen on Ideas — names trading far below their long-term trend",
+            "It's free (no AI cost) and works with the AI analyst switched off",
+        ),
         "0.69.0" to listOf(
             "AI totals now warn when your book mixes currencies",
             "A failed review or plan retries when you reopen it instead of sticking",

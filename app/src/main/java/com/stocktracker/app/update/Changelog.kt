@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.72.0" to listOf(
+            "The value screen now appears if you set the Signals URL after opening Ideas",
+        ),
         "0.71.0" to listOf(
             "New: a \"cheap — or broken?\" read on names below their 200-week line",
             "Fixed: a stock split was being reported as huge share dilution",

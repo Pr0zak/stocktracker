@@ -419,6 +419,16 @@ private fun PortfolioReviewDialog(
                         "$" + Formatting.compact(p.totalValue) + " · " + String.format("%.0f", p.cashPct) + "% cash",
                         style = MaterialTheme.typography.labelSmall, color = neutral,
                     )
+                    // A holding the backend could not price is carried at COST, so every weight and
+                    // the cash % above are approximate. Saying nothing would present a partial book
+                    // as the user's real allocation.
+                    if (p.unpriced.isNotEmpty()) {
+                        Text(
+                            "Couldn't price " + p.unpriced.joinToString(", ") { it.symbol } +
+                                " — valued at cost, so these weights are approximate",
+                            style = MaterialTheme.typography.labelSmall, color = amber,
+                        )
+                    }
                 }
             }
         },

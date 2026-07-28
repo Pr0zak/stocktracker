@@ -1088,6 +1088,19 @@ data class PortfolioSummary(
     @SerialName("total_value") val totalValue: Double = 0.0,
     @SerialName("cash_pct") val cashPct: Double = 0.0,
     val positions: List<PortfolioPosition> = emptyList(),
+    /**
+     * Holdings the backend could not price. They are carried at cost in [totalValue], so the review's
+     * weights are approximate whenever this is non-empty — the user has to be told, or the screen
+     * asserts an allocation that isn't theirs.
+     */
+    val unpriced: List<UnpricedHolding> = emptyList(),
+)
+
+@Serializable
+data class UnpricedHolding(
+    val symbol: String = "",
+    val shares: Double = 0.0,
+    @SerialName("value_at_cost") val valueAtCost: Double = 0.0,
 )
 
 @Serializable

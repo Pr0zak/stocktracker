@@ -119,6 +119,15 @@ class SignalsApiService {
         return Http.json.decodeFromString<TrendResponse>(body)
     }
 
+    /** Theme C — where insiders and members of Congress have been BUYING across the watchlist.
+     *  FREE (no LLM). Corroborating context, not a buy signal: insider buys are disclosed within two
+     *  business days, congressional filings lag up to ~45 days and report amount ranges. */
+    suspend fun smartMoney(baseUrl: String, limit: Int = 15, refresh: Boolean = false): SmartMoneyResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = sGet("${baseUrl.trimEnd('/')}/smart_money?limit=$limit&refresh=$refresh", slow = true)
+        return Http.json.decodeFromString<SmartMoneyResponse>(body)
+    }
+
     /** MB-17 — discount or deteriorating? Reasons over FCF trend, share count, debt/ROE, insider
      *  buying and the 200-week direction for one name. FREE (no LLM). Evidence, not a
      *  recommendation: an "unclear" with a non-empty `missing` means the data was unavailable, NOT
@@ -1629,4 +1638,38 @@ data class ValueTrapResponse(
     val missing: List<String> = emptyList(),
     val note: String = "",
     @SerialName("below_line") val belowLine: Boolean? = null,
+)
+
+/** GET /smart_money — Theme C. Free, no LLM. */
+@Serializable
+data class SmartMoneyResponse(
+    @SerialName("watchlist_size") val watchlistSize: Int = 0,
+    val results: List<SmartMoneyRow> = emptyList(),
+    /** Names we LOOKED at and found nothing for — distinct from ones we could not look at. */
+    @SerialName("no_evidence") val noEvidence: List<String> = emptyList(),
+    @SerialName("fetch_failed") val fetchFailed: List<String> = emptyList(),
+    /**
+     * False when no Finnhub key is set. The insider feed then returns null rather than raising,
+     * which would render as "nobody is buying" across the entire watchlist — so the card must say
+     * the ranking is congressional disclosures only.
+     */
+    @SerialName("insider_feed_configured") val insiderFeedConfigured: Boolean = true,
+    val warning: String? = null,
+    val note: String = "",
+    val cached: Boolean = false,
+    @SerialName("cached_age_seconds") val cachedAgeSeconds: Long? = null,
+)
+
+@Serializable
+data class SmartMoneyRow(
+    val symbol: String = "",
+    val score: Double = 0.0,
+    /** Every contributing reason, so a rank can be interrogated rather than taken on faith. */
+    val reasons: List<String> = emptyList(),
+    @SerialName("sources_seen") val sourcesSeen: List<String> = emptyList(),
+    /** Feeds that could not be read for this name. */
+    val unavailable: List<String> = emptyList(),
+    /** Newest DISCLOSED trade date and when it was filed — congressional filings lag ~45 days. */
+    @SerialName("congress_newest_trade") val congressNewestTrade: String? = null,
+    @SerialName("congress_latest_filing") val congressLatestFiling: String? = null,
 )

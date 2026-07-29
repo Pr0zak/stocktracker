@@ -89,6 +89,16 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
             // ABOVE the AI-switch gate on purpose: this screen costs nothing to run (no LLM), so
             // hiding it behind the analyst switch would withhold a free feature from anyone who
             // turned the paid one off.
+            SmartMoneyCard(
+                ui = state,
+                onRefresh = { vm.loadSmartMoney(refresh = true) },
+                onOpen = { sym ->
+                    sym.takeUnless { it.uppercase().endsWith("-USD") }
+                        ?.let { Asset(it, AssetType.STOCK, it, null) }
+                        ?.let(onOpenDetail)
+                },
+            )
+
             ValueScreenCard(
                 ui = state,
                 onRefresh = { vm.loadScreen(refresh = true) },
@@ -432,6 +442,101 @@ private fun ValueScreenCard(ui: IdeasUiState, onRefresh: () -> Unit, onOpen: (St
                     },
                     style = MaterialTheme.typography.labelSmall, color = neutral,
                 )
+            }
+        }
+    }
+}
+
+
+/**
+ * Theme C — where insiders and members of Congress have been BUYING names you follow.
+ *
+ * Two things this card must carry or it misleads. The congressional half LAGS: filings are allowed
+ * up to ~45 days after the trade, so a "recent" disclosure routinely describes something six weeks
+ * old — the newest trade date is shown next to the filing date rather than smoothed into "recent
+ * activity". And when no Finnhub key is set the insider feed returns null rather than failing, which
+ * would render as "nobody is buying" across the whole watchlist; the backend's warning is shown
+ * verbatim in that case.
+ */
+@Composable
+private fun SmartMoneyCard(ui: IdeasUiState, onRefresh: () -> Unit, onOpen: (String) -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val amber = Color(0xFFB0872B)
+    val green = Color(0xFF2E9E57)
+    val sm = ui.smartMoney
+    if (sm == null && !ui.smartMoneyLoading && ui.smartMoneyError == null) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Who's been buying", style = MaterialTheme.typography.titleSmall)
+            if (ui.smartMoneyLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                TextButton(onClick = onRefresh) { Text("Refresh") }
+            }
+        }
+
+        ui.smartMoneyError?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = amber)
+        }
+
+        sm?.let { s ->
+            // A missing key makes the insider half silently absent — say so, or the ranking reads
+            // as the whole picture.
+            s.warning?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = amber)
+            }
+            if (s.results.isEmpty()) {
+                Text("No insider or congressional buying disclosed in the names you follow.",
+                     style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
+            s.results.forEach { row ->
+                Column(
+                    modifier = Modifier.fillMaxWidth().clickable { onOpen(row.symbol) }
+                        .padding(vertical = 3.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(row.symbol, style = MaterialTheme.typography.bodyMedium)
+                        Text(String.format("%.1f", row.score),
+                             style = MaterialTheme.typography.labelSmall, color = green)
+                    }
+                    row.reasons.forEach {
+                        Text("· $it", style = MaterialTheme.typography.labelSmall, color = neutral)
+                    }
+                    // The lag, stated. A filing six weeks after the trade is the norm here.
+                    row.congressNewestTrade?.let { traded ->
+                        val filed = row.congressLatestFiling
+                        Text(
+                            "Newest disclosed trade $traded" + (filed?.let { " · filed $it" } ?: ""),
+                            style = MaterialTheme.typography.labelSmall, color = neutral,
+                        )
+                    }
+                    if (row.unavailable.isNotEmpty()) {
+                        Text("Couldn't check: ${row.unavailable.joinToString(", ")}",
+                             style = MaterialTheme.typography.labelSmall, color = amber)
+                    }
+                }
+            }
+            if (s.fetchFailed.isNotEmpty()) {
+                Text("Couldn't fetch: ${s.fetchFailed.joinToString(", ")}",
+                     style = MaterialTheme.typography.labelSmall, color = amber)
+            }
+            if (s.note.isNotBlank()) {
+                Text(s.note, style = MaterialTheme.typography.labelSmall, color = amber)
             }
         }
     }

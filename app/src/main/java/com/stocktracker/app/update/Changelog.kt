@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.74.0" to listOf(
+            "New: \"Who's been buying\" — insider and congressional buying across your watchlist",
+        ),
         "0.73.0" to listOf(
             "The value screen says which list it ran over and whether it's out of date",
             "A holding we couldn't fetch is no longer reported as \"not enough history\"",

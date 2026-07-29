@@ -10,6 +10,7 @@ import com.stocktracker.app.data.remote.analystErrorDetail
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.stocktracker.app.data.remote.SmartMoneyResponse
 import com.stocktracker.app.data.remote.ValueScreenResponse
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -33,6 +34,10 @@ data class IdeasUiState(
     val screen: ValueScreenResponse? = null,
     val screenLoading: Boolean = false,
     val screenError: String? = null,
+    /** Theme C — informed buying across the watchlist. Also free, so also ungated by the AI switch. */
+    val smartMoney: SmartMoneyResponse? = null,
+    val smartMoneyLoading: Boolean = false,
+    val smartMoneyError: String? = null,
 )
 
 /**
@@ -68,11 +73,45 @@ class IdeasViewModel : ViewModel() {
             settings.signalsApiUrl
                 .map { it.trim() }
                 .distinctUntilChanged()
-                .collect { url -> if (url.isNotBlank()) loadScreen(refresh = false) }
+                .collect { url ->
+                    if (url.isNotBlank()) {
+                        loadScreen(refresh = false)
+                        loadSmartMoney(refresh = false)
+                    }
+                }
         }
     }
 
     /** Load the 200-week value screen. Needs only the Signals URL — no LLM, no AI-switch gate. */
+    /** Theme C. Free — needs only the Signals URL, no AI-switch gate. */
+    fun loadSmartMoney(refresh: Boolean) {
+        // Same claim-before-suspend shape as loadScreen: checking a flag and setting it after a
+        // suspension point leaves a window where two taps both pass.
+        if (!_state.compareAndSet(
+                _state.value,
+                _state.value.let {
+                    if (it.smartMoneyLoading) return
+                    it.copy(smartMoneyLoading = true, smartMoneyError = null)
+                },
+            )
+        ) return
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) {
+                _state.update { it.copy(smartMoneyLoading = false) }
+                return@launch
+            }
+            val res = runCatching { api.smartMoney(base, limit = 12, refresh = refresh) }
+            _state.update { st ->
+                st.copy(
+                    smartMoneyLoading = false,
+                    smartMoney = res.getOrNull() ?: st.smartMoney,
+                    smartMoneyError = res.exceptionOrNull()?.let { it.message ?: "Couldn't load." },
+                )
+            }
+        }
+    }
+
     fun loadScreen(refresh: Boolean) {
         // The guard has to CLAIM the slot before any suspension point. Checking screenLoading here
         // and setting it after `settings.signalsApiUrl.first()` left a window where two fast taps

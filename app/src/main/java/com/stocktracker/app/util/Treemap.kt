@@ -45,41 +45,52 @@ object Treemap {
         val scale = (width.toDouble() * height.toDouble()) / total
 
         val out = ArrayList<TreemapTile>(clean.size)
-        var rx = 0f; var ry = 0f; var rw = width; var rh = height
+        // Geometry in DOUBLE, converted to Float only when a tile is emitted. In Float, one value
+        // dominating the total by ~1e8 made the first row's height round to the FULL canvas height,
+        // so `rh -= rowH` landed on exactly 0f and every later flush divided by zero — emitting
+        // Infinity and negative sides straight into Compose's offset()/size(). Reproduced at
+        // 1017 x 1412.5 with values 1e8 : 1 : 1.
+        var rx = 0.0; var ry = 0.0; var rw = width.toDouble(); var rh = height.toDouble()
         val row = ArrayList<Pair<TreemapItem, Double>>()   // item to its scaled AREA
 
-        fun worst(candidate: List<Pair<TreemapItem, Double>>, side: Float): Double {
-            if (candidate.isEmpty() || side <= 0f) return Double.MAX_VALUE
+        fun worst(candidate: List<Pair<TreemapItem, Double>>, side: Double): Double {
+            if (candidate.isEmpty() || side <= 0.0) return Double.MAX_VALUE
             val s = candidate.sumOf { it.second }
             if (s <= 0.0) return Double.MAX_VALUE
             val mx = candidate.maxOf { it.second }
             val mn = candidate.minOf { it.second }
             if (mn <= 0.0) return Double.MAX_VALUE
-            val sd = side.toDouble()
+            val sd = side
             return maxOf((sd * sd * mx) / (s * s), (s * s) / (sd * sd * mn))
         }
 
         fun flush() {
             if (row.isEmpty()) return
             val s = row.sumOf { it.second }
+            // A remaining rectangle with no room left cannot hold anything. Emitting from it
+            // produced the Infinity/negative rectangles; dropping the tail is the honest outcome —
+            // those tiles have essentially zero area anyway.
+            if (s <= 0.0 || rw <= 1e-9 || rh <= 1e-9) { row.clear(); return }
             val horizontal = rw >= rh          // fill along the SHORT side
-            var off = 0f
+            var off = 0.0
             if (horizontal) {
-                val colW = (s / rh).toFloat()
+                val colW = minOf(s / rh, rw)   // never wider than what is left
                 for ((item, a) in row) {
-                    val frac = (a / s).toFloat()
-                    out.add(TreemapTile(item.key, item.value, rx, ry + off, colW, rh * frac))
+                    val frac = a / s
+                    out.add(TreemapTile(item.key, item.value,
+                        rx.toFloat(), (ry + off).toFloat(), colW.toFloat(), (rh * frac).toFloat()))
                     off += rh * frac
                 }
-                rx += colW; rw -= colW
+                rx += colW; rw = (rw - colW).coerceAtLeast(0.0)
             } else {
-                val rowH = (s / rw).toFloat()
+                val rowH = minOf(s / rw, rh)   // never taller than what is left
                 for ((item, a) in row) {
-                    val frac = (a / s).toFloat()
-                    out.add(TreemapTile(item.key, item.value, rx + off, ry, rw * frac, rowH))
+                    val frac = a / s
+                    out.add(TreemapTile(item.key, item.value,
+                        (rx + off).toFloat(), ry.toFloat(), (rw * frac).toFloat(), rowH.toFloat()))
                     off += rw * frac
                 }
-                ry += rowH; rh -= rowH
+                ry += rowH; rh = (rh - rowH).coerceAtLeast(0.0)
             }
             row.clear()
         }
@@ -93,6 +104,8 @@ object Treemap {
             row.add(item to a)
         }
         flush()
-        return out
+        // Belt and braces: nothing non-finite or non-positive may reach Compose, whatever the
+        // arithmetic did. A degenerate rectangle is worse than an absent tile.
+        return out.filter { it.w.isFinite() && it.h.isFinite() && it.w > 0f && it.h > 0f }
     }
 }

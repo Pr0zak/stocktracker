@@ -75,7 +75,14 @@ private fun colourFor(t: HeatmapTile): Color = when (t.scale) {
     else -> {
         val p = t.value
         if (abs(p) < 0.05) FLAT
-        else ramp(if (p > 0) GAIN else LOSS, 0.25f + (abs(p).toFloat() / 4f).coerceAtMost(1f) * 0.55f)
+        else {
+            // Was abs(p)/4 clamped at 1, so every move at or beyond 4% produced the SAME colour to
+            // the byte — a 4% drift and a 40% collapse looked identical. A log curve keeps the
+            // common 0-3% range well spread while still separating the extremes, and never fully
+            // saturates.
+            val mag = kotlin.math.ln(1.0 + abs(p) / 1.6) / kotlin.math.ln(1.0 + 25.0 / 1.6)
+            ramp(if (p > 0) GAIN else LOSS, 0.22f + mag.toFloat().coerceIn(0f, 1f) * 0.62f)
+        }
     }
 }
 
@@ -237,9 +244,13 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                             )
                         }
                     }
-                } else if (shortDp.value >= 11f) {
+                } else if (shortDp.value >= 11f && t.symbol.length <= 4) {
+                    // Only tickers that fit WHOLE. take(4) turned GOOGL into "GOOG" — a different
+                    // real security, which is on this very map. Truncating a ticker does not
+                    // abbreviate it, it renames it; the invariant above says a label either fits or
+                    // is not drawn, and this branch was breaking it.
                     Text(
-                        t.symbol.take(4),
+                        t.symbol,
                         fontSize = (shortDp.value * 0.42f).coerceIn(7f, 11f).sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.White,

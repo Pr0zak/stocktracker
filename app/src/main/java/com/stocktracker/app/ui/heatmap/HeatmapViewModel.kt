@@ -33,13 +33,21 @@ class HeatmapViewModel : ViewModel() {
 
     init { load(refresh = false) }
 
+    /** Set when a mode switch arrives mid-flight, so the completing load re-issues for the new mode. */
+    private var pendingMode: String? = null
+
     fun setMode(mode: String) {
         if (mode == _state.value.mode) return
         // The tiles belong to the OLD mode and mean something different under the new one — a
         // market tile's colour is a price move, a signal tile's is a dip tier. Showing the old set
         // under the new legend would mislabel every tile on screen.
         _state.update { it.copy(mode = mode, tiles = emptyList(), error = null) }
-        load(refresh = false)
+        // Two individually-correct guards used to lose the request between them: load() returns
+        // early while the first fetch is in flight, and that fetch's response is then discarded for
+        // being the wrong mode. Net result was an empty map reading "Nothing to draw yet" — which
+        // says the system found nothing, when in truth nothing was ever asked. Remember the intent
+        // and re-issue when the in-flight load lands.
+        if (_state.value.loading) pendingMode = mode else load(refresh = false)
     }
 
     fun load(refresh: Boolean) {
@@ -71,6 +79,11 @@ class HeatmapViewModel : ViewModel() {
                     cachedAgeSeconds = if (r?.cached == true) r.cachedAgeSeconds else null,
                     error = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the heat map." },
                 )
+            }
+            // Whatever the outcome, honour a switch that arrived while this was running.
+            pendingMode?.let { want ->
+                pendingMode = null
+                if (want == _state.value.mode) load(refresh = false)
             }
         }
     }

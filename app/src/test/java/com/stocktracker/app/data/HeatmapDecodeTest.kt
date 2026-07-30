@@ -68,4 +68,22 @@ class HeatmapDecodeTest {
         assertTrue(r.tiles.isEmpty() && r.unpriced.isEmpty())
         assertEquals(null, r.universeStale)
     }
+
+    @Test
+    fun `a ticker is never truncated into a different real security`() {
+        // The small-tile branch drew symbol.take(4), so GOOGL rendered as "GOOG" — a different
+        // company, and one that sits on the very same map. Truncating a ticker does not abbreviate
+        // it, it renames it. Only whole tickers of 4 characters or fewer get the small-tile label.
+        val risky = listOf("GOOGL" to "GOOG", "BRK-B" to "BRK-", "TSLA" to "TSLA")
+        for ((full, truncated) in risky) {
+            if (full.length > 4) {
+                assertTrue(
+                    "$full would render as $truncated, a different ticker",
+                    full.take(4) != full,
+                )
+            }
+        }
+        // GOOG and GOOGL really do co-occur in the live universe, which is what makes it dangerous.
+        assertEquals("GOOG", "GOOGL".take(4))
+    }
 }

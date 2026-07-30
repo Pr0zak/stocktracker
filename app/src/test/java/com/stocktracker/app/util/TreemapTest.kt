@@ -114,6 +114,24 @@ class TreemapTest {
     }
 
     @Test
+    fun `extreme domination cannot produce infinite or negative rectangles`() {
+        // The test above used a 1e4 ratio and passed while the code was broken at 1e8 — an
+        // adversarial review found the gap. In Float the dominant tile consumed the whole canvas,
+        // the remainder hit exactly 0, and the tail divided by zero.
+        for (ratio in listOf(1e5, 1e7, 1e8, 1e12)) {
+            for ((w, h) in listOf(1017f to 1412.5f, 400f to 300f, 1080f to 200f)) {
+                val vals = listOf(TreemapItem("BIG", ratio)) + (1..19).map { TreemapItem("S$it", 1.0) }
+                val tiles = Treemap.layout(vals, w, h)
+                assertTrue("non-finite/negative side at ratio $ratio on ${w}x$h",
+                    tiles.all { it.w.isFinite() && it.h.isFinite() && it.w > 0f && it.h > 0f })
+                assertTrue("tile escaped the canvas at ratio $ratio on ${w}x$h",
+                    tiles.all { it.x >= -0.01f && it.y >= -0.01f &&
+                        it.x + it.w <= w + 0.05f && it.y + it.h <= h + 0.05f })
+            }
+        }
+    }
+
+    @Test
     fun `layout is deterministic`() {
         val i = items(50.0, 30.0, 30.0, 20.0, 10.0)
         assertEquals(Treemap.layout(i, 300f, 200f), Treemap.layout(i, 300f, 200f))

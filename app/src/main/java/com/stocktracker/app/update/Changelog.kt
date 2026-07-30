@@ -16,6 +16,11 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.75.1" to listOf(
+            "Heat map: oversold names are no longer shown as if nothing was flagged",
+            "Heat map: outside market hours it now colours by the pre/post-market move",
+            "Heat map: a big move looks bigger \u2014 colour no longer maxes out at 4%",
+        ),
         "0.75.0" to listOf(
             "New: a heat map — grid icon on the watchlist. Tile size is market cap, colour is today's move",
             "Switch to \"My signals\" to size by how far a name is below its 52-week high",

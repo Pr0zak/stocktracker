@@ -16,6 +16,10 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.75.0" to listOf(
+            "New: a heat map — grid icon on the watchlist. Tile size is market cap, colour is today's move",
+            "Switch to \"My signals\" to size by how far a name is below its 52-week high",
+        ),
         "0.74.0" to listOf(
             "New: \"Who's been buying\" — insider and congressional buying across your watchlist",
         ),

@@ -119,6 +119,18 @@ class SignalsApiService {
         return Http.json.decodeFromString<TrendResponse>(body)
     }
 
+    /** Tile data for the heat map. FREE (no LLM). `mode` is "market" (area = market cap, colour =
+     *  today's move) or "signals" (area = distance below the 52-week high, colour = the dip tier).
+     *  The server returns VALUES only — the squarified layout runs on-device against the real
+     *  viewport. */
+    suspend fun heatmap(baseUrl: String, mode: String = "market", limit: Int = 80,
+                        refresh: Boolean = false): HeatmapResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = sGet("${baseUrl.trimEnd('/')}/heatmap?mode=$mode&limit=$limit&refresh=$refresh",
+                        slow = true)
+        return Http.json.decodeFromString<HeatmapResponse>(body)
+    }
+
     /** Theme C — where insiders and members of Congress have been BUYING across the watchlist.
      *  FREE (no LLM). Corroborating context, not a buy signal: insider buys are disclosed within two
      *  business days, congressional filings lag up to ~45 days and report amount ranges. */
@@ -1672,4 +1684,42 @@ data class SmartMoneyRow(
     /** Newest DISCLOSED trade date and when it was filed — congressional filings lag ~45 days. */
     @SerialName("congress_newest_trade") val congressNewestTrade: String? = null,
     @SerialName("congress_latest_filing") val congressLatestFiling: String? = null,
+)
+
+/** GET /heatmap — tile values for the treemap. Free, no LLM. */
+@Serializable
+data class HeatmapResponse(
+    val mode: String = "market",
+    val tiles: List<HeatmapTile> = emptyList(),
+    /** Names that could not be priced — a fact about the fetch, not about the stock. */
+    val unpriced: List<String> = emptyList(),
+    val skipped: List<String> = emptyList(),
+    val advancing: Int? = null,
+    val declining: Int? = null,
+    @SerialName("universe_stale") val universeStale: Boolean? = null,
+    val scale: String = "price",
+    val note: String = "",
+    val cached: Boolean = false,
+    @SerialName("cached_age_seconds") val cachedAgeSeconds: Long? = null,
+)
+
+@Serializable
+data class HeatmapTile(
+    val symbol: String = "",
+    val name: String = "",
+    /** The AREA. Always positive — the server refuses zero/absent sizes rather than emitting them. */
+    val size: Double = 0.0,
+    /** The COLOUR. Its meaning depends on [scale]. */
+    val value: Double = 0.0,
+    /**
+     * "price" (green/red — the market moved) or "signal" (amber — this system has an opinion).
+     * Carried per tile so a dip tier can never be rendered on the price scale.
+     */
+    val scale: String = "price",
+    val price: Double? = null,
+    val dip: String? = null,
+    val signal: String? = null,
+    val conviction: Int? = null,
+    @SerialName("pct_off_52w_high") val pctOff52wHigh: Double? = null,
+    @SerialName("below_200wma") val below200wma: Boolean = false,
 )

@@ -2,6 +2,7 @@ package com.stocktracker.app.ui
 
 import android.net.Uri
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Settings
@@ -45,6 +46,8 @@ private sealed class TopDest(val route: String, val label: String, val icon: Ima
     data object Watchlist : TopDest("watchlist", "Watchlist", Icons.Filled.ShowChart)
     data object Portfolio : TopDest("portfolio", "Portfolio", Icons.Filled.PieChart)
     data object Ideas : TopDest("ideas", "Ideas", Icons.Filled.Lightbulb)
+    // A route, not a sixth bottom tab — six tabs wrap the longer labels onto two lines.
+    data object Heatmap : TopDest("heatmap", "Heat map", Icons.Filled.GridView)
     data object Sandbox : TopDest("sandbox", "Sandbox", Icons.Filled.SmartToy)
     data object Widgets : TopDest("widgets", "Widgets", Icons.Filled.Widgets)
     data object Settings : TopDest("settings", "Settings", Icons.Filled.Settings)
@@ -111,6 +114,7 @@ fun StockTrackerRoot() {
                     onOpenVix = { nav.navigate("vix") },
                     onOpenCalendar = { nav.navigate("calendar") },
                     onOpenDips = { nav.navigate("dips") },
+                    onOpenHeatmap = { nav.navigate(TopDest.Heatmap.route) },
                 )
             }
             composable("vix") { VixDetailScreen(onBack = { nav.popBackStack() }) }
@@ -136,6 +140,12 @@ fun StockTrackerRoot() {
                             restoreState = true
                         }
                     },
+                )
+            }
+            composable(TopDest.Heatmap.route) {
+                com.stocktracker.app.ui.heatmap.HeatmapScreen(
+                    onOpenDetail = { nav.navigate(detailRoute(it)) },
+                    onBack = { nav.popBackStack() },
                 )
             }
             composable(TopDest.Ideas.route) {

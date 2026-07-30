@@ -40,6 +40,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -96,6 +97,7 @@ fun WatchlistScreen(
     onOpenVix: () -> Unit = {},
     onOpenCalendar: () -> Unit = {},
     onOpenDips: () -> Unit = {},
+    onOpenHeatmap: () -> Unit = {},
 ) {
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsState()
@@ -158,6 +160,9 @@ fun WatchlistScreen(
                 actions = {
                     IconButton(onClick = { vm.openMarketNow() }) {
                         Icon(Icons.Default.AutoAwesome, contentDescription = "Market now — AI overview")
+                    }
+                    IconButton(onClick = onOpenHeatmap) {
+                        Icon(Icons.Filled.GridView, contentDescription = "Heat map")
                     }
                     IconButton(onClick = onOpenCalendar) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = "Catalyst calendar")

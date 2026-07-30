@@ -16,6 +16,11 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "0.75.2" to listOf(
+            "Heat map: the signals view now says how old the scan behind it is",
+            "Heat map: names the scan couldn't measure are listed instead of just missing",
+            "Heat map: labels no longer clip if you use a larger system font size",
+        ),
         "0.75.1" to listOf(
             "Heat map: oversold names are no longer shown as if nothing was flagged",
             "Heat map: outside market hours it now colours by the pre/post-market move",

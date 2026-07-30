@@ -86,4 +86,34 @@ class HeatmapDecodeTest {
         // GOOG and GOOGL really do co-occur in the live universe, which is what makes it dangerous.
         assertEquals("GOOG", "GOOGL".take(4))
     }
+
+    @Test
+    fun `signals mode carries the scan's vintage so a stale read cannot look live`() {
+        // Signals come from the NIGHTLY scan — always hours old, sometimes a day. The backend sends
+        // as_of; without decoding it a day-old read rendered exactly like a live one.
+        val json = """
+            {"mode":"signals","scale":"signal","as_of":1785324740.06,
+             "tiles":[{"symbol":"GME","size":21.1,"value":5.0,"scale":"signal","dip":"mega_dip"}],
+             "skipped":["NEWCO"],"note":"n"}
+        """.trimIndent()
+        val r = Http.json.decodeFromString<HeatmapResponse>(json)
+        assertEquals(1785324740.06, r.asOf!!, 0.1)
+        assertEquals(listOf("NEWCO"), r.skipped)
+    }
+
+    @Test
+    fun `market mode reports which session it measured`() {
+        // `pct` is the REGULAR-session move, so outside market hours it is the previous session's.
+        // The payload names the session it actually measured.
+        val json = """{"mode":"market","session":"PRE","tiles":[],"note":"n"}"""
+        assertEquals("PRE", Http.json.decodeFromString<HeatmapResponse>(json).session)
+    }
+
+    @Test
+    fun `an older backend without as_of or session still decodes`() {
+        val r = Http.json.decodeFromString<HeatmapResponse>("""{"mode":"signals","tiles":[]}""")
+        assertEquals(null, r.asOf)
+        assertEquals(null, r.session)
+        assertTrue(r.skipped.isEmpty())
+    }
 }

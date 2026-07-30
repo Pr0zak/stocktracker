@@ -157,6 +157,29 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             // Absent data, named. A name we could not price is not a name that did not move.
+            if (ui.skipped.isNotEmpty()) {
+                Text(
+                    "No 52-week range yet: ${ui.skipped.joinToString(", ")}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // Signals come from the NIGHTLY scan — always hours old. Without this a day-old read
+            // renders exactly like a live one.
+            if (ui.mode == "signals") {
+                ui.asOf?.let { epoch ->
+                    val mins = ((System.currentTimeMillis() / 1000.0) - epoch) / 60.0
+                    Text(
+                        "From the scan " + when {
+                            mins < 90 -> "${mins.toInt()} min ago"
+                            mins < 60 * 36 -> "${(mins / 60).toInt()}h ago"
+                            else -> "${(mins / 1440).toInt()}d ago"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (mins > 60 * 30) SIGNAL else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if (ui.unpriced.isNotEmpty()) {
                 Text(
                     "Couldn't price: ${ui.unpriced.joinToString(", ")}",
@@ -189,6 +212,11 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp)),
     ) {
         val density = LocalDensity.current
+        // The fit gate below measures dp, but Text sizes in SP, which grows with the user's system
+        // font-size setting. At 1.3x accessibility scale every label came out 30% larger than the
+        // gate had allowed for and clipped. Divide it back out so what is drawn matches what was
+        // measured; the map stays legible instead of turning to shards at large font sizes.
+        val fs = density.fontScale.coerceAtLeast(0.5f)
         val wPx = with(density) { maxWidth.toPx() }
         val hPx = with(density) { maxHeight.toPx() }
         val laid = Treemap.layout(tiles.map { TreemapItem(it.symbol, it.size) }, wPx, hPx)
@@ -206,6 +234,9 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                     .offset(with(density) { rect.x.toDp() }, with(density) { rect.y.toDp() })
                     .size(wDp, hDp)
                     .background(colourFor(t))
+                    // Crypto has no stock detail screen, so those tiles cannot open. They used to
+                    // look identical to tappable ones — a dead tap reads as a broken app. Marked
+                    // instead of silently inert.
                     .clickable(enabled = !t.symbol.endsWith("-USD")) {
                         onOpen(Asset(t.symbol, AssetType.STOCK, t.name.ifBlank { t.symbol }, null))
                     },
@@ -217,7 +248,7 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             t.symbol,
-                            fontSize = (shortDp.value * 0.30f).coerceIn(9f, 22f).sp,
+                            fontSize = ((shortDp.value * 0.30f).coerceIn(9f, 22f) / fs).sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White,
@@ -226,7 +257,7 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                         if (areaDp > 2600f) {
                             Text(
                                 t.label(),
-                                fontSize = (shortDp.value * 0.17f).coerceIn(8f, 13f).sp,
+                                fontSize = ((shortDp.value * 0.17f).coerceIn(8f, 13f) / fs).sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = Color.White.copy(alpha = 0.9f),
                                 maxLines = 1,
@@ -235,7 +266,7 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                         if (areaDp > 12000f && t.name.isNotBlank()) {
                             Text(
                                 t.name,
-                                fontSize = 9.sp,
+                                fontSize = (9f / fs).sp,
                                 color = Color.White.copy(alpha = 0.66f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -251,7 +282,7 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                     // is not drawn, and this branch was breaking it.
                     Text(
                         t.symbol,
-                        fontSize = (shortDp.value * 0.42f).coerceIn(7f, 11f).sp,
+                        fontSize = ((shortDp.value * 0.42f).coerceIn(7f, 11f) / fs).sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.White,
                         maxLines = 1,

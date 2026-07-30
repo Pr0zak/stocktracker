@@ -22,6 +22,11 @@ data class HeatmapUiState(
     val unpriced: List<String> = emptyList(),
     val universeStale: Boolean? = null,
     val cachedAgeSeconds: Long? = null,
+    /** Names the scan could not measure — reported, never silently absent from the map. */
+    val skipped: List<String> = emptyList(),
+    /** Epoch seconds the data was produced. Signals mode is a nightly scan and is always hours old. */
+    val asOf: Double? = null,
+    val session: String? = null,
 )
 
 class HeatmapViewModel : ViewModel() {
@@ -75,8 +80,17 @@ class HeatmapViewModel : ViewModel() {
                     tiles = r?.tiles ?: st.tiles,
                     advancing = r?.advancing, declining = r?.declining,
                     unpriced = r?.unpriced ?: emptyList(),
+                    skipped = r?.skipped ?: emptyList(),
+                    asOf = r?.asOf ?: st.asOf,
+                    session = r?.session,
                     universeStale = r?.universeStale,
-                    cachedAgeSeconds = if (r?.cached == true) r.cachedAgeSeconds else null,
+                    // On a FAILED refresh the previous tiles stay on screen; wiping their age made
+                    // stale data look freshly loaded. Keep the age when the tiles are kept.
+                    cachedAgeSeconds = when {
+                        r?.cached == true -> r.cachedAgeSeconds
+                        r != null -> null
+                        else -> st.cachedAgeSeconds
+                    },
                     error = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the heat map." },
                 )
             }

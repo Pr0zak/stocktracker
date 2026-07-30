@@ -1690,6 +1690,12 @@ data class SmartMoneyRow(
 @Serializable
 data class HeatmapResponse(
     val mode: String = "market",
+    /**
+     * When this data was produced. In signals mode it is the NIGHTLY scan's timestamp — always
+     * hours old, sometimes a day — so the screen has to age it or a stale scan reads as live.
+     */
+    @SerialName("as_of") val asOf: Double? = null,
+    val session: String? = null,
     val tiles: List<HeatmapTile> = emptyList(),
     /** Names that could not be priced — a fact about the fetch, not about the stock. */
     val unpriced: List<String> = emptyList(),

@@ -287,6 +287,24 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                         "Spot crypto usually costs more to trade and hold than an ETF holding the same " +
                             "coin, so the ETF is preferred. The AI picks one vehicle per exposure.",
                     )
+                    if (s.allowCryptoEtf) {
+                        Spacer(Modifier.height(8.dp))
+                        Label("Bitcoin ETF")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("FBTC", "IBIT", "BITB", "ARKB").forEach { t ->
+                                FilterChip(
+                                    selected = s.preferredBtcEtf.equals(t, ignoreCase = true),
+                                    onClick = { vm.setPreferredBtcEtf(t) },
+                                    label = { Text(t) },
+                                )
+                            }
+                        }
+                        Helper(
+                            "They all hold the same bitcoin, so this is a custody and fee choice, not a " +
+                                "different bet. Buys are routed to your pick. A fund you already hold is " +
+                                "topped up rather than split in two.",
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Label("Never buy these")
                     ExclusionSearchField(

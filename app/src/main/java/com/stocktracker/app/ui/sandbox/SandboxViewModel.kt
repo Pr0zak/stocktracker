@@ -32,6 +32,9 @@ data class SandboxUiState(
     val ticking: Boolean = false,
     // The AI's own scorecard (GET /memory/stats) — null until enough decisions have been graded.
     val memory: com.stocktracker.app.data.remote.MemoryStats? = null,
+    /** The macro backdrop the trader reasons against (GET /macro/catalysts). Null = couldn't load,
+     *  which the card renders as "couldn't load", never as a calm market. */
+    val macro: com.stocktracker.app.data.remote.MacroState? = null,
     val message: String? = null,      // transient toast-style feedback
     val error: String? = null,
 )
@@ -65,6 +68,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
             val navRows = api.sandboxNav(base, days = 180)
             val trades = api.sandboxTrades(base, limit = 120)
             val mem = api.memoryStats(base)
+            val mac = api.macroCatalysts(base)
             if (gen != refreshGeneration) return@launch   // superseded by a newer refresh
             _state.update {
                 it.copy(
@@ -79,6 +83,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
                     trendPctPerMonth = navRows?.let { r -> trendPerMonth(r) } ?: it.trendPctPerMonth,
                     trades = trades ?: it.trades,
                     memory = mem ?: it.memory,
+                    macro = mac ?: it.macro,
                     error = when {
                         st == null -> "Couldn't reach the sandbox service."
                         navRows == null || trades == null -> "Some sandbox data couldn't be loaded — showing the last known values."
@@ -151,6 +156,12 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
     fun setAllowEtf(on: Boolean) = patchSettings(SandboxSettingsPatch(allowEtf = on))
 
     fun setAllowCryptoEtf(on: Boolean) = patchSettings(SandboxSettingsPatch(allowCryptoEtf = on))
+
+    /** Which spot-bitcoin ETF the trader buys for BTC exposure. They all hold the same asset, so this
+     *  is a custody/liquidity/fee choice rather than an investment one — hence a user setting rather
+     *  than something the model decides per trade. */
+    fun setPreferredBtcEtf(ticker: String) =
+        patchSettings(SandboxSettingsPatch(preferredBtcEtf = ticker), note = "Bitcoin ETF set to $ticker")
 
     fun setGoal(amount: Double?, date: String?) =
         patchSettings(SandboxSettingsPatch(goalAmount = amount ?: 0.0, goalDate = date ?: ""), note = "Goal updated")

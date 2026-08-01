@@ -382,6 +382,19 @@ class SignalsApiService {
         }.getOrNull()
     }
 
+    /** The macro / geopolitical backdrop (NEWS): market-moving events graded from a news wire —
+     *  wars, sanctions, energy and shipping disruption, central-bank moves, tariffs. Free (a stored
+     *  blob, no LLM call), refreshed server-side a few times a day.
+     *
+     *  Returns null on a blank URL or any failure — which the UI must render as "couldn't load",
+     *  NOT as a calm backdrop. The payload draws the same distinction itself via `available`. */
+    suspend fun macroCatalysts(baseUrl: String): MacroState? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            Http.json.decodeFromString<MacroState>(sGet("${baseUrl.trimEnd('/')}/macro/catalysts"))
+        }.getOrNull()
+    }
+
     /** How the AI's own past calls actually performed against the index. Free (a local DB read, no
      *  LLM), so it costs nothing to show. Returns null on a blank URL / any failure. */
     suspend fun memoryStats(baseUrl: String): MemoryStats? {
@@ -839,6 +852,51 @@ data class SpyTrend(
     val rsi14: Double? = null,
 )
 
+/** GET /macro/catalysts — the exogenous-risk backdrop (NEWS).
+ *
+ *  [available] is the field that matters: false means no read exists, which is NOT the same as a read
+ *  with no catalysts. "We couldn't look" and "nothing is happening" must never render alike, so the UI
+ *  branches on [available] and [degraded] before it renders anything reassuring. */
+@Serializable
+data class MacroState(
+    val available: Boolean = false,
+    @SerialName("risk_level") val riskLevel: String? = null,   // low | elevated | high
+    /** One short line — the backdrop at a glance. */
+    val headline: String? = null,
+    /** 3-5 one-line facts. Replaced a paragraph that read as a wall of text on a phone. */
+    val bullets: List<String> = emptyList(),
+    val catalysts: List<MacroCatalyst> = emptyList(),
+    @SerialName("as_of") val asOf: String? = null,
+    @SerialName("age_seconds") val ageSeconds: Long? = null,
+    val stale: Boolean = false,
+    /** The last refresh failed but an older read survives — show the age, trust it less. */
+    val degraded: Boolean = false,
+    @SerialName("last_error") val lastError: String? = null,
+) {
+    /** Catalysts naming this exact ticker. Deliberately does NOT fuzzy-match the sector words in
+     *  [MacroCatalyst.affected] — mapping "airlines" onto a ticker is how a confident wrong claim
+     *  ends up on a stock's page. The backend applies the same rule. */
+    fun forSymbol(symbol: String): List<MacroCatalyst> {
+        val s = symbol.trim().uppercase().removeSuffix("-USD")
+        return catalysts.filter { c -> c.tickers.any { it.trim().uppercase() == s } }
+    }
+}
+
+@Serializable
+data class MacroCatalyst(
+    val key: String = "",
+    val title: String = "",
+    val category: String = "",      // geopolitics | monetary | fiscal | trade | energy | other
+    val severity: Int = 0,          // 0-100 broad-market impact
+    val direction: String = "",     // risk_off | risk_on | mixed
+    val horizon: String = "",       // days | weeks | months
+    val affected: List<String> = emptyList(),
+    val tickers: List<String> = emptyList(),
+    val confidence: Int = 0,
+    val why: String = "",
+    @SerialName("seen_count") val seenCount: Int = 0,
+)
+
 // ---- AI Sandbox models ----
 
 @Serializable
@@ -889,6 +947,9 @@ data class SandboxSettings(
     @SerialName("cash_floor_pct") val cashFloorPct: Double = 10.0,
     @SerialName("allow_crypto") val allowCrypto: Boolean = false,
     @SerialName("allow_crypto_etf") val allowCryptoEtf: Boolean = true,
+    /** Which spot-bitcoin ETF to buy for BTC exposure. All hold the same asset, so this is a custody
+     *  and fee choice, not an exposure one. Blank = no preference. */
+    @SerialName("preferred_btc_etf") val preferredBtcEtf: String = "FBTC",
     @SerialName("allow_etf") val allowEtf: Boolean = true,
     val exclusions: List<String> = emptyList(),
     val cadence: String = "daily",
@@ -1002,6 +1063,7 @@ data class SandboxSettingsPatch(
     @SerialName("cash_floor_pct") val cashFloorPct: Double? = null,
     @SerialName("allow_crypto") val allowCrypto: Boolean? = null,
     @SerialName("allow_crypto_etf") val allowCryptoEtf: Boolean? = null,
+    @SerialName("preferred_btc_etf") val preferredBtcEtf: String? = null,
     @SerialName("allow_etf") val allowEtf: Boolean? = null,
     val exclusions: List<String>? = null,
     val cadence: String? = null,

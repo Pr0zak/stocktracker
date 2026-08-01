@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,9 +16,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
@@ -28,10 +32,12 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -46,10 +52,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.stocktracker.app.data.remote.SandboxPosition
 import com.stocktracker.app.data.remote.SandboxState
 import com.stocktracker.app.data.remote.SandboxStrategyNote
 import com.stocktracker.app.data.remote.SandboxTrade
@@ -98,6 +108,20 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
     LaunchedEffect(ui.message) {
         ui.message?.let { snackbarHost.showSnackbar(it) }
     }
+
+    // Tapping a ticker anywhere on this screen — a holding, a donut legend entry, or a trade — opens
+    // that name's history: what the AI paid, what it holds, and every fill behind it.
+    var detailSymbol by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // The trade log collapses to one line per entry; this holds the keys of the rows the user opened.
+    // Keyed by trade identity rather than list position so a refresh that prepends new fills doesn't
+    // slide the open state onto a different row.
+    val expandedTrades = rememberSaveable(
+        saver = listSaver<MutableList<String>, String>(
+            save = { it.toList() },
+            restore = { it.toMutableStateList() },
+        ),
+    ) { mutableStateListOf<String>() }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHost) },
@@ -214,6 +238,9 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             // Directly under the equity curve and the auto-trade switch: right where someone deciding
             // whether to trust this thing is already looking.
             ui.memory?.let { mem -> item { ScorecardCard(mem) } }
+            // The world the trader is reasoning against, right above its strategy — a defensive
+            // stance or a skipped energy name only makes sense next to the backdrop that caused it.
+            item { com.stocktracker.app.ui.components.MacroCard(ui.macro) }
             st.strategyNote?.let { item { StrategyCard(it) } }
             if (st.positions.isNotEmpty()) {
                 item { SectionLabel("Holdings") }
@@ -245,6 +272,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                                         colorOf[p.symbol] ?: DONUT_COLORS[0],
                                         p.symbol.removeSuffix("-USD"),
                                         p.value / st.equity * 100,
+                                        onClick = { detailSymbol = p.symbol },
                                     )
                                 }
                                 if (sorted.size > 5) {
@@ -256,17 +284,40 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                         }
                     }
                 }
-                items(st.positions) { p -> PositionRow(p, st.equity) }
+                item { HelperText("Tap a holding to see what it paid and every trade behind it.") }
+                items(st.positions) { p ->
+                    PositionRow(p, st.equity, onClick = { detailSymbol = p.symbol })
+                }
             }
             item { SectionLabel("Trade log") }
             if (ui.trades.isEmpty()) {
                 item { Text("No trades yet.", style = MaterialTheme.typography.bodySmall, color = neutral) }
             } else {
-                items(ui.trades.take(60)) { t -> TradeRow(t) }
+                item { HelperText("Tap an entry for the full reasoning and numbers.") }
+                items(ui.trades.take(60)) { t ->
+                    val key = tradeKey(t)
+                    TradeRow(
+                        t = t,
+                        expanded = expandedTrades.contains(key),
+                        onToggle = {
+                            if (!expandedTrades.remove(key)) expandedTrades.add(key)
+                        },
+                        onOpenSymbol = { detailSymbol = t.symbol },
+                    )
+                }
             }
             item { SettingsSummary(st, onOpen = onOpenSettings) }
             item { Spacer(Modifier.height(24.dp)) }
         }
+    }
+
+    detailSymbol?.let { sym ->
+        TickerDetailSheet(
+            symbol = sym,
+            position = ui.state?.positions?.firstOrNull { it.symbol == sym },
+            trades = ui.trades.filter { it.symbol == sym },
+            onDismiss = { detailSymbol = null },
+        )
     }
 
     // transient message → simple inline banner via a LaunchedEffect that clears after a moment
@@ -454,13 +505,23 @@ private fun BulletLine(marker: String, text: String, color: Color) {
 }
 
 @Composable
-private fun PositionRow(p: com.stocktracker.app.data.remote.SandboxPosition, equity: Double) {
+private fun PositionRow(p: SandboxPosition, equity: Double, onClick: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val weight = if (equity > 0) p.value / equity * 100 else 0.0
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+    val sym = p.symbol.removeSuffix("-USD")
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 4.dp),
+        Arrangement.SpaceBetween,
+        Alignment.CenterVertically,
+    ) {
         Column(Modifier.weight(1f)) {
-            Text(p.symbol.removeSuffix("-USD"), fontWeight = FontWeight.SemiBold)
-            Text("${trimNum(p.shares)} sh · ${weight.toInt()}%", style = MaterialTheme.typography.labelSmall, color = neutral)
+            Text(sym, fontWeight = FontWeight.SemiBold)
+            // What it paid, right on the row — the first thing you want when asking "how did it get here?"
+            Text(
+                "${trimNum(p.shares)} sh · ${weight.toInt()}% · avg ${Formatting.price(p.avgCost)}",
+                style = MaterialTheme.typography.labelSmall, color = neutral,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
         Column(horizontalAlignment = Alignment.End) {
             Text("$" + Formatting.compact(p.value), fontWeight = FontWeight.Medium)
@@ -468,45 +529,279 @@ private fun PositionRow(p: com.stocktracker.app.data.remote.SandboxPosition, equ
                 Text(signedPct(it), style = MaterialTheme.typography.labelSmall, color = if (it >= 0) GREEN else RED)
             }
         }
+        Icon(
+            Icons.Filled.ChevronRight, contentDescription = "Open $sym history",
+            tint = neutral, modifier = Modifier.size(18.dp),
+        )
     }
 }
 
+/**
+ * One trade, collapsed to a single line.
+ *
+ * The reasoning text is the whole value of this log and also what made it unreadable — a 60-entry list
+ * where every entry was a paragraph. Collapsed, a row is exactly one line: side, date, name, size and
+ * fill price. Everything else — the AI's reasoning, the rule that blocked an order, the entry zone it
+ * wanted, conviction — appears on tap.
+ */
 @Composable
-private fun TradeRow(t: SandboxTrade) {
+private fun TradeRow(
+    t: SandboxTrade,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onOpenSymbol: () -> Unit,
+) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val skipped = t.status == "skipped"
+    val isCash = t.symbol == "CASH"
+    val sym = t.symbol.removeSuffix("-USD")
     val color = when {
         skipped -> neutral
         t.side == "buy" -> GREEN
         t.side == "sell" -> RED
         else -> MaterialTheme.colorScheme.primary   // deposit/withdraw
     }
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-        // A blocked order gets its own amber BLOCKED pill — a greyed "BUY" read like a real buy at a
-        // glance, which hid the fact that a rule stopped it.
-        Pill(if (skipped) "BLOCKED" else t.side.uppercase(), if (skipped) AMBER else color)
-        Column(Modifier.weight(1f)) {
-            val head = when {
-                t.symbol == "CASH" -> "${t.date} · " + signedUsd(t.gross ?: 0.0)
-                skipped -> "${t.date} · ${t.side.uppercase()} ${t.symbol.removeSuffix("-USD")} not placed"
-                else -> "${t.date} · ${t.symbol.removeSuffix("-USD")} · ${trimNum(t.shares)} sh @ $${Formatting.compact(t.price ?: 0.0)}"
+    Column(
+        Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 3.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // A blocked order gets its own amber BLOCKED pill — a greyed "BUY" read like a real buy at a
+            // glance, which hid the fact that a rule stopped it.
+            Pill(if (skipped) "BLOCKED" else t.side.uppercase(), if (skipped) AMBER else color)
+            Text(
+                oneLineSummary(t),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (!skipped && t.realizedPl != null && t.realizedPl != 0.0) {
+                Text(signedUsd(t.realizedPl), style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1, color = if (t.realizedPl >= 0) GREEN else RED)
             }
-            Text(head, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            val zone = t.entryHigh?.let { " · wanted ≤$" + Formatting.compact(it) } ?: ""
-            val sub = if (skipped) ("Rule: " + (t.skipReason ?: "blocked") + zone) else t.reason
-            if (sub.isNotBlank()) {
-                Text(sub, style = MaterialTheme.typography.labelSmall,
-                    color = if (skipped) AMBER else neutral)
+            Icon(
+                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (expanded) "Collapse trade" else "Expand trade",
+                tint = neutral,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        if (expanded) {
+            Column(
+                Modifier.fillMaxWidth().padding(start = 2.dp, bottom = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                // Full date and un-abbreviated money — the collapsed line trades precision for width,
+                // this is where the exact numbers live.
+                DetailLine("Date", t.date)
+                when {
+                    isCash -> DetailLine("Amount", signedMoney(t.gross ?: 0.0))
+                    !skipped -> {
+                        DetailLine("Filled", "${trimNum(t.shares)} sh @ ${Formatting.price(t.price ?: 0.0)}")
+                        t.gross?.let { DetailLine("Value", Formatting.price(kotlin.math.abs(it))) }
+                        t.realizedPl?.takeIf { it != 0.0 }?.let {
+                            DetailLine("Realized", signedMoney(it), if (it >= 0) GREEN else RED)
+                        }
+                    }
+                }
+                t.conviction?.let { DetailLine("Conviction", "$it") }
+                if (t.source.isNotBlank()) DetailLine("Source", t.source)
+                if (skipped) {
+                    DetailLine("Rule", t.skipReason ?: "blocked", AMBER)
+                    if (t.entryLow != null || t.entryHigh != null) {
+                        DetailLine("Entry zone", entryZoneText(t))
+                    }
+                    // Keep the AI's original intent visible so you can see WHAT the rule stopped.
+                    if (t.reason.isNotBlank()) DetailLine("Wanted", t.reason)
+                } else if (t.reason.isNotBlank()) {
+                    DetailLine("Why", t.reason)
+                }
+                if (!isCash && t.symbol.isNotBlank()) {
+                    TextButton(
+                        onClick = onOpenSymbol,
+                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+                    ) {
+                        Text("View $sym history", style = MaterialTheme.typography.labelMedium)
+                        Icon(Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                }
             }
-            // Keep the AI's original intent visible so you can see WHAT the rule stopped.
-            if (skipped && t.reason.isNotBlank()) {
-                Text("Wanted: ${t.reason}", style = MaterialTheme.typography.labelSmall, color = neutral)
+        }
+    }
+}
+
+/** Label + value, for the opened detail of a trade. */
+@Composable
+private fun DetailLine(label: String, value: String, valueColor: Color? = null) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            label, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(74.dp),
+        )
+        Text(
+            value, style = MaterialTheme.typography.labelSmall,
+            color = valueColor ?: MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * Everything the sandbox has done in one name: what it holds, what it paid, and every fill behind it.
+ *
+ * The position figures come from the server and are authoritative. The activity list is drawn from the
+ * trade window the app has loaded, which does not necessarily reach back to when the position was
+ * opened. So the sheet reconciles the two — if the listed buys and sells don't add up to the shares
+ * actually held, it says the history is partial instead of letting a truncated list read as the whole
+ * story. Same reason the realized figure is labelled as covering only the trades shown.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TickerDetailSheet(
+    symbol: String,
+    position: SandboxPosition?,
+    trades: List<SandboxTrade>,
+    onDismiss: () -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val sym = symbol.removeSuffix("-USD")
+    val filled = trades.filter { it.status == "filled" }
+    val net = filled.sumOf {
+        when (it.side) {
+            "buy" -> it.shares
+            "sell" -> -it.shares
+            else -> 0.0
+        }
+    }
+    val held = position?.shares ?: 0.0
+    val partial = kotlin.math.abs(net - held) > 0.01
+    val realized = filled.mapNotNull { it.realizedPl }.sum()
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 4.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(sym, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Pill(if (held > 0) "HOLDING" else "CLOSED", if (held > 0) GREEN else neutral)
+            }
+            position?.let { p ->
+                // The server uses the ticker itself as the group for single-name holdings — repeating it
+                // under the title is noise, so it only shows when it says something new ("SP500").
+                if (p.exposureGroup.isNotBlank() && !p.exposureGroup.equals(sym, ignoreCase = true)) {
+                    Text(p.exposureGroup, style = MaterialTheme.typography.labelSmall, color = neutral)
+                }
+                val basis = p.shares * p.avgCost
+                val unrealized = p.value - basis
+                StatLine("Shares", trimNum(p.shares))
+                StatLine("Average cost", Formatting.price(p.avgCost))
+                StatLine("Last price", Formatting.price(p.price))
+                StatLine("Cost basis", Formatting.price(basis))
+                StatLine("Market value", Formatting.price(p.value))
+                StatLine(
+                    "Unrealized",
+                    signedMoney(unrealized) + (p.unrealizedPct?.let { " (${signedPct(it)})" } ?: ""),
+                    if (unrealized >= 0) GREEN else RED,
+                )
+            }
+            if (realized != 0.0) {
+                StatLine(
+                    if (partial) "Realized (shown)" else "Realized",
+                    signedMoney(realized),
+                    if (realized >= 0) GREEN else RED,
+                )
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            Text("Activity", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            if (trades.isEmpty()) {
+                Text(
+                    "No $sym trades in the loaded history.",
+                    style = MaterialTheme.typography.bodySmall, color = neutral,
+                )
+            } else {
+                trades.forEach { ActivityRow(it) }
+            }
+            if (partial) {
+                val sharesHeld = trimNum(held) + if (held == 1.0) " share" else " shares"
+                Text(
+                    "Only the most recent trades are loaded, and what's listed here doesn't add up to " +
+                        "the $sharesHeld held — so $sym has earlier activity that isn't shown.",
+                    style = MaterialTheme.typography.labelSmall, color = AMBER,
+                )
+            }
+        }
+    }
+}
+
+/** One fill in the per-ticker history — date, size, the price it got, and why. */
+@Composable
+private fun ActivityRow(t: SandboxTrade) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val skipped = t.status == "skipped"
+    val color = when {
+        skipped -> AMBER
+        t.side == "buy" -> GREEN
+        t.side == "sell" -> RED
+        else -> MaterialTheme.colorScheme.primary
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Pill(if (skipped) "BLOCKED" else t.side.uppercase(), color)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(t.date, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+            Text(
+                if (skipped) {
+                    "Not placed — " + (t.skipReason ?: "blocked")
+                } else {
+                    "${trimNum(t.shares)} sh @ ${Formatting.price(t.price ?: 0.0)}" +
+                        (t.gross?.let { " · ${Formatting.price(kotlin.math.abs(it))}" } ?: "")
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (skipped) AMBER else neutral,
+            )
+            if (t.reason.isNotBlank()) {
+                Text(t.reason, style = MaterialTheme.typography.labelSmall, color = neutral)
             }
         }
         if (!skipped && t.realizedPl != null && t.realizedPl != 0.0) {
-            Text(signedUsd(t.realizedPl), style = MaterialTheme.typography.labelMedium,
-                color = if (t.realizedPl >= 0) GREEN else RED)
+            Text(
+                signedMoney(t.realizedPl), style = MaterialTheme.typography.labelMedium,
+                color = if (t.realizedPl >= 0) GREEN else RED,
+            )
         }
+    }
+}
+
+/** Label on the left, figure on the right — the position summary lines in the ticker sheet. */
+@Composable
+private fun StatLine(label: String, value: String, valueColor: Color? = null) {
+    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+        Text(
+            label, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+            color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
@@ -625,8 +920,12 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
 
 /** One donut-legend line: colour swatch, name, and share of the book. */
 @Composable
-private fun LegendRow(color: Color, label: String, pct: Double) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun LegendRow(color: Color, label: String, pct: Double, onClick: (() -> Unit)? = null) {
+    Row(
+        modifier = if (onClick != null) Modifier.clickable { onClick() } else Modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(color))
         Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
         Text("${pct.toInt()}%", style = MaterialTheme.typography.labelSmall,
@@ -755,5 +1054,36 @@ private fun EmptyState(onFund: (Double) -> Unit) {
 }
 
 private fun signedPct(v: Double) = (if (v >= 0) "+" else "") + String.format(java.util.Locale.US, "%.1f%%", v)
+
+/** Abbreviated money, for places where width is scarce (a collapsed log line, the header metrics). */
 private fun signedUsd(v: Double) = (if (v >= 0) "+$" else "-$") + Formatting.compact(kotlin.math.abs(v))
-private fun trimNum(v: Double) = if (v == kotlin.math.floor(v)) v.toInt().toString() else String.format(java.util.Locale.US, "%.4f", v)
+
+/** Money to the cent. `compact` rounds to whole dollars under $1,000, which is fine for a headline but
+ *  wrong for an execution price or a cost basis — "what did it pay?" is the whole point of those views. */
+private fun signedMoney(v: Double) = (if (v >= 0) "+" else "-") + Formatting.price(kotlin.math.abs(v))
+
+private fun trimNum(v: Double) = Formatting.shares(v)
+
+/** Stable identity for a trade, so an expanded row stays expanded across refreshes. */
+private fun tradeKey(t: SandboxTrade) = "${t.ts}|${t.symbol}|${t.side}|${t.status}|${t.shares}"
+
+/** "2026-07-28" → "07-28". The year is the same for every row in a 60-entry log; the width isn't. */
+private fun shortDate(iso: String) = if (iso.length >= 10) iso.substring(5) else iso
+
+/** The collapsed trade line — one line, always. */
+private fun oneLineSummary(t: SandboxTrade): String {
+    val sym = t.symbol.removeSuffix("-USD")
+    return when {
+        t.symbol == "CASH" -> "${shortDate(t.date)} · ${signedUsd(t.gross ?: 0.0)}"
+        t.status == "skipped" -> "${shortDate(t.date)} · $sym not placed"
+        else -> "${shortDate(t.date)} · $sym · ${trimNum(t.shares)} sh @ ${Formatting.price(t.price ?: 0.0)}"
+    }
+}
+
+private fun entryZoneText(t: SandboxTrade): String = when {
+    t.entryLow != null && t.entryHigh != null ->
+        "${Formatting.price(t.entryLow)} – ${Formatting.price(t.entryHigh)}"
+    t.entryHigh != null -> "≤ ${Formatting.price(t.entryHigh)}"
+    t.entryLow != null -> "≥ ${Formatting.price(t.entryLow)}"
+    else -> "—"
+}

@@ -58,6 +58,7 @@ import com.stocktracker.app.BuildConfig
 import com.stocktracker.app.data.BackupManager
 import com.stocktracker.app.data.prefs.ThemeMode
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.notify.SignalScanNotifier
 import com.stocktracker.app.update.UpdateDialog
 import com.stocktracker.app.update.UpdateUiState
@@ -161,6 +162,12 @@ fun SettingsScreen() {
             }
 
             SettingsSection("Notifications") {
+                // Whether the background job that evaluates price alerts is actually running. It
+                // fires every ~15 min; anything much older means Android has been deferring or
+                // killing it (battery optimisation is the usual cause), and your alerts are not
+                // being checked no matter how they are configured.
+                BackgroundRunStatus()
+
                 SwitchRow(
                     "Market close & after-hours summary",
                     "A notification of your watchlist's top movers at the close and after hours",
@@ -425,6 +432,59 @@ fun SettingsScreen() {
                 }
             }
         }
+    }
+}
+
+/**
+ * Whether the background job that evaluates price alerts is actually running.
+ *
+ * Alerts are only checked when this job runs (every ~15 min via WorkManager). Nothing in the app
+ * previously said whether it had — so "my jump/drop alerts never fire" had two very different causes
+ * that looked identical: no thresholds configured, or the job not running at all. Android defers or
+ * kills background work aggressively under battery optimisation, and the app cannot fix that; it can
+ * at least stop pretending everything is armed.
+ */
+@Composable
+private fun BackgroundRunStatus() {
+    val settings = ServiceLocator.settingsStore
+    val lastRun by settings.lastBackgroundRunAt.collectAsState(initial = 0L)
+    val failures by settings.lastBackgroundFailures.collectAsState(initial = "")
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+
+    val now = System.currentTimeMillis()
+    val ageMin = if (lastRun > 0) (now - lastRun) / 60_000 else -1
+    // The job is scheduled every 15 min; Android may stretch that, so an hour is the point at which
+    // it has clearly stopped rather than merely slipped.
+    val healthy = ageMin in 0..59 && failures.isBlank()
+    val color = when {
+        lastRun <= 0 -> neutral
+        healthy -> GainGreen
+        else -> Color(0xFFB0872B)
+    }
+    val label = when {
+        lastRun <= 0 -> "Alert checks: hasn't run yet"
+        ageMin < 1 -> "Alert checks: just now"
+        ageMin < 60 -> "Alert checks: ${ageMin}m ago"
+        ageMin < 60 * 24 -> "Alert checks: ${ageMin / 60}h ago"
+        else -> "Alert checks: ${ageMin / (60 * 24)}d ago"
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = color)
+        Text(
+            when {
+                lastRun <= 0 ->
+                    "Price alerts are evaluated by a background job that hasn't run since install. " +
+                        "Open the app once with a network connection to start it."
+                failures.isNotBlank() ->
+                    "Last run had failures: $failures. Alerts still ran unless 'alerts' is listed."
+                !healthy ->
+                    "It should run about every 15 minutes. This long a gap usually means Android is " +
+                        "deferring it — exclude StockTracker from battery optimisation to fix it."
+                else -> "Running normally. Set per-ticker thresholds on a stock's detail screen."
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
     }
 }
 

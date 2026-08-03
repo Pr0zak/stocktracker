@@ -46,9 +46,29 @@ class SettingsStore(private val context: Context) {
      *  is how "first run" is told apart from "just upgraded" — a new user gets no release notes. */
     private val lastSeenVersionKey = stringPreferencesKey("last_seen_version")
     private val lastSandboxTradeTsKey = doublePreferencesKey("last_sandbox_trade_ts")
+    private val lastBackgroundRunKey = longPreferencesKey("last_background_run_at")
+    private val lastBackgroundFailuresKey = stringPreferencesKey("last_background_failures")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
+
+    /**
+     * When the background worker last completed, and which of its steps failed (comma-separated,
+     * empty = all clean).
+     *
+     * Exists so "are my price alerts even running?" is answerable from inside the app. The worker
+     * used to chain every notifier to the first failure and log nothing, so a permanently broken
+     * step was indistinguishable from a quiet market — you would believe alerts were armed when
+     * nothing had evaluated them for weeks.
+     */
+    val lastBackgroundRunAt: Flow<Long> = context.dataStore.data.map { it[lastBackgroundRunKey] ?: 0L }
+    val lastBackgroundFailures: Flow<String> =
+        context.dataStore.data.map { it[lastBackgroundFailuresKey] ?: "" }
+
+    suspend fun recordBackgroundRun(atMs: Long, failures: String) = context.dataStore.edit {
+        it[lastBackgroundRunKey] = atMs
+        it[lastBackgroundFailuresKey] = failures
+    }
 
     /** epoch-seconds of the last nightly scan we already notified about (dedup across worker runs). */
     val lastScanNotifiedAt: Flow<Long> = context.dataStore.data.map { it[lastScanNotifiedKey] ?: 0L }

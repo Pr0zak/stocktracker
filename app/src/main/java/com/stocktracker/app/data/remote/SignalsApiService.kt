@@ -990,8 +990,16 @@ data class SandboxNavPoint(
     val cash: Double = 0.0,
     @SerialName("positions_value") val positionsValue: Double = 0.0,
     @SerialName("benchmark_value") val benchmarkValue: Double? = null,
+    /** Total fictional cash put IN by this point — the initial funding plus every recurring deposit.
+     *  Required to tell performance from contributions: a $500/mo deposit into a $10k account raises
+     *  equity ~5% a month on its own, which a trend fitted on raw equity reports as a rally. */
+    @SerialName("funded_total") val fundedTotal: Double? = null,
     @SerialName("num_positions") val numPositions: Int = 0,
-)
+) {
+    /** Equity per dollar contributed — an index that starts at 1.0 and moves ONLY on performance.
+     *  Null when the row predates funded_total being recorded. */
+    val perDollar: Double? get() = fundedTotal?.takeIf { it > 0 }?.let { equity / it }
+}
 
 @Serializable
 data class SandboxTradesResponse(val trades: List<SandboxTrade> = emptyList())

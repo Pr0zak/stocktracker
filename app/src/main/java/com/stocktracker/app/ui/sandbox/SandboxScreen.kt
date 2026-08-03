@@ -347,7 +347,11 @@ private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
         }
         trendPctPerMonth?.let { rate ->
             Text(
-                "Trending " + signedPct(rate) + " / month",
+                // Says what it excludes when there IS something to exclude. The equity curve above
+                // rises on a deposit and this figure does not, which looks like a contradiction
+                // unless the reason is on screen.
+                "Trending " + signedPct(rate) + " / month" +
+                    if (st.settings.monthlyDeposit > 0) " (excl. deposits)" else "",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
                 color = if (rate >= 0) GREEN else RED,

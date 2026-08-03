@@ -78,7 +78,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
                     // empty curve and "No trades yet." beside a confident (stale) equity figure.
                     nav = navRows?.map { p -> PricePoint((p.ts * 1000).toLong(), p.equity) } ?: it.nav,
                     benchmarkValues = navRows?.map { p -> p.benchmarkValue } ?: it.benchmarkValues,
-                    trendValues = navRows?.let { r -> trendLine(r.map { p -> p.equity }) } ?: it.trendValues,
+                    trendValues = navRows?.let { r -> trendOnEquityAxis(r) } ?: it.trendValues,
                     vsBenchmarkSeries = navRows?.let { r -> relativePerformance(r) } ?: it.vsBenchmarkSeries,
                     trendPctPerMonth = navRows?.let { r -> trendPerMonth(r) } ?: it.trendPctPerMonth,
                     trades = trades ?: it.trades,
@@ -287,11 +287,26 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
         return List(n) { i -> intercept + slope * i }
     }
 
-    /** The fitted slope re-expressed as "% of starting equity per 30 days" — a plain-language read of
-     *  the trajectory that doesn't depend on how many ticks have accumulated. */
+    /**
+     * The series the trend is fitted on: equity per dollar contributed, NOT raw equity.
+     *
+     * A recurring deposit adds money without earning anything. Fitting raw equity counts that as a
+     * rally — a $500/mo deposit into a $10k account is ~+5%/month of pure contribution, which would
+     * be reported as "Trending +5% / month" by an account that made nothing. Measured 2026-08-03:
+     * equity rose $581 on the day, $500 of which was the monthly deposit; real performance was $81.
+     *
+     * `equity / funded_total` is an index that starts at 1.0 and moves only on performance, and it is
+     * the same basis the backend's `total_return_pct` already uses, so the headline figure and the
+     * trend agree. Falls back to raw equity only for rows written before funded_total was recorded.
+     */
+    private fun perDollarSeries(rows: List<com.stocktracker.app.data.remote.SandboxNavPoint>): List<Double> =
+        rows.map { it.perDollar ?: it.equity }
+
+    /** The fitted slope re-expressed as "% per 30 days" — a plain-language read of the trajectory
+     *  that doesn't depend on how many ticks have accumulated, and is immune to deposits. */
     private fun trendPerMonth(rows: List<com.stocktracker.app.data.remote.SandboxNavPoint>): Double? {
         if (rows.size < 3) return null
-        val fit = trendLine(rows.map { it.equity })
+        val fit = trendLine(perDollarSeries(rows))
         val first = fit.firstOrNull() ?: return null
         val last = fit.lastOrNull() ?: return null
         if (first == null || last == null || first <= 0.0) return null
@@ -300,8 +315,33 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
         return (last - first) / first * 100.0 * (30.0 / days)
     }
 
+    /**
+     * The trend line drawn ON the equity chart.
+     *
+     * Fitted on the contribution-adjusted index (so its SLOPE is performance), then scaled back by
+     * each point's `funded_total` so it sits on the same axis as the equity curve. Without the
+     * re-scaling the overlay would be an index near 1.0 plotted against dollars and vanish off the
+     * bottom of the chart; without the adjusted fit its slope would just be the deposits again.
+     */
+    private fun trendOnEquityAxis(
+        rows: List<com.stocktracker.app.data.remote.SandboxNavPoint>,
+    ): List<Double?> {
+        val fit = trendLine(perDollarSeries(rows))
+        return rows.mapIndexed { i, p ->
+            val v = fit.getOrNull(i) ?: return@mapIndexed null
+            val funded = p.fundedTotal
+            if (funded != null && funded > 0) v * funded else v
+        }
+    }
+
     /** Portfolio return minus benchmark return since inception, per point, in percentage points.
-     *  Rises when the sandbox is beating the S&P; crosses zero when it gives the lead back. */
+     *  Rises when the sandbox is beating the S&P; crosses zero when it gives the lead back.
+     *
+     *  Deliberately NOT contribution-adjusted, because it does not need to be: the benchmark shadow
+     *  is seeded with the initial funding and buys SPY with every deposit on the same day, so both
+     *  legs take the identical dollar inflow and both are indexed to the same starting value — the
+     *  deposit's effect cancels exactly in the subtraction. This is the money-weighted question you
+     *  actually want ("did my dollars beat the same dollars in SPY"), so leave it alone. */
     private fun relativePerformance(
         rows: List<com.stocktracker.app.data.remote.SandboxNavPoint>,
     ): List<Double?> {

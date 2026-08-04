@@ -28,6 +28,7 @@ object MarketSummaryNotifier {
 
     private val ET = ZoneId.of("America/New_York")
     private val signalsApi = SignalsApiService()
+    private val yahoo = com.stocktracker.app.data.remote.YahooFinanceService()
 
     suspend fun check(context: Context) {
         val settings = ServiceLocator.settingsStore
@@ -80,7 +81,16 @@ object MarketSummaryNotifier {
                 val q = runCatching { ServiceLocator.repository.quote(asset) }.getOrNull()
                     ?: ServiceLocator.priceCache.getQuote(asset.id)
                     ?: return@mapNotNull null
-                Mover(asset.symbol.uppercase(), q.changePercent, q.postMarketChangePercent)
+                // The quote's post-market field comes from the chart meta, which Yahoo no longer
+                // populates — so for the after-hours recap derive the move from intraday bars
+                // instead. Only on that path: it is one extra fetch per symbol, once a day, and the
+                // close recap does not use the number at all.
+                val ah = if (inAfterHoursWindow) {
+                    q.postMarketChangePercent ?: yahoo.postMarketMove(asset.symbol)
+                } else {
+                    q.postMarketChangePercent
+                }
+                Mover(asset.symbol.uppercase(), q.changePercent, ah)
             }
         }
 

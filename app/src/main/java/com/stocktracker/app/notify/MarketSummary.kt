@@ -104,10 +104,17 @@ object MarketSummary {
     private fun buildAfterHours(movers: List<Mover>): MoverSummary {
         val moved = movers.filter { it.afterHoursPct != null && abs(it.afterHoursPct) >= AH_FLAT_EPS }
         if (moved.isEmpty()) {
+            // "Nobody moved" and "we have no after-hours data" are different claims and only one is
+            // ours to make. When NOTHING carries a reading the data source is the problem, not the
+            // market — saying "quiet" there is how this recap spent its life reporting calm nights
+            // over a 17% move (BLZE, 2026-08-03), after Yahoo dropped the post-market fields from
+            // the chart meta and every reading silently became null.
+            val anyReading = movers.any { it.afterHoursPct != null }
             return MoverSummary(
                 MoverSummary.Kind.AFTER_HOURS,
                 "After-hours movers",
-                "Quiet after-hours — no notable moves after the close.",
+                if (anyReading) "Quiet after-hours — no notable moves after the close."
+                else "No after-hours data available tonight — this is a data problem, not a quiet market.",
             )
         }
 

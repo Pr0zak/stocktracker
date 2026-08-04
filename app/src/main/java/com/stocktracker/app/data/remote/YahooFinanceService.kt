@@ -227,6 +227,45 @@ class YahooFinanceService {
         )
     }
 
+    /**
+     * The after-hours move as a % of the regular-session close, derived from INTRADAY BARS.
+     *
+     * Returns null when it cannot be determined — no post-market bars, a failed fetch, an unusable
+     * regular close. Null means UNKNOWN, never "flat": the caller has to be able to tell "this stock
+     * did not trade after the close" from "we could not read the data", because reporting the second
+     * as the first is how an after-hours recap ends up announcing a quiet session on a night one of
+     * your holdings moved 17%.
+     *
+     * Why this exists at all: the move used to come from `meta.postMarketPrice`, and Yahoo removed
+     * the pre/post fields from the chart meta. Nothing errored — the field just became null forever,
+     * so every after-hours recap reported "Quiet after-hours" regardless of what happened. Measured
+     * 2026-08-03: BLZE closed at $15.60 and traded to $18.25 after hours (+17.0%, high $19.06) while
+     * the recap said nothing had moved.
+     *
+     * Uses 5-minute bars: enough resolution for a session-level move at a fraction of the ~640-bar
+     * payload a 1-minute range would cost across a whole watchlist.
+     */
+    suspend fun postMarketMove(symbol: String): Double? {
+        val enc = yahooSymbol(symbol)
+        val path = "v8/finance/chart/$enc?range=1d&interval=5m&includePrePost=true"
+        val result = runCatching { fetchChart(path) }.getOrNull()?.chart?.result?.firstOrNull() ?: return null
+        val meta = result.meta ?: return null
+        val regularEnd = meta.currentTradingPeriod?.regular?.end ?: return null
+        val stamps = result.timestamp ?: return null
+        val closes = result.indicators?.quote?.firstOrNull()?.close ?: return null
+
+        var lastRegular: Double? = null
+        var lastPost: Double? = null
+        for (i in stamps.indices) {
+            val px = closes.getOrNull(i) ?: continue
+            if (stamps[i] < regularEnd) lastRegular = px else lastPost = px
+        }
+        val base = lastRegular ?: meta.regularMarketPrice ?: return null
+        val post = lastPost ?: return null
+        if (base <= 0.0) return null
+        return (post - base) / base * 100.0
+    }
+
     /** Symbol search (stocks + ETFs) — no API key. US listings only, foreign suffixes filtered out. */
     suspend fun search(query: String): List<SearchResult> {
         val url = "https://query1.finance.yahoo.com/v1/finance/search?q=${query.urlEncode()}&quotesCount=15&newsCount=0"
@@ -313,12 +352,24 @@ data class YahooMeta(
     val regularMarketDayLow: Double? = null,
     val regularMarketVolume: Long? = null,
     val currency: String? = null,
-    // Post-market (after-hours) fields — present in the meta when includePrePost=true and the symbol
-    // is in/after the post session. Absent (null) during the regular session and overnight.
+    // Post-market (after-hours) fields. Yahoo USED to return these in the chart meta with
+    // includePrePost=true — they are now absent from the response entirely (verified 2026-08-03: the
+    // meta carries no postMarketPrice, postMarketChangePercent, preMarketPrice or marketState key at
+    // all). Kept because the parse is tolerant and they may return, but nothing should DEPEND on
+    // them: `postMarketMove()` derives the after-hours move from the intraday bars instead.
     val postMarketPrice: Double? = null,
     val postMarketChangePercent: Double? = null,
     val marketState: String? = null, // "PRE" | "REGULAR" | "POST" | "POSTPOST" | "CLOSED" | …
+    /** True when the symbol has pre/post bars available on an intraday interval. */
+    val hasPrePostMarketData: Boolean? = null,
+    val currentTradingPeriod: YahooTradingPeriods? = null,
 )
+
+@Serializable
+data class YahooTradingPeriods(val regular: YahooTradingPeriod? = null)
+
+@Serializable
+data class YahooTradingPeriod(val start: Long? = null, val end: Long? = null)
 
 @Serializable
 data class YahooIndicators(val quote: List<YahooQuote>? = null)

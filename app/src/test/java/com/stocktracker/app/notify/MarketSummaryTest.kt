@@ -168,6 +168,31 @@ class MarketSummaryTest {
         assertTrue(s.body.contains("Quiet after-hours"))
     }
 
+    /**
+     * "Nobody moved" vs "we have no data" — the distinction this recap failed to make for its whole
+     * life. Yahoo dropped the post-market fields from the chart meta, every reading became null, and
+     * it reported a calm night over BLZE's +17.0% after-hours move on 2026-08-03.
+     */
+    @Test
+    fun `no readings at all reports a data problem, not a quiet market`() {
+        val s = afterHours(movers = listOf(mover("AAPL", 1.0, ah = null), mover("BLZE", 13.6, ah = null)))!!
+        assertTrue(s.body.contains("No after-hours data available"))
+        assertTrue(!s.body.contains("Quiet after-hours"))
+    }
+
+    @Test
+    fun `a real reading of zero still counts as a genuinely quiet market`() {
+        val s = afterHours(movers = listOf(mover("AAPL", 1.0, ah = 0.0), mover("BLZE", 13.6, ah = null)))!!
+        assertTrue(s.body.contains("Quiet after-hours"))
+    }
+
+    @Test
+    fun `a big after-hours mover is listed even when its day change was unremarkable`() {
+        val s = afterHours(movers = listOf(mover("AAPL", 1.0, ah = 0.1), mover("BLZE", 13.6, ah = 17.02)))!!
+        assertTrue(s.body.contains("BLZE"))
+        assertTrue(s.body.contains("+17.0%"))
+    }
+
     // --- Crypto exclusion is the caller's job; assert the pure ranking over a pre-filtered list ---
 
     @Test fun `ranking operates only on the stocks the caller passes in`() {

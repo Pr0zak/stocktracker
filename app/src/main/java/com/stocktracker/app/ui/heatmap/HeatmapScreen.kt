@@ -141,6 +141,12 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                // Grouped when the tiles carry a classification — which is the market map's whole
+                // point. Signals mode has no sector on its tiles and stays flat, and so does market
+                // mode if the sector lookup failed: an ungrouped map is far better than none.
+                ui.tiles.any { !it.sector.isNullOrBlank() } ->
+                    SectorTreemap(ui.tiles, onOpenDetail)
+
                 else -> TreemapCanvas(ui.tiles, onOpenDetail)
             }
 
@@ -199,6 +205,144 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+/** Height reserved for a sector's caption strip. Small enough not to eat the tiles it labels. */
+private val SECTOR_HEADER = 15.dp
+
+/**
+ * The market map, drawn as SECTOR BLOCKS rather than one flat sheet of rectangles.
+ *
+ * A flat treemap sorted by market cap put JNJ between ASML and INTC and offered no way to read "tech
+ * is red, energy is green" — which is the entire question a market map exists to answer, and the
+ * reason the finviz-style map is grouped. Two levels now: an outer squarified layout of sectors sized
+ * by their combined market cap, and an inner squarified layout of the names inside each.
+ *
+ * Unclassified names collect in an "Other" block instead of disappearing.
+ */
+@Composable
+private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
+    val groups = tiles.groupBy { it.sector?.takeIf { s -> s.isNotBlank() } ?: "Other" }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(0.72f)
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp)),
+    ) {
+        val density = LocalDensity.current
+        val fs = density.fontScale.coerceAtLeast(0.5f)
+        val wPx = with(density) { maxWidth.toPx() }
+        val hPx = with(density) { maxHeight.toPx() }
+        val headerPx = with(density) { SECTOR_HEADER.toPx() }
+
+        val blocks = Treemap.layout(
+            groups.map { (name, ts) -> TreemapItem(name, ts.sumOf { it.size }) }, wPx, hPx,
+        )
+
+        for (block in blocks) {
+            val members = groups[block.key] ?: continue
+            // The caption only gets its own strip when the block can spare it; in a sliver the
+            // tiles matter more than the label, and a header that eats its own block is worse than
+            // no header. Below the threshold the block is drawn unlabelled rather than squashed.
+            val labelled = block.h > headerPx * 3f && block.w > headerPx * 4f
+            val innerTop = if (labelled) headerPx else 0f
+            val innerH = (block.h - innerTop).coerceAtLeast(1f)
+
+            // No per-block background: the canvas already provides one, and painting `surface` over
+            // it just drew near-white gutters in the light theme. The caption sits on that canvas,
+            // so it has to use a theme colour — Color.White here was invisible in light mode, which
+            // is exactly how it shipped to the screenshot before this was caught.
+            if (labelled) {
+                Text(
+                    block.key.uppercase(),
+                    fontSize = (9f / fs).sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .offset(
+                            with(density) { (block.x + 3f).toDp() },
+                            with(density) { (block.y + 1f).toDp() },
+                        )
+                        .width(with(density) { (block.w - 6f).coerceAtLeast(1f).toDp() }),
+                )
+            }
+
+            val inner = Treemap.layout(
+                members.map { TreemapItem(it.symbol, it.size) },
+                (block.w - 2f).coerceAtLeast(1f), (innerH - 2f).coerceAtLeast(1f),
+            )
+            val bySym = members.associateBy { it.symbol }
+            for (rect in inner) {
+                val t = bySym[rect.key] ?: continue
+                TileBox(
+                    t = t,
+                    xPx = block.x + 1f + rect.x,
+                    yPx = block.y + innerTop + 1f + rect.y,
+                    wPx = rect.w,
+                    hPx = rect.h,
+                    fs = fs,
+                    onOpen = onOpen,
+                )
+            }
+        }
+    }
+}
+
+/** One stock rectangle. Shared by the grouped and flat layouts so labelling degrades identically. */
+@Composable
+private fun TileBox(
+    t: HeatmapTile, xPx: Float, yPx: Float, wPx: Float, hPx: Float, fs: Float,
+    onOpen: (Asset) -> Unit,
+) {
+    val density = LocalDensity.current
+    val wDp = with(density) { wPx.toDp() }
+    val hDp = with(density) { hPx.toDp() }
+    val shortDp = with(density) { minOf(wPx, hPx).toDp() }
+    val areaDp = wDp.value * hDp.value
+    Box(
+        modifier = Modifier
+            .offset(with(density) { xPx.toDp() }, with(density) { yPx.toDp() })
+            .size(wDp, hDp)
+            .background(colourFor(t))
+            .clickable(enabled = !t.symbol.endsWith("-USD")) {
+                onOpen(Asset(t.symbol, AssetType.STOCK, t.name.ifBlank { t.symbol }, null))
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (shortDp.value >= 20f && wDp.value >= 34f) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    t.symbol,
+                    fontSize = ((shortDp.value * 0.30f).coerceIn(8f, 20f) / fs).sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    maxLines = 1,
+                )
+                if (areaDp > 2000f) {
+                    Text(
+                        t.label(),
+                        fontSize = ((shortDp.value * 0.17f).coerceIn(7f, 12f) / fs).sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 1,
+                    )
+                }
+            }
+        } else if (shortDp.value >= 10f && t.symbol.length <= 4) {
+            // Only tickers that fit WHOLE — truncating a ticker renames it (GOOGL -> GOOG is a
+            // different real security), so a label either fits or is not drawn.
+            Text(
+                t.symbol,
+                fontSize = ((shortDp.value * 0.42f).coerceIn(6f, 10f) / fs).sp,
+                fontFamily = FontFamily.Monospace,
+                color = Color.White,
+                maxLines = 1,
+            )
         }
     }
 }

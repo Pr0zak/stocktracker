@@ -1792,6 +1792,13 @@ data class HeatmapTile(
      * Carried per tile so a dip tier can never be rendered on the price scale.
      */
     val scale: String = "price",
+    /**
+     * The block this tile belongs to, e.g. "Technology". Null when the symbol could not be
+     * classified — rendered as "Other" rather than dropped, since being unclassified is a fact about
+     * our data and not a reason for a stock to vanish from a map of the market.
+     */
+    val sector: String? = null,
+    val industry: String? = null,
     val price: Double? = null,
     val dip: String? = null,
     val signal: String? = null,

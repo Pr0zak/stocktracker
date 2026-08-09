@@ -17,6 +17,17 @@ val TrafficGreen = Color(0xFF16A34A)
 val TrafficAmber = Color(0xFFD97706)
 val TrafficRed = Color(0xFFDC2626)
 
+/**
+ * Benchmark reference line (the "same money in the S&P" overlay).
+ *
+ * Deliberately NEUTRAL and deliberately not a semantic colour. It used to be pink (0xFFEC4899)
+ * drawn against the green price line, which is the worst pairing for the ~8% of men with red-green
+ * colour vision deficiency, and it also said something untrue — a benchmark is a reference, not a
+ * gain or a loss, so it should not be spending gain/loss vocabulary. Paired with `dashed = true` on
+ * the overlay so shape carries the distinction as well as hue. Mid-grey reads on both themes.
+ */
+val BenchmarkGrey = Color(0xFF8A94A2)
+
 // Crypto accent — visually separates crypto rows/charts from equities (amber, à la Bitcoin)
 val CryptoAccent = Color(0xFFF7A928)
 

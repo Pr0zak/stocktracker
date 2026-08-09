@@ -124,6 +124,7 @@ import com.stocktracker.app.ui.ideas.planActionLabel
 import com.stocktracker.app.ui.ideas.sharesText
 import com.stocktracker.app.ui.ideas.usd
 import com.stocktracker.app.widget.WidgetRefreshScheduler
+import com.stocktracker.app.ui.theme.BenchmarkGrey
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceLarge
@@ -308,7 +309,7 @@ fun DetailScreen(
             val allMarkers = divMarkers + ftdMarkers + halvingMarkers
             val benchOverlay = if (percentMode && benchEnabled) {
                 benchmarkPercent(chartPoints, benchPoints).takeIf { s -> s.any { it != null } }
-                    ?.let { ChartLineOverlay("S&P 500", Color(0xFFEC4899), it) }
+                    ?.let { ChartLineOverlay("S&P 500", BenchmarkGrey, it, dashed = true) }
             } else {
                 null
             }

@@ -77,6 +77,11 @@ import com.stocktracker.app.ui.components.AssetRow
 import com.stocktracker.app.ui.components.FearGauge
 import com.stocktracker.app.ui.components.SessionTimelineBar
 import com.stocktracker.app.ui.components.SwipeToDeleteRow
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.ui.theme.LossRed
+import com.stocktracker.app.ui.theme.PriceLarge
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.MarketClock
 import kotlinx.coroutines.delay
@@ -98,6 +103,7 @@ fun WatchlistScreen(
     onOpenCalendar: () -> Unit = {},
     onOpenDips: () -> Unit = {},
     onOpenHeatmap: () -> Unit = {},
+    onOpenPortfolio: () -> Unit = {},
 ) {
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsState()
@@ -122,6 +128,8 @@ fun WatchlistScreen(
     LaunchedEffect(groups) {
         if (selected !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO, TAB_BELOW) && selected !in groups) selected = TAB_ALL
     }
+    // Collapsed by default — the holdings are why the screen exists.
+    var contextOpen by rememberSaveable { mutableStateOf(false) }
     var showNewListDialog by remember { mutableStateOf(false) }
     var newListName by remember { mutableStateOf("") }
     var confirmDeleteGroup by remember { mutableStateOf<String?>(null) }
@@ -207,6 +215,11 @@ fun WatchlistScreen(
                 if (backendOffline) {
                     item(key = "hdr:offline") { com.stocktracker.app.ui.components.BackendStatusBanner() }
                 }
+                // First, above the filter chips and every context card: what the holdings on this
+                // list are worth today. Returns nothing when nothing on the list is held.
+                item(key = "hdr:portfolio") {
+                    PortfolioStrip(state.items, hideZeroCents, onOpenPortfolio)
+                }
                 item(key = "hdr:tabs") {
                     val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
                     val tabs = listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) + belowTab + groups
@@ -244,23 +257,44 @@ fun WatchlistScreen(
                     }
                 }
 
-                if (state.dips.isNotEmpty()) {
-                    item(key = "hdr:dips") { GoodTimeToAddSection(state.dips, onOpenDips) }
-                }
-
-                if (showMarketStatus) {
-                    item(key = "hdr:timeline") { SessionTimelineBar(marketState) }
-                }
-
-                // Market regime banner (Theme D) — auto-loaded when the AI analyst is on. Also render on
-                // error so the failure (and a retry) is visible rather than silently missing.
+                // Market context — dips, session, regime, VIX — behind ONE line by default.
+                //
+                // These four cards ran to roughly a thousand pixels before the first holding, which
+                // put the list this screen exists for below the fold. Collapsing rather than
+                // removing keeps every affordance (the VIX card opens its detail, the regime card
+                // refreshes, dips expand) while the summary line still carries the state: session,
+                // regime, VIX level and dip count. Expanded state is remembered.
                 val reg = state.regime
-                if (reg.result?.regime?.label?.isNotBlank() == true || reg.loading || reg.error != null) {
-                    item(key = "hdr:regime") { RegimeCard(reg, onRefresh = { vm.loadRegime(force = true) }) }
-                }
-
-                if (showVix) {
-                    vix?.let { v -> item(key = "hdr:vix") { FearGauge(v, onClick = onOpenVix) } }
+                val hasRegime = reg.result?.regime?.label?.isNotBlank() == true || reg.loading || reg.error != null
+                val anyContext = state.dips.isNotEmpty() || showMarketStatus || hasRegime || (showVix && vix != null)
+                if (anyContext) {
+                    item(key = "hdr:context") {
+                        MarketContext(
+                            expanded = contextOpen,
+                            onToggle = { contextOpen = !contextOpen },
+                            marketState = marketState,
+                            regime = reg,
+                            vix = vix,
+                            dipCount = state.dips.size,
+                            showMarketStatus = showMarketStatus,
+                            showVix = showVix,
+                            hasRegime = hasRegime,
+                        )
+                    }
+                    if (contextOpen) {
+                        if (state.dips.isNotEmpty()) {
+                            item(key = "hdr:dips") { GoodTimeToAddSection(state.dips, onOpenDips) }
+                        }
+                        if (showMarketStatus) {
+                            item(key = "hdr:timeline") { SessionTimelineBar(marketState) }
+                        }
+                        if (hasRegime) {
+                            item(key = "hdr:regime") { RegimeCard(reg, onRefresh = { vm.loadRegime(force = true) }) }
+                        }
+                        if (showVix) {
+                            vix?.let { v -> item(key = "hdr:vix") { FearGauge(v, onClick = onOpenVix) } }
+                        }
+                    }
                 }
 
                 // Offer to delete the currently-selected user list (not the computed Below-200w tab).
@@ -308,6 +342,9 @@ fun WatchlistScreen(
                                     changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents) } ?: "…",
                                     up = up,
                                     sparkline = item.sparkline,
+                                    // The level changeText is measured from, so the line and the
+                                    // number can be read against the same baseline.
+                                    previousClose = q?.prevClose,
                                     holdingsText = holdingsText,
                                     isCrypto = item.asset.type == AssetType.CRYPTO,
                                     isEtf = item.quote?.isEtf == true,
@@ -377,6 +414,144 @@ fun WatchlistScreen(
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { confirmDeleteGroup = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/**
+ * What the holdings on this list are worth, and what today did to them.
+ *
+ * The Watchlist opened with four context cards — dips, session, regime, VIX — before a single
+ * holding, so the number most people open the app for was a tab away and the first ticker started
+ * roughly a thousand pixels down. This puts the headline first; the context cards still follow, and
+ * each remains switchable in Settings.
+ *
+ * Derived from the rows already on screen (`asset.shares` x `quote.price`), so it costs no extra
+ * fetch and can never disagree with the list beneath it.
+ *
+ * MIXED CURRENCIES ARE EXCLUDED, NOT CONVERTED. Summing a GBP holding into a USD total at face value
+ * is a bug this app has already had once; a total that quietly means nothing is worse than a smaller
+ * total that says what it left out.
+ */
+@Composable
+private fun PortfolioStrip(
+    items: List<WatchlistItemUi>,
+    hideZeroCents: Boolean,
+    onOpenPortfolio: () -> Unit,
+) {
+    val held = items.mapNotNull { i ->
+        val sh = i.asset.shares ?: return@mapNotNull null
+        val q = i.quote ?: return@mapNotNull null
+        if (sh > 0.0) Triple(sh, q, (q.currency.ifBlank { "USD" })) else null
+    }
+    if (held.isEmpty()) return
+
+    val byCurrency = held.groupBy { it.third }
+    val main = byCurrency.maxByOrNull { (_, v) -> v.sumOf { it.first * it.second.price } } ?: return
+    val rows = main.value
+    val total = rows.sumOf { it.first * it.second.price }
+    val dayChange = rows.sumOf { it.first * it.second.change }
+    val basis = total - dayChange
+    val pct = if (basis != 0.0) dayChange / basis * 100.0 else 0.0
+    val up = dayChange >= 0.0
+    val excluded = held.size - rows.size
+
+    Card(
+        onClick = onOpenPortfolio,
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                "Holdings on this list",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                Formatting.price(total, main.key, hideZeroCents),
+                style = PriceLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                Formatting.changeLine(dayChange, pct, up, hideZeroCents) + " today",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = if (up) GainGreen else LossRed,
+            )
+            if (excluded > 0) {
+                Text(
+                    "excludes $excluded holding(s) priced in another currency",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One line standing in for the market-context cards, with a chevron to open them.
+ *
+ * Carries the same four facts the cards do — session, regime, VIX level, dip count — so collapsing
+ * costs state, not information. Everything behind it stays reachable; nothing is deleted.
+ */
+@Composable
+private fun MarketContext(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    marketState: com.stocktracker.app.util.MarketState,
+    regime: RegimeUi,
+    vix: VixQuote?,
+    dipCount: Int,
+    showMarketStatus: Boolean,
+    showVix: Boolean,
+    hasRegime: Boolean,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val bits = buildList<Pair<String, Color>> {
+        if (showMarketStatus) add(marketState.label to neutral)
+        if (hasRegime) {
+            regime.result?.regime?.label?.takeIf { it.isNotBlank() }?.let { lbl ->
+                val trend = regime.result?.regime?.trend
+                add(lbl to if (trend == "up") GainGreen else if (trend == "down") LossRed else neutral)
+            }
+        }
+        if (showVix) vix?.let { add("VIX ${String.format(Locale.US, "%.1f", it.value)}" to neutral) }
+        if (dipCount > 0) add("$dipCount dip" + (if (dipCount == 1) "" else "s") to neutral)
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { onToggle() }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            bits.forEachIndexed { i, (text, tint) ->
+                if (i > 0) Text("·", style = MaterialTheme.typography.labelSmall, color = neutral)
+                Text(
+                    text,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (tint == neutral) FontWeight.Normal else FontWeight.SemiBold,
+                    color = tint,
+                    maxLines = 1,
+                )
+            }
+        }
+        Icon(
+            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (expanded) "Hide market context" else "Show market context",
+            tint = neutral,
         )
     }
 }

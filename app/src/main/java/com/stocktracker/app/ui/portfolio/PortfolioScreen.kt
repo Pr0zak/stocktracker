@@ -57,6 +57,7 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.calls.MyCallsSection
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.PriceChart
+import com.stocktracker.app.ui.theme.BenchmarkGrey
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceLarge
@@ -198,7 +199,7 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
             val chartUp = chartPoints.size >= 2 && chartPoints.last().price >= chartPoints.first().price
             val benchOverlay = if (state.benchmarkChart.size == state.chart.size && state.benchmarkChart.size >= 2) {
                 val bp = if (percentMode) state.benchmarkChart.asPercentChange() else state.benchmarkChart
-                listOf(ChartLineOverlay("S&P 500", Color(0xFFEC4899), bp.map { it.price }))
+                listOf(ChartLineOverlay("S&P 500", BenchmarkGrey, bp.map { it.price }, dashed = true))
             } else {
                 emptyList()
             }

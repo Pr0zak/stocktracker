@@ -49,7 +49,19 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /** An extra line drawn over the price chart (e.g. a moving average), aligned to the point indices. */
-data class ChartLineOverlay(val label: String, val color: Color, val values: List<Double?>)
+data class ChartLineOverlay(
+    val label: String,
+    val color: Color,
+    val values: List<Double?>,
+    /**
+     * Draw as a dashed line. Shape is a SECOND channel alongside hue, which matters because roughly
+     * 8% of men have red-green colour vision deficiency and the app's price line is green — a
+     * benchmark drawn in a solid contrasting hue was relying on colour alone to be told apart. It
+     * also says something true: a benchmark is a reference, not a gain or a loss, so it should not
+     * be spending a semantic colour at all.
+     */
+    val dashed: Boolean = false,
+)
 
 /** A dated vertical marker on the chart (e.g. an ex-dividend date), snapped to the nearest point. */
 data class ChartMarker(val epochMs: Long, val color: Color, val label: String)
@@ -81,19 +93,49 @@ fun Sparkline(
     values: List<Double>,
     up: Boolean,
     modifier: Modifier = Modifier,
+    /**
+     * Yesterday's close — the level the row's % change is measured FROM. Drawn as a faint dashed
+     * baseline when supplied.
+     *
+     * Without it the line and the number can flatly contradict each other. The series is
+     * `ChartRange.DAY`, scaled to its own min/max, so it starts at the first intraday print; the
+     * percentage beside it is measured from the previous close. A day that opens below yesterday's
+     * close and recovers therefore draws a line climbing left-to-right, in red, next to a negative
+     * number. Observed live on BTC: a rising red sparkline beside "▼ −213.83 (−0.10%)". Both were
+     * correct and the row looked broken. One dashed line at the baseline makes it legible — the
+     * price rose all day and still finished under it.
+     */
+    previousClose: Double? = null,
 ) {
     val color = if (up) GainGreen else LossRed
+    val baselineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
     Canvas(modifier) {
         if (values.size < 2) return@Canvas
-        val min = values.min()
-        val max = values.max()
-        val range = (max - min).takeIf { it > 0.0 } ?: 1.0
+        // The baseline participates in the vertical scale. Left out of it, a close outside the
+        // day's range would be clamped to an edge and silently misplaced by the very drawing meant
+        // to explain the number.
+        val lo = minOf(values.min(), previousClose ?: values.min())
+        val hi = maxOf(values.max(), previousClose ?: values.max())
+        val range = (hi - lo).takeIf { it > 0.0 } ?: 1.0
+        fun yOf(v: Double) = (1f - ((v - lo) / range).toFloat()) * size.height
+
+        previousClose?.let { pc ->
+            val y = yOf(pc)
+            drawLine(
+                color = baselineColor,
+                start = Offset(0f, y),
+                end = Offset(size.width, y),
+                strokeWidth = 1.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(
+                    floatArrayOf(3.dp.toPx(), 3.dp.toPx()), 0f,
+                ),
+            )
+        }
+
         val stepX = size.width / (values.size - 1)
         val path = Path()
         values.forEachIndexed { i, v ->
-            val x = i * stepX
-            val y = (1f - ((v - min) / range).toFloat()) * size.height
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            if (i == 0) path.moveTo(0f, yOf(v)) else path.lineTo(i * stepX, yOf(v))
         }
         drawPath(
             path = path,
@@ -333,7 +375,15 @@ fun PriceChart(
                     if (v == null) { started = false; continue }
                     val cx = xg(k)
                     val cy = y(v)
-                    if (started) drawLine(ov.color, Offset(px, py), Offset(cx, cy), strokeWidth = 1.6.dp.toPx(), cap = StrokeCap.Round)
+                    if (started) drawLine(
+                        ov.color, Offset(px, py), Offset(cx, cy),
+                        strokeWidth = 1.6.dp.toPx(), cap = StrokeCap.Round,
+                        pathEffect = if (ov.dashed) {
+                            PathEffect.dashPathEffect(floatArrayOf(7.dp.toPx(), 5.dp.toPx()))
+                        } else {
+                            null
+                        },
+                    )
                     px = cx; py = cy; started = true
                 }
             }
@@ -460,7 +510,12 @@ fun PriceChart(
                     if (ov.label.isBlank()) return@forEach
                     val layout = textMeasurer.measure(ov.label, TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = ov.color))
                     val midY = 1f + layout.size.height / 2f
-                    drawLine(ov.color, Offset(lx, midY), Offset(lx + 10f, midY), strokeWidth = 2f)
+                    // The legend swatch carries the dash too — otherwise the key claims a solid
+                    // line for something drawn dashed, which is the one place a legend must not lie.
+                    drawLine(
+                        ov.color, Offset(lx, midY), Offset(lx + 10f, midY), strokeWidth = 2f,
+                        pathEffect = if (ov.dashed) PathEffect.dashPathEffect(floatArrayOf(3f, 2f)) else null,
+                    )
                     drawText(layout, topLeft = Offset(lx + 13f, 1f))
                     lx += 13f + layout.size.width + 12f
                 }

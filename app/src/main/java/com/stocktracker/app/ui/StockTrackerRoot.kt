@@ -115,6 +115,8 @@ fun StockTrackerRoot() {
                     onOpenCalendar = { nav.navigate("calendar") },
                     onOpenDips = { nav.navigate("dips") },
                     onOpenHeatmap = { nav.navigate(TopDest.Heatmap.route) },
+                    // Tapping the value strip goes where the full breakdown lives.
+                    onOpenPortfolio = { nav.navigate(TopDest.Portfolio.route) },
                 )
             }
             composable("vix") { VixDetailScreen(onBack = { nav.popBackStack() }) }

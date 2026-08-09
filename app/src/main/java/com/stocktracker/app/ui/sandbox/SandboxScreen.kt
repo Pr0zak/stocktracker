@@ -77,6 +77,7 @@ import com.stocktracker.app.ui.components.DONUT_COLORS
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.ChartMarker
 import com.stocktracker.app.ui.components.PriceChart
+import com.stocktracker.app.ui.theme.BenchmarkGrey
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.util.Formatting
@@ -197,7 +198,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                 val up = ui.nav.size >= 2 && ui.nav.last().price >= ui.nav.first().price
                 val overlays = buildList {
                     if (ui.benchmarkValues.any { it != null }) {
-                        add(ChartLineOverlay("S&P 500", Color(0xFFEC4899), ui.benchmarkValues))
+                        add(ChartLineOverlay("S&P 500", BenchmarkGrey, ui.benchmarkValues, dashed = true))
                     }
                     // The trajectory through the day-to-day noise — "how it's doing over time".
                     if (ui.trendValues.any { it != null }) {

@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.ui.theme.CryptoAccent
 import com.stocktracker.app.ui.theme.EtfAccent
@@ -38,6 +39,8 @@ fun AssetRow(
     up: Boolean,
     sparkline: List<Double>,
     onClick: () -> Unit,
+    /** Yesterday's close — the level `changeText` is measured from. Draws the sparkline's baseline. */
+    previousClose: Double? = null,
     holdingsText: String? = null,
     isCrypto: Boolean = false,
     isEtf: Boolean = false,
@@ -53,9 +56,14 @@ fun AssetRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
+            // 16dp all round put ~2.5 rows on a phone screen. Fintech users are scanning a list,
+            // not reading it — the padding was costing a third of the viewport to whitespace nobody
+            // looks at. Trimmed vertically (the horizontal gutter still needs to breathe), and the
+            // company name moved up beside the ticker rather than taking a line of its own. Nothing
+            // is dropped; the row just stops being three stacked lines when two will do.
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 14.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Leading accent stripe marks crypto (amber) and ETF (teal) rows for quick visual
@@ -64,13 +72,13 @@ fun AssetRow(
                 Box(
                     modifier = Modifier
                         .width(4.dp)
-                        .height(36.dp)
+                        .height(28.dp)
                         .background(accent, RoundedCornerShape(2.dp)),
                 )
                 Spacer12()
             }
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         symbol,
                         fontWeight = FontWeight.Bold,
@@ -90,13 +98,18 @@ fun AssetRow(
                                 .padding(horizontal = 5.dp, vertical = 1.dp),
                         )
                     }
+                    // Beside the ticker, not beneath it. It is a disambiguator, not a headline —
+                    // it takes whatever width is left and ellipsizes rather than owning a line.
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false).padding(bottom = 1.dp),
+                    )
                 }
-                Text(
-                    name,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
                 if (holdingsText != null) {
                     Text(
                         holdingsText,
@@ -111,9 +124,10 @@ fun AssetRow(
                 Sparkline(
                     values = sparkline,
                     up = up,
+                    previousClose = previousClose,
                     modifier = Modifier
-                        .width(64.dp)
-                        .height(32.dp),
+                        .width(58.dp)
+                        .height(26.dp),
                 )
                 Spacer12()
             }

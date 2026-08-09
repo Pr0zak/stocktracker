@@ -78,10 +78,8 @@ import com.stocktracker.app.ui.components.FearGauge
 import com.stocktracker.app.ui.components.SessionTimelineBar
 import com.stocktracker.app.ui.components.SwipeToDeleteRow
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
-import com.stocktracker.app.ui.theme.PriceLarge
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.MarketClock
 import kotlinx.coroutines.delay
@@ -103,7 +101,6 @@ fun WatchlistScreen(
     onOpenCalendar: () -> Unit = {},
     onOpenDips: () -> Unit = {},
     onOpenHeatmap: () -> Unit = {},
-    onOpenPortfolio: () -> Unit = {},
 ) {
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsState()
@@ -214,11 +211,6 @@ fun WatchlistScreen(
             ) {
                 if (backendOffline) {
                     item(key = "hdr:offline") { com.stocktracker.app.ui.components.BackendStatusBanner() }
-                }
-                // First, above the filter chips and every context card: what the holdings on this
-                // list are worth today. Returns nothing when nothing on the list is held.
-                item(key = "hdr:portfolio") {
-                    PortfolioStrip(state.items, hideZeroCents, onOpenPortfolio)
                 }
                 item(key = "hdr:tabs") {
                     val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
@@ -415,81 +407,6 @@ fun WatchlistScreen(
             },
             dismissButton = { TextButton(onClick = { confirmDeleteGroup = null }) { Text("Cancel") } },
         )
-    }
-}
-
-/**
- * What the holdings on this list are worth, and what today did to them.
- *
- * The Watchlist opened with four context cards — dips, session, regime, VIX — before a single
- * holding, so the number most people open the app for was a tab away and the first ticker started
- * roughly a thousand pixels down. This puts the headline first; the context cards still follow, and
- * each remains switchable in Settings.
- *
- * Derived from the rows already on screen (`asset.shares` x `quote.price`), so it costs no extra
- * fetch and can never disagree with the list beneath it.
- *
- * MIXED CURRENCIES ARE EXCLUDED, NOT CONVERTED. Summing a GBP holding into a USD total at face value
- * is a bug this app has already had once; a total that quietly means nothing is worse than a smaller
- * total that says what it left out.
- */
-@Composable
-private fun PortfolioStrip(
-    items: List<WatchlistItemUi>,
-    hideZeroCents: Boolean,
-    onOpenPortfolio: () -> Unit,
-) {
-    val held = items.mapNotNull { i ->
-        val sh = i.asset.shares ?: return@mapNotNull null
-        val q = i.quote ?: return@mapNotNull null
-        if (sh > 0.0) Triple(sh, q, (q.currency.ifBlank { "USD" })) else null
-    }
-    if (held.isEmpty()) return
-
-    val byCurrency = held.groupBy { it.third }
-    val main = byCurrency.maxByOrNull { (_, v) -> v.sumOf { it.first * it.second.price } } ?: return
-    val rows = main.value
-    val total = rows.sumOf { it.first * it.second.price }
-    val dayChange = rows.sumOf { it.first * it.second.change }
-    val basis = total - dayChange
-    val pct = if (basis != 0.0) dayChange / basis * 100.0 else 0.0
-    val up = dayChange >= 0.0
-    val excluded = held.size - rows.size
-
-    Card(
-        onClick = onOpenPortfolio,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                "Holdings on this list",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                Formatting.price(total, main.key, hideZeroCents),
-                style = PriceLarge,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                Formatting.changeLine(dayChange, pct, up, hideZeroCents) + " today",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = if (up) GainGreen else LossRed,
-            )
-            if (excluded > 0) {
-                Text(
-                    "excludes $excluded holding(s) priced in another currency",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
     }
 }
 

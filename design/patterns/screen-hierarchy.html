@@ -1,0 +1,204 @@
+<!-- @dsCard group="Patterns" -->
+<style>
+/* ==========================================================================
+   StockTracker · Patterns · screen hierarchy
+   What goes first. Half of this sheet is shipped; half is open proposals
+   with nothing built behind them yet — marked so the two are never confused.
+   ========================================================================== */
+:root{
+  --gain:#2E9E57; --loss:#B0543D; --flat:#5C6672; --signal:#B0872B; --crypto:#F7A928;
+  --st-bg:#F2F4F7; --st-panel:#FFFFFF; --st-surface:#E9ECF1; --st-ink:#14181F; --st-ink-2:#4E5765;
+  --st-ink-3:#7C8695; --st-rule:rgba(20,24,31,.13); --st-chip:rgba(20,24,31,.055);
+  --st-accent:#3F63A0; --st-accent-bg:rgba(63,99,160,.10);
+}
+@media (prefers-color-scheme:dark){
+  :root{ --gain:#4ADE80; --loss:#F87171; --flat:#8A94A2;
+    --st-bg:#0D1116; --st-panel:#151A21; --st-surface:#1C222B; --st-ink:#E7EBF0; --st-ink-2:#A3ADBA;
+    --st-ink-3:#78828F; --st-rule:rgba(255,255,255,.13); --st-chip:rgba(255,255,255,.07);
+    --st-accent:#8FB0E8; --st-accent-bg:rgba(143,176,232,.13); }
+}
+:root[data-theme="dark"]{ --gain:#4ADE80; --loss:#F87171; --flat:#8A94A2;
+  --st-bg:#0D1116; --st-panel:#151A21; --st-surface:#1C222B; --st-ink:#E7EBF0; --st-ink-2:#A3ADBA;
+  --st-ink-3:#78828F; --st-rule:rgba(255,255,255,.13); --st-chip:rgba(255,255,255,.07);
+  --st-accent:#8FB0E8; --st-accent-bg:rgba(143,176,232,.13); }
+:root[data-theme="light"]{ --gain:#2E9E57; --loss:#B0543D; --flat:#5C6672;
+  --st-bg:#F2F4F7; --st-panel:#FFFFFF; --st-surface:#E9ECF1; --st-ink:#14181F; --st-ink-2:#4E5765;
+  --st-ink-3:#7C8695; --st-rule:rgba(20,24,31,.13); --st-chip:rgba(20,24,31,.055);
+  --st-accent:#3F63A0; --st-accent-bg:rgba(63,99,160,.10); }
+
+.st-sheet{
+  --f-sys:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-family:var(--f-sys); background:var(--st-bg); color:var(--st-ink);
+  padding:32px 20px 48px; box-sizing:border-box; overflow-x:hidden; min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+.st-sheet *,.st-sheet *::before,.st-sheet *::after{box-sizing:border-box;}
+.st-wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:32px;}
+.st-head{display:flex;flex-direction:column;gap:12px;}
+.st-eyebrow{font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--st-accent);}
+.st-title{font-size:34px;font-weight:300;letter-spacing:-.02em;margin:0;}
+.st-lede{font-size:15px;line-height:1.55;color:var(--st-ink-2);margin:0;max-width:64ch;}
+.st-meta{display:flex;flex-wrap:wrap;gap:6px;padding-top:4px;}
+.st-code{font-family:var(--f-mono);font-size:11px;color:var(--st-ink-2);background:var(--st-chip);
+  border-radius:999px;padding:5px 10px;white-space:nowrap;}
+.st-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:26px 30px;align-items:start;}
+.st-spec{display:flex;flex-direction:column;gap:9px;min-width:0;}
+.st-spec-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;}
+.st-spec-name{font-size:14px;font-weight:600;margin:0;}
+.st-tag{font-family:var(--f-mono);font-size:11px;color:var(--st-ink-3);background:var(--st-chip);
+  border-radius:999px;padding:3px 8px;}
+.ship{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--gain);
+  border:1px solid currentColor;border-radius:999px;padding:2px 8px;}
+.prop{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--signal);
+  border:1px solid currentColor;border-radius:999px;padding:2px 8px;}
+.st-note{font-size:12.5px;line-height:1.6;color:var(--st-ink-3);margin:0;max-width:58ch;}
+.phone{background:var(--st-surface);border:1px solid var(--st-rule);border-radius:16px;padding:8px;
+  display:flex;flex-direction:column;gap:6px;max-width:250px;}
+.blk{background:var(--st-panel);border-radius:9px;padding:8px 10px;font-size:11px;color:var(--st-ink-2);}
+.blk--tall{padding:22px 10px;}
+.blk--hero{padding:10px;}
+.blk--ghost{background:transparent;border:1px dashed var(--st-rule);color:var(--st-ink-3);text-align:center;font-size:10.5px;}
+.hero-v{font-family:var(--f-mono);font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--st-ink);}
+.hero-c{font-family:var(--f-mono);font-size:11px;color:var(--gain);}
+.rw{background:var(--st-panel);border-radius:9px;padding:6px 10px;display:flex;align-items:center;gap:8px;font-size:11px;}
+.rw b{font-size:12px;}
+.rw .r{margin-left:auto;font-family:var(--f-mono);font-variant-numeric:tabular-nums;}
+.strip{background:var(--st-panel);border-radius:9px;padding:7px 10px;display:flex;align-items:center;
+  gap:6px;font-size:10.5px;color:var(--st-ink-2);}
+.strip .chev{margin-left:auto;color:var(--st-ink-3);}
+.cap{font-size:11.5px;line-height:1.5;color:var(--st-ink-3);}
+.cap b{color:var(--st-ink-2);}
+.ideas{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px;}
+.ideas li{background:var(--st-panel);border:1px solid var(--st-rule);border-radius:12px;padding:13px 15px;}
+.ideas h3{margin:0 0 4px;font-size:13px;font-weight:650;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.ideas p{margin:0;font-size:12.5px;line-height:1.6;color:var(--st-ink-3);max-width:70ch;}
+.st-foot{font-size:12px;line-height:1.65;color:var(--st-ink-3);border-top:1px solid var(--st-rule);
+  padding-top:16px;margin:0;max-width:74ch;}
+.st-foot b{color:var(--st-ink-2);font-weight:600;}
+</style>
+
+<div class="st-sheet"><div class="st-wrap">
+
+  <header class="st-head">
+    <div class="st-eyebrow">StockTracker · Patterns</div>
+    <h1 class="st-title">Screen hierarchy</h1>
+    <p class="st-lede">Hierarchy is earned by importance, not by what was built most recently. Both
+      main screens had drifted the other way — the Watchlist opened with four context cards before a
+      single holding, and Portfolio put a cash-entry form between the chart and the positions. The
+      lower half of this sheet is proposals with nothing built behind them.</p>
+    <div class="st-meta">
+      <span class="st-code">WatchlistScreen.kt</span>
+      <span class="st-code">PortfolioScreen.kt</span>
+      <span class="st-code">short, interrupted, one-handed</span>
+    </div>
+  </header>
+
+  <div class="st-grid">
+
+    <section class="st-spec">
+      <div class="st-spec-head"><h2 class="st-spec-name">Watchlist</h2><span class="ship">shipped</span></div>
+      <p class="st-note">Four cards ran to roughly a thousand pixels before the list. They now sit
+        behind one line carrying the same four facts — session, regime, VIX, dip count — and every
+        affordance survives: the VIX card still opens its detail, the regime card still refreshes.</p>
+      <div class="phone">
+        <div class="blk">Dip radar · 13 names</div>
+        <div class="blk blk--tall">Market Session · timeline</div>
+        <div class="blk">Risk-on uptrend · vol calm</div>
+        <div class="blk blk--tall">Market Fear · VIX gauge</div>
+        <div class="rw"><b>BTC</b><span class="r">$64,769</span></div>
+        <div class="blk blk--ghost">↓ the list, below the fold</div>
+      </div>
+      <p class="cap"><b>Before.</b> Context outranked content.</p>
+      <div class="phone">
+        <div class="strip">Market Closed · Risk-on · VIX 14.9 · 13 dips<span class="chev">⌄</span></div>
+        <div class="rw"><b>BTC</b><span style="color:var(--st-ink-3)">Bitcoin</span><span class="r">$64,769 <span style="color:var(--loss)">▼0.10%</span></span></div>
+        <div class="rw"><b>NVDA</b><span style="color:var(--st-ink-3)">NVIDIA</span><span class="r">$223.96 <span style="color:var(--gain)">▲2.27%</span></span></div>
+        <div class="rw"><b>AAPL</b><span style="color:var(--st-ink-3)">Apple</span><span class="r">$313.33 <span style="color:var(--gain)">▲0.31%</span></span></div>
+        <div class="rw"><b>MSFT</b><span style="color:var(--st-ink-3)">Microsoft</span><span class="r">$499.99 <span style="color:var(--flat)">▪0.03%</span></span></div>
+        <div class="rw"><b>GME</b><span style="color:var(--st-ink-3)">GameStop</span><span class="r">$19.06 <span style="color:var(--loss)">▼12.2%</span></span></div>
+      </div>
+      <p class="cap"><b>After.</b> One line of context, then the list.</p>
+    </section>
+
+    <section class="st-spec">
+      <div class="st-spec-head"><h2 class="st-spec-name">Portfolio</h2><span class="ship">shipped</span></div>
+      <p class="st-note">A “Cash to invest” field and two buttons sat between the chart and the
+        holdings, so a form outranked the data on a screen called Portfolio. The actions moved below
+        the positions — still one screen away, no longer standing in front of them.</p>
+      <div class="phone">
+        <div class="blk blk--hero"><div class="hero-v">$4,254.17</div><div class="hero-c">▲ +64.24 (+1.53%) today</div></div>
+        <div class="blk blk--tall">equity curve vs benchmark</div>
+        <div class="blk">Cash to invest — $2000</div>
+        <div class="blk">[ Add to holdings ] [ Find new ]</div>
+        <div class="blk blk--ghost">↓ holdings, below the fold</div>
+      </div>
+      <p class="cap"><b>Before.</b> A form between you and your positions.</p>
+      <div class="phone">
+        <div class="blk blk--hero"><div class="hero-v">$4,254.17</div><div class="hero-c">▲ +64.24 (+1.53%) today</div></div>
+        <div class="blk blk--tall">equity curve vs benchmark</div>
+        <div class="rw"><b>NVDA</b><span style="color:var(--st-ink-3)">12 sh</span><span class="r">$2,687</span></div>
+        <div class="rw"><b>AAPL</b><span style="color:var(--st-ink-3)">4 sh</span><span class="r">$1,253</span></div>
+        <div class="rw"><b>BTC</b><span style="color:var(--st-ink-3)">0.004</span><span class="r">$259</span></div>
+        <div class="blk">Cash to invest — $2000</div>
+        <div class="blk">[ Add to holdings ] [ Find new ]</div>
+      </div>
+      <p class="cap"><b>After.</b> Data, then the action on it.</p>
+    </section>
+
+  </div>
+
+  <section class="st-spec">
+    <div class="st-spec-head"><h2 class="st-spec-name">Open proposals</h2>
+      <span class="prop">nothing built</span></div>
+    <p class="st-note">Ideas worth arguing about on this canvas before any of them becomes Kotlin.
+      Each one trades something real away; none is obviously correct.</p>
+    <ol class="ideas">
+      <li>
+        <h3>Sticky value header <span class="st-tag">watchlist</span></h3>
+        <p>A one-line portfolio total that pins to the top once the list scrolls. A full value card
+          was tried at the top of the Watchlist and removed — it pushed the list down as badly as the
+          context cards had. Sticky gets the number without paying for it twice. <b>Cost:</b> a second
+          persistent bar under the app bar, on a screen that already has filter chips.</p>
+      </li>
+      <li>
+        <h3>Sector grouping in the list <span class="st-tag">watchlist</span></h3>
+        <p>The heat map already groups by sector and the classification is cached server-side, so the
+          data is free. Collapsible sector headers would make a twenty-name list scannable by theme
+          rather than by memorised order. <b>Cost:</b> it fights manual drag-reorder, which is the
+          current organising principle and which people use deliberately.</p>
+      </li>
+      <li>
+        <h3>Swipe-right to open detail <span class="st-tag">rows</span></h3>
+        <p>Swipe-left already deletes. The opposite gesture is unused and detail is the most common
+          destination. <b>Cost:</b> gesture collision with the reorder drag, and swipe affordances are
+          invisible until discovered.</p>
+      </li>
+      <li>
+        <h3>Density as a setting <span class="st-tag">rows</span></h3>
+        <p>Comfortable / compact, the way mail clients do it. The tighter row shipped as the only
+          option; someone who reads company names rather than tickers lost something. <b>Cost:</b>
+          another switch in a Settings screen that already has many, to serve a preference nobody has
+          asked for yet.</p>
+      </li>
+      <li>
+        <h3>Inline expansion instead of navigation <span class="st-tag">rows</span></h3>
+        <p>Tapping a row expands it in place — chart, signal, key levels — rather than pushing a
+          screen. Keeps you in the list while comparing names, which is the actual task. <b>Cost:</b>
+          the detail screen is rich enough that a useful inline version is most of a rewrite, and it
+          would fork two presentations of the same content.</p>
+      </li>
+    </ol>
+  </section>
+
+  <p class="st-foot">
+    <b>The test used throughout.</b> Would someone glancing at this screen for two seconds, one-handed,
+    on a bus, get what they came for? That question demoted every context card on the Watchlist and
+    moved the cash form on Portfolio, and it is the one to apply to the proposals above.
+    <b>Note on the removed value card:</b> it was built, shipped in v0.81.0 and taken out a day later.
+    The number was right and the placement was wrong — it reclaimed the space the collapsed context
+    cards had just freed. That is the argument for the sticky variant rather than against showing the
+    total at all.
+  </p>
+
+</div></div>

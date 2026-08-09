@@ -1,0 +1,242 @@
+<!-- @dsCard group="Components" -->
+<style>
+/* ==========================================================================
+   StockTracker · Components · asset row
+   The most-repeated element in the app. Everything here is a density or
+   state question — the content set is settled, the argument is how much
+   vertical space it may spend.
+   ========================================================================== */
+:root{
+  --gain:#2E9E57; --loss:#B0543D; --flat:#5C6672; --crypto:#F7A928; --etf:#14B8A6; --signal:#B0872B;
+  --st-bg:#F2F4F7; --st-panel:#FFFFFF; --st-surface:#E9ECF1; --st-ink:#14181F; --st-ink-2:#4E5765;
+  --st-ink-3:#7C8695; --st-rule:rgba(20,24,31,.13); --st-chip:rgba(20,24,31,.055);
+  --st-accent:#3F63A0; --st-accent-bg:rgba(63,99,160,.10);
+}
+@media (prefers-color-scheme:dark){
+  :root{ --gain:#4ADE80; --loss:#F87171; --flat:#8A94A2;
+    --st-bg:#0D1116; --st-panel:#151A21; --st-surface:#1C222B; --st-ink:#E7EBF0; --st-ink-2:#A3ADBA;
+    --st-ink-3:#78828F; --st-rule:rgba(255,255,255,.13); --st-chip:rgba(255,255,255,.07);
+    --st-accent:#8FB0E8; --st-accent-bg:rgba(143,176,232,.13); }
+}
+:root[data-theme="dark"]{ --gain:#4ADE80; --loss:#F87171; --flat:#8A94A2;
+  --st-bg:#0D1116; --st-panel:#151A21; --st-surface:#1C222B; --st-ink:#E7EBF0; --st-ink-2:#A3ADBA;
+  --st-ink-3:#78828F; --st-rule:rgba(255,255,255,.13); --st-chip:rgba(255,255,255,.07);
+  --st-accent:#8FB0E8; --st-accent-bg:rgba(143,176,232,.13); }
+:root[data-theme="light"]{ --gain:#2E9E57; --loss:#B0543D; --flat:#5C6672;
+  --st-bg:#F2F4F7; --st-panel:#FFFFFF; --st-surface:#E9ECF1; --st-ink:#14181F; --st-ink-2:#4E5765;
+  --st-ink-3:#7C8695; --st-rule:rgba(20,24,31,.13); --st-chip:rgba(20,24,31,.055);
+  --st-accent:#3F63A0; --st-accent-bg:rgba(63,99,160,.10); }
+
+.st-sheet{
+  --f-sys:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-family:var(--f-sys); background:var(--st-bg); color:var(--st-ink);
+  padding:32px 20px 48px; box-sizing:border-box; overflow-x:hidden; min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+.st-sheet *,.st-sheet *::before,.st-sheet *::after{box-sizing:border-box;}
+.st-wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:32px;}
+.st-head{display:flex;flex-direction:column;gap:12px;}
+.st-eyebrow{font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--st-accent);}
+.st-title{font-size:34px;font-weight:300;letter-spacing:-.02em;margin:0;}
+.st-lede{font-size:15px;line-height:1.55;color:var(--st-ink-2);margin:0;max-width:64ch;}
+.st-meta{display:flex;flex-wrap:wrap;gap:6px;padding-top:4px;}
+.st-code{font-family:var(--f-mono);font-size:11px;color:var(--st-ink-2);background:var(--st-chip);
+  border-radius:999px;padding:5px 10px;white-space:nowrap;}
+.st-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr));gap:28px 32px;align-items:start;}
+.st-spec{display:flex;flex-direction:column;gap:9px;min-width:0;}
+.st-spec-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;}
+.st-spec-name{font-size:14px;font-weight:600;margin:0;}
+.st-tag{font-family:var(--f-mono);font-size:11px;color:var(--st-ink-3);background:var(--st-chip);
+  border-radius:999px;padding:3px 8px;}
+.st-flag{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--st-accent);background:var(--st-accent-bg);border:1px solid currentColor;
+  border-radius:999px;padding:2px 8px;}
+.st-note{font-size:12.5px;line-height:1.6;color:var(--st-ink-3);margin:0;max-width:60ch;}
+.stage{background:var(--st-bg);border:1px solid var(--st-rule);border-radius:18px;padding:10px;
+  display:flex;flex-direction:column;gap:7px;max-width:400px;}
+
+/* ---- the row itself ---- */
+.row{background:var(--st-panel);border-radius:12px;display:flex;align-items:center;gap:10px;
+  padding:9px 14px;}
+.row--roomy{padding:16px 16px;}
+.accent{width:4px;height:28px;border-radius:2px;flex:none;}
+.row--roomy .accent{height:36px;}
+.idcol{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;}
+.idline{display:flex;align-items:baseline;gap:6px;min-width:0;}
+.sym{font-size:15px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;}
+.co{font-size:12px;color:var(--st-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hold{font-size:11px;color:var(--st-accent);white-space:nowrap;}
+.badge{font-size:10px;font-weight:700;color:var(--signal);background:rgba(176,135,43,.16);
+  border-radius:4px;padding:1px 5px;white-space:nowrap;}
+.spark{flex:none;}
+.numcol{display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex:none;}
+.px{font-family:var(--f-mono);font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;}
+.chg{font-family:var(--f-mono);font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.up{color:var(--gain);} .down{color:var(--loss);} .nil{color:var(--flat);}
+.count{font-size:11px;color:var(--st-ink-3);font-family:var(--f-mono);text-align:center;padding-top:2px;}
+
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+.tbl th,.tbl td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--st-rule);vertical-align:top;}
+.tbl th{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--st-ink-3);font-weight:600;}
+.tbl td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.st-panel{background:var(--st-panel);border:1px solid var(--st-rule);border-radius:16px;padding:16px;}
+.st-foot{font-size:12px;line-height:1.65;color:var(--st-ink-3);border-top:1px solid var(--st-rule);
+  padding-top:16px;margin:0;max-width:74ch;}
+.st-foot b{color:var(--st-ink-2);font-weight:600;}
+</style>
+
+<div class="st-sheet"><div class="st-wrap">
+
+  <header class="st-head">
+    <div class="st-eyebrow">StockTracker · Components</div>
+    <h1 class="st-title">Asset row</h1>
+    <p class="st-lede">Repeated twenty-odd times per screen, so every pixel it spends is spent
+      twenty times. The content set is settled — ticker, name, holding, shape, price, change. The
+      only live question is how much height it may take, and the answer changed: the name moved up
+      beside the ticker instead of owning a line of its own.</p>
+    <div class="st-meta">
+      <span class="st-code">AssetRow.kt</span>
+      <span class="st-code">padding 14 × 9</span>
+      <span class="st-code">spark 58 × 26</span>
+      <span class="st-code">mono + tabular-nums on all figures</span>
+    </div>
+  </header>
+
+  <div class="st-grid">
+
+    <section class="st-spec">
+      <div class="st-spec-head"><h2 class="st-spec-name">Density · before and after</h2>
+        <span class="st-flag">shipped v0.81.0</span></div>
+      <p class="st-note">16dp all round with the company name on its own line fitted about two and a
+        half rows on a phone. Trimming the vertical padding and lifting the name beside the ticker
+        removes nothing and returns roughly two rows of viewport.</p>
+      <div class="stage">
+        <div class="row row--roomy">
+          <div class="idcol">
+            <div class="idline"><span class="sym">NVDA</span></div>
+            <span class="co">NVIDIA Corporation</span>
+            <span class="hold">12 sh · $2,687.52</span>
+          </div>
+          <svg class="spark" width="64" height="32" viewBox="0 0 64 32" aria-hidden="true">
+            <polyline points="0,25 12,20 24,23 36,9 48,14 64,5" fill="none" stroke="var(--gain)" stroke-width="2.2"/>
+          </svg>
+          <div class="numcol"><span class="px">$223.96</span>
+            <span class="chg up">▲ +4.97 (+2.27%)</span></div>
+        </div>
+        <div class="count">roomy · ~2.5 rows visible</div>
+      </div>
+      <div class="stage">
+        <div class="row">
+          <div class="idcol">
+            <div class="idline"><span class="sym">NVDA</span><span class="co">NVIDIA Corporation</span></div>
+            <span class="hold">12 sh · $2,687.52</span>
+          </div>
+          <svg class="spark" width="58" height="26" viewBox="0 0 58 26" aria-hidden="true">
+            <line x1="0" y1="6" x2="58" y2="6" stroke="currentColor" stroke-opacity=".3" stroke-width="1" stroke-dasharray="3 3"/>
+            <polyline points="0,21 11,17 22,19 33,8 44,12 58,4" fill="none" stroke="var(--gain)" stroke-width="2.2"/>
+          </svg>
+          <div class="numcol"><span class="px">$223.96</span>
+            <span class="chg up">▲ +4.97 (+2.27%)</span></div>
+        </div>
+        <div class="row">
+          <div class="idcol"><div class="idline"><span class="sym">AAPL</span><span class="co">Apple Inc.</span></div></div>
+          <svg class="spark" width="58" height="26" viewBox="0 0 58 26" aria-hidden="true">
+            <line x1="0" y1="14" x2="58" y2="14" stroke="currentColor" stroke-opacity=".3" stroke-width="1" stroke-dasharray="3 3"/>
+            <polyline points="0,18 11,20 22,13 33,15 44,11 58,9" fill="none" stroke="var(--gain)" stroke-width="2.2"/>
+          </svg>
+          <div class="numcol"><span class="px">$313.33</span><span class="chg up">▲ +0.96 (+0.31%)</span></div>
+        </div>
+        <div class="row">
+          <div class="idcol"><div class="idline"><span class="sym">MSFT</span><span class="co">Microsoft</span></div></div>
+          <svg class="spark" width="58" height="26" viewBox="0 0 58 26" aria-hidden="true">
+            <line x1="0" y1="13" x2="58" y2="13" stroke="currentColor" stroke-opacity=".3" stroke-width="1" stroke-dasharray="3 3"/>
+            <polyline points="0,13 11,14 22,12 33,13 44,13 58,13" fill="none" stroke="var(--flat)" stroke-width="2.2"/>
+          </svg>
+          <div class="numcol"><span class="px">$499.99</span><span class="chg nil">▪ +0.13 (+0.03%)</span></div>
+        </div>
+        <div class="count">tight · ~5 rows visible</div>
+      </div>
+    </section>
+
+    <section class="st-spec">
+      <div class="st-spec-head"><h2 class="st-spec-name">Variants</h2>
+        <span class="st-tag">accent = asset class, never direction</span></div>
+      <p class="st-note">The leading stripe says what KIND of thing this is. It is deliberately not
+        on the semantic scale — amber for crypto and teal for ETFs, so a stripe can never be misread
+        as a gain. The 200w badge is a value cue from the nightly scan, not a buy flag.</p>
+      <div class="stage">
+        <div class="row">
+          <span class="accent" style="background:var(--crypto)"></span>
+          <div class="idcol"><div class="idline"><span class="sym" style="color:var(--crypto)">BTC</span>
+            <span class="co">Bitcoin</span></div></div>
+          <svg class="spark" width="58" height="26" viewBox="0 0 58 26" aria-hidden="true">
+            <line x1="0" y1="4" x2="58" y2="4" stroke="currentColor" stroke-opacity=".3" stroke-width="1" stroke-dasharray="3 3"/>
+            <polyline points="0,21 11,17 22,19 33,10 44,13 58,6" fill="none" stroke="var(--loss)" stroke-width="2.2"/>
+          </svg>
+          <div class="numcol"><span class="px">$64,769</span><span class="chg down">▼ −213.83 (−0.10%)</span></div>
+        </div>
+        <div class="row">
+          <span class="accent" style="background:var(--etf)"></span>
+          <div class="idcol"><div class="idline"><span class="sym" style="color:var(--etf)">VTI</span>
+            <span class="co">Vanguard Total Stock</span></div>
+            <span class="hold">7 sh · $2,667.00</span></div>
+          <svg class="spark" width="58" height="26" viewBox="0 0 58 26" aria-hidden="true">
+            <line x1="0" y1="15" x2="58" y2="15" stroke="currentColor" stroke-opacity=".3" stroke-width="1" stroke-dasharray="3 3"/>
+            <polyline points="0,19 11,17 22,16 33,12 44,11 58,8" fill="none" stroke="var(--gain)" stroke-width="2.2"/>
+          </svg>
+          <div class="numcol"><span class="px">$381.00</span><span class="chg up">▲ +1.42 (+0.37%)</span></div>
+        </div>
+        <div class="row">
+          <div class="idcol"><div class="idline"><span class="sym">GME</span>
+            <span class="badge">200w</span><span class="co">GameStop</span></div></div>
+          <svg class="spark" width="58" height="26" viewBox="0 0 58 26" aria-hidden="true">
+            <line x1="0" y1="4" x2="58" y2="4" stroke="currentColor" stroke-opacity=".3" stroke-width="1" stroke-dasharray="3 3"/>
+            <polyline points="0,7 11,9 22,8 33,17 44,20 58,22" fill="none" stroke="var(--loss)" stroke-width="2.2"/>
+          </svg>
+          <div class="numcol"><span class="px">$19.06</span><span class="chg down">▼ −2.66 (−12.25%)</span></div>
+        </div>
+        <div class="row">
+          <div class="idcol"><div class="idline"><span class="sym">TTE</span><span class="co">TotalEnergies</span></div></div>
+          <div class="numcol" style="flex:1;align-items:flex-end">
+            <span class="px" style="color:var(--st-ink-3)">—</span>
+            <span class="chg nil">no quote</span></div>
+        </div>
+        <div class="count">crypto · ETF · value badge · unpriceable</div>
+      </div>
+    </section>
+
+  </div>
+
+  <section class="st-spec">
+    <div class="st-spec-head"><h2 class="st-spec-name">Label degradation</h2>
+      <span class="st-tag">a label either FITS or is not drawn</span></div>
+    <p class="st-note">Truncating a ticker does not abbreviate it, it renames it — <span
+      class="st-code">GOOGL</span> cut to four characters is <span class="st-code">GOOG</span>, a
+      different real security that is on the same screen. So there is no ellipsis rule for tickers;
+      there is a fit test. Only the company name, which is a disambiguator rather than an identifier,
+      may ellipsize.</p>
+    <div class="st-panel">
+      <table class="tbl">
+        <thead><tr><th>Space</th><th>Ticker</th><th>Name</th><th>Holding</th><th>Change</th></tr></thead>
+        <tbody>
+          <tr><td class="n">full width</td><td>full</td><td>ellipsized</td><td>shown</td><td>value + percent</td></tr>
+          <tr><td class="n">narrow</td><td>full</td><td>dropped</td><td>shown</td><td>percent only</td></tr>
+          <tr><td class="n">minimum</td><td>full</td><td>dropped</td><td>dropped</td><td>percent only</td></tr>
+          <tr><td class="n">below minimum</td><td colspan="4">row is not rendered — a half-legible row is worse than a scroll</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="st-foot">
+    <b>Why the name moved rather than went away.</b> It disambiguates tickers people do not know by
+    heart, which is most of them outside the top twenty. On its own line it cost a full row of height
+    on every row in the list; beside the ticker it costs nothing extra, because the ticker line had
+    slack to the right in every case. <b>Open question:</b> the sparkline is the widest optional
+    element at 58px. On a small phone in landscape it is the first thing worth dropping, and there is
+    currently no breakpoint that does so — the row simply gets tighter around it.
+  </p>
+
+</div></div>

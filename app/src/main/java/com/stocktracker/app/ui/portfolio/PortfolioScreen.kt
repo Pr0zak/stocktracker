@@ -260,38 +260,6 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            // Cash to invest — feeds the AI review + rebalance so they can distribute it across holdings.
-            OutlinedTextField(
-                value = state.cashText,
-                onValueChange = vm::setCash,
-                label = { Text("Cash to invest") },
-                prefix = { Text("$") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            )
-            // Two ways to put the cash to work: deepen what you already own (rebalance, existing
-            // holdings only), or discover new names (the Ideas engine — watchlist + whole market).
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                Button(
-                    onClick = { vm.openRebalance() },
-                    enabled = state.hasHoldings,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Icon(Icons.Filled.Balance, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("Add to holdings")
-                }
-                OutlinedButton(onClick = onOpenIdeas, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.Lightbulb, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("Find new")
-                }
-            }
-
             Text(
                 "Holdings",
                 style = MaterialTheme.typography.titleMedium,
@@ -385,6 +353,44 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
                             )
                         }
                     }
+                }
+            }
+
+            // Put the cash to work — BELOW the positions, not above them.
+            //
+            // A "Cash to invest" field and two buttons used to sit between the chart and the
+            // holdings, so a form outranked the data on a screen called Portfolio and the positions
+            // started below the fold. The actions are still one screen away; they just no longer
+            // stand in front of the thing you opened the tab to see.
+            //
+            // Two ways to deploy it: deepen what you already own (rebalance, existing holdings only),
+            // or discover new names (the Ideas engine — watchlist + whole market).
+            OutlinedTextField(
+                value = state.cashText,
+                onValueChange = vm::setCash,
+                label = { Text("Cash to invest") },
+                prefix = { Text("$") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Button(
+                    onClick = { vm.openRebalance() },
+                    enabled = state.hasHoldings,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Filled.Balance, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Add to holdings")
+                }
+                OutlinedButton(onClick = onOpenIdeas, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.Lightbulb, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Find new")
                 }
             }
 

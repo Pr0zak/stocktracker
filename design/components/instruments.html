@@ -1,0 +1,206 @@
+<!-- @dsCard group="Components" -->
+<style>
+/* ==========================================================================
+   StockTracker · Components · instruments
+   Sparkline, VIX gauge, benchmark overlay. Three small drawings that each
+   had the same defect: a reader could not tell what the mark was measured
+   FROM. Every fix here adds a baseline, a scale, or a dash — never a hue.
+   ========================================================================== */
+:root{
+  --gain:#2E9E57; --loss:#B0543D; --flat:#5C6672; --signal:#B0872B; --bench:#8A94A2;
+  --st-bg:#F2F4F7; --st-panel:#FFFFFF; --st-ink:#14181F; --st-ink-2:#4E5765;
+  --st-ink-3:#7C8695; --st-rule:rgba(20,24,31,.13); --st-chip:rgba(20,24,31,.055);
+  --st-accent:#3F63A0; --st-accent-bg:rgba(63,99,160,.10);
+}
+@media (prefers-color-scheme:dark){
+  :root{ --gain:#4ADE80; --loss:#F87171; --flat:#8A94A2;
+    --st-bg:#0D1116; --st-panel:#151A21; --st-ink:#E7EBF0; --st-ink-2:#A3ADBA;
+    --st-ink-3:#78828F; --st-rule:rgba(255,255,255,.13); --st-chip:rgba(255,255,255,.07);
+    --st-accent:#8FB0E8; --st-accent-bg:rgba(143,176,232,.13); }
+}
+:root[data-theme="dark"]{ --gain:#4ADE80; --loss:#F87171; --flat:#8A94A2;
+  --st-bg:#0D1116; --st-panel:#151A21; --st-ink:#E7EBF0; --st-ink-2:#A3ADBA;
+  --st-ink-3:#78828F; --st-rule:rgba(255,255,255,.13); --st-chip:rgba(255,255,255,.07);
+  --st-accent:#8FB0E8; --st-accent-bg:rgba(143,176,232,.13); }
+:root[data-theme="light"]{ --gain:#2E9E57; --loss:#B0543D; --flat:#5C6672;
+  --st-bg:#F2F4F7; --st-panel:#FFFFFF; --st-ink:#14181F; --st-ink-2:#4E5765;
+  --st-ink-3:#7C8695; --st-rule:rgba(20,24,31,.13); --st-chip:rgba(20,24,31,.055);
+  --st-accent:#3F63A0; --st-accent-bg:rgba(63,99,160,.10); }
+
+.st-sheet{
+  --f-sys:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-family:var(--f-sys); background:var(--st-bg); color:var(--st-ink);
+  padding:32px 20px 48px; box-sizing:border-box; overflow-x:hidden; min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+.st-sheet *,.st-sheet *::before,.st-sheet *::after{box-sizing:border-box;}
+.st-wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:32px;}
+.st-head{display:flex;flex-direction:column;gap:12px;}
+.st-eyebrow{font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--st-accent);}
+.st-title{font-size:34px;font-weight:300;letter-spacing:-.02em;margin:0;}
+.st-lede{font-size:15px;line-height:1.55;color:var(--st-ink-2);margin:0;max-width:64ch;}
+.st-meta{display:flex;flex-wrap:wrap;gap:6px;padding-top:4px;}
+.st-code{font-family:var(--f-mono);font-size:11px;color:var(--st-ink-2);background:var(--st-chip);
+  border-radius:999px;padding:5px 10px;white-space:nowrap;}
+.st-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr));gap:28px 32px;align-items:start;}
+.st-spec{display:flex;flex-direction:column;gap:9px;min-width:0;}
+.st-spec-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;}
+.st-spec-name{font-size:14px;font-weight:600;margin:0;}
+.st-tag{font-family:var(--f-mono);font-size:11px;color:var(--st-ink-3);background:var(--st-chip);
+  border-radius:999px;padding:3px 8px;}
+.st-flag{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--loss);border:1px solid currentColor;border-radius:999px;padding:2px 8px;}
+.st-note{font-size:12.5px;line-height:1.6;color:var(--st-ink-3);margin:0;max-width:60ch;}
+.st-panel{background:var(--st-panel);border:1px solid var(--st-rule);border-radius:16px;padding:16px;}
+.pair{display:flex;flex-direction:column;gap:10px;}
+.demo{background:var(--st-panel);border:1px solid var(--st-rule);border-radius:12px;
+  padding:10px 14px;display:flex;align-items:center;gap:12px;}
+.sym{font-size:15px;font-weight:700;}
+.px{font-family:var(--f-mono);font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;margin-left:auto;}
+.chg{font-family:var(--f-mono);font-size:11.5px;font-variant-numeric:tabular-nums;}
+.down{color:var(--loss);} .up{color:var(--gain);}
+.cap{font-size:11.5px;line-height:1.5;color:var(--st-ink-3);}
+.cap b{color:var(--st-ink-2);}
+.st-foot{font-size:12px;line-height:1.65;color:var(--st-ink-3);border-top:1px solid var(--st-rule);
+  padding-top:16px;margin:0;max-width:74ch;}
+.st-foot b{color:var(--st-ink-2);font-weight:600;}
+</style>
+
+<div class="st-sheet"><div class="st-wrap">
+
+  <header class="st-head">
+    <div class="st-eyebrow">StockTracker · Components</div>
+    <h1 class="st-title">Instruments</h1>
+    <p class="st-lede">Three small drawings that shared one defect: a reader could not tell what the
+      mark was measured <em>from</em>. A sparkline scaled to its own range, a gauge knob on an
+      unlabelled ramp, a benchmark line separated from the price only by hue. Each fix adds a
+      baseline, a scale, or a dash — none of them adds a colour.</p>
+    <div class="st-meta">
+      <span class="st-code">Charts.kt · FearGauge.kt</span>
+      <span class="st-code">Canvas, no chart library</span>
+      <span class="st-code">shape before hue</span>
+    </div>
+  </header>
+
+  <div class="st-grid">
+
+    <section class="st-spec">
+      <div class="st-spec-head"><h2 class="st-spec-name">Sparkline · the baseline</h2>
+        <span class="st-flag">was a real bug</span></div>
+      <p class="st-note">The series is the intraday day, scaled to its own min and max, so it starts
+        at the first print. The percentage beside it is measured from the <em>previous close</em>. A
+        day that opens below yesterday and recovers therefore climbs left to right, in red, next to a
+        negative number — observed live on BTC. One dashed line at the close reconciles them.</p>
+      <div class="pair">
+        <div class="demo">
+          <span class="sym" style="color:#F7A928">BTC</span>
+          <svg width="86" height="34" viewBox="0 0 86 34" role="img" aria-label="Rising red line, no reference">
+            <polyline points="0,27 17,22 34,25 51,13 68,17 86,6" fill="none" stroke="var(--loss)" stroke-width="2.4"/>
+          </svg>
+          <span class="px">$64,769</span>
+          <span class="chg down">▼ −0.10%</span>
+        </div>
+        <p class="cap"><b>Before.</b> The line goes up and the number is red. Both correct, and the
+          row reads as broken.</p>
+        <div class="demo">
+          <span class="sym" style="color:#F7A928">BTC</span>
+          <svg width="86" height="34" viewBox="0 0 86 34" role="img" aria-label="Rising red line still below the previous close">
+            <line x1="0" y1="4" x2="86" y2="4" stroke="currentColor" stroke-opacity=".35" stroke-width="1.2" stroke-dasharray="4 3"/>
+            <polyline points="0,27 17,22 34,25 51,13 68,17 86,6" fill="none" stroke="var(--loss)" stroke-width="2.4"/>
+          </svg>
+          <span class="px">$64,769</span>
+          <span class="chg down">▼ −0.10%</span>
+        </div>
+        <p class="cap"><b>After.</b> Recovered all day, still under yesterday's close. The close joins
+          the vertical scale rather than sitting outside it — otherwise a close beyond the day's range
+          would be clamped to an edge by the very line meant to explain the number.</p>
+      </div>
+    </section>
+
+    <section class="st-spec">
+      <div class="st-spec-head"><h2 class="st-spec-name">Benchmark overlay</h2>
+        <span class="st-tag">reference, not verdict</span></div>
+      <p class="st-note">Drawn in pink against a green price line, this was the worst pairing
+        available for red-green colour vision deficiency — and it also claimed a semantic colour for
+        something that is neither a gain nor a loss. Neutral and dashed fixes both at once. The legend
+        swatch dashes to match; a key that shows solid for a dashed line is the one place a legend
+        must not lie.</p>
+      <div class="st-panel">
+        <svg viewBox="0 0 320 130" width="100%" role="img"
+             aria-label="Portfolio solid green against a dashed grey benchmark, with legend">
+          <g font-family="ui-monospace,monospace" font-size="9">
+            <line x1="8" y1="16" x2="26" y2="16" stroke="var(--gain)" stroke-width="2.4"/>
+            <text x="31" y="19" fill="currentColor" opacity=".75">Portfolio</text>
+            <line x1="90" y1="16" x2="108" y2="16" stroke="var(--bench)" stroke-width="2.2" stroke-dasharray="3 2"/>
+            <text x="113" y="19" fill="currentColor" opacity=".75">S&amp;P 500</text>
+          </g>
+          <polyline points="8,110 52,92 96,100 140,60 184,72 228,36 312,22"
+                    fill="none" stroke="var(--gain)" stroke-width="2.6"/>
+          <polyline points="8,112 52,102 96,98 140,84 184,78 228,66 312,54"
+                    fill="none" stroke="var(--bench)" stroke-width="2.2" stroke-dasharray="7 5"/>
+        </svg>
+      </div>
+      <p class="cap">The same rule covers the cost-basis line and the 200-week line: a reference is
+        grey and dashed, and never borrows gain or loss.</p>
+    </section>
+
+  </div>
+
+  <section class="st-spec">
+    <div class="st-spec-head"><h2 class="st-spec-name">VIX gauge · the missing scale</h2>
+      <span class="st-tag">inverted — high is the bad end</span></div>
+    <p class="st-note">This one was less broken than it looked. The bands were already discrete and
+      the zone pill already said “Calm” in words, so the reading never depended on hue alone. What was
+      missing was a <em>scale</em>: a knob three-fifths along a five-colour ramp only says “20” if you
+      can separate amber from orange. Boundary values, hairlines between bands, and a pointer make
+      the position readable numerically.</p>
+    <div class="st-panel" style="display:flex;flex-direction:column;gap:20px">
+      <div>
+        <div class="cap" style="margin-bottom:6px"><b>Before</b> — position on a ramp, no reference</div>
+        <svg viewBox="0 0 640 30" width="100%" role="img" aria-label="Unlabelled five-colour ramp with a knob">
+          <rect x="0" y="8" width="210" height="14" rx="7" fill="#4ADE80"/>
+          <rect x="210" y="8" width="74" height="14" fill="#FACC15"/>
+          <rect x="284" y="8" width="142" height="14" fill="#F59E0B"/>
+          <rect x="426" y="8" width="142" height="14" fill="#FB923C"/>
+          <rect x="568" y="8" width="72" height="14" rx="7" fill="#F87171"/>
+          <circle cx="198" cy="15" r="9" fill="#fff" stroke="#2E9E57" stroke-width="3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="cap" style="margin-bottom:6px"><b>After</b> — bands countable, position legible</div>
+        <svg viewBox="0 0 640 52" width="100%" role="img"
+             aria-label="Banded gauge with hairlines, boundary values 15 20 30 40, and a pointer at 14.9">
+          <rect x="0" y="8" width="210" height="14" rx="7" fill="#4ADE80"/>
+          <rect x="210" y="8" width="74" height="14" fill="#FACC15"/>
+          <rect x="284" y="8" width="142" height="14" fill="#F59E0B"/>
+          <rect x="426" y="8" width="142" height="14" fill="#FB923C"/>
+          <rect x="568" y="8" width="72" height="14" rx="7" fill="#F87171"/>
+          <g stroke="var(--st-panel)" stroke-width="2">
+            <line x1="210" y1="8" x2="210" y2="22"/><line x1="284" y1="8" x2="284" y2="22"/>
+            <line x1="426" y1="8" x2="426" y2="22"/><line x1="568" y1="8" x2="568" y2="22"/>
+          </g>
+          <circle cx="198" cy="15" r="9" fill="#fff" stroke="#2E9E57" stroke-width="3"/>
+          <path d="M198 24 L204 32 L192 32 Z" fill="currentColor"/>
+          <g font-family="ui-monospace,monospace" font-size="11" fill="currentColor" opacity=".62">
+            <text x="210" y="47" text-anchor="middle">15</text>
+            <text x="284" y="47" text-anchor="middle">20</text>
+            <text x="426" y="47" text-anchor="middle">30</text>
+            <text x="568" y="47" text-anchor="middle">40</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <p class="st-foot">
+    <b>The shared lesson.</b> All three were failures of <em>reference</em>, not of colour choice.
+    A mark is only readable against something — yesterday's close, a boundary value, a line you can
+    tell apart by its dashes. Adding hue would have fixed none of them, and in two cases hue was the
+    thing making it worse. <b>Open question:</b> the sparkline baseline is drawn at 45% opacity, which
+    survives on both themes but nearly disappears against a heavily-shaded area fill. If the row ever
+    gains an area under the line, the baseline needs to move above it in z-order rather than gaining
+    contrast.
+  </p>
+
+</div></div>

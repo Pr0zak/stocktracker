@@ -1,0 +1,198 @@
+<!-- @dsCard group="Foundations" -->
+<style>
+/* ==========================================================================
+   StockTracker · Foundations · colour
+   Two colour families that must never be confused: SEMANTIC (the market moved)
+   and SYSTEM (this app has an opinion). Everything else is chrome.
+   Values are the app's own theme/Color.kt, not a redraw.
+   ========================================================================== */
+:root{
+  --gain:#4ADE80; --loss:#F87171;
+  --gain-ink:#2E9E57; --loss-ink:#B0543D;
+  --signal:#B0872B; --crypto:#F7A928; --etf:#14B8A6; --bench:#8A94A2; --flat:#39424E;
+  --vix-1:#4ADE80; --vix-2:#FACC15; --vix-3:#F59E0B; --vix-4:#FB923C; --vix-5:#F87171;
+
+  --st-bg:#F2F4F7; --st-panel:#FFFFFF; --st-ink:#14181F; --st-ink-2:#4E5765;
+  --st-ink-3:#7C8695; --st-rule:rgba(20,24,31,.13); --st-chip:rgba(20,24,31,.055);
+  --st-accent:#3F63A0; --st-accent-bg:rgba(63,99,160,.10);
+}
+@media (prefers-color-scheme:dark){
+  :root{ --st-bg:#0D1116; --st-panel:#151A21; --st-ink:#E7EBF0; --st-ink-2:#A3ADBA;
+    --st-ink-3:#78828F; --st-rule:rgba(255,255,255,.13); --st-chip:rgba(255,255,255,.07);
+    --st-accent:#8FB0E8; --st-accent-bg:rgba(143,176,232,.13); }
+}
+:root[data-theme="dark"]{ --st-bg:#0D1116; --st-panel:#151A21; --st-ink:#E7EBF0; --st-ink-2:#A3ADBA;
+  --st-ink-3:#78828F; --st-rule:rgba(255,255,255,.13); --st-chip:rgba(255,255,255,.07);
+  --st-accent:#8FB0E8; --st-accent-bg:rgba(143,176,232,.13); }
+:root[data-theme="light"]{ --st-bg:#F2F4F7; --st-panel:#FFFFFF; --st-ink:#14181F; --st-ink-2:#4E5765;
+  --st-ink-3:#7C8695; --st-rule:rgba(20,24,31,.13); --st-chip:rgba(20,24,31,.055);
+  --st-accent:#3F63A0; --st-accent-bg:rgba(63,99,160,.10); }
+
+.st-sheet{
+  --f-sys:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-family:var(--f-sys); background:var(--st-bg); color:var(--st-ink);
+  padding:32px 20px 48px; box-sizing:border-box; overflow-x:hidden; min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+.st-sheet *,.st-sheet *::before,.st-sheet *::after{box-sizing:border-box;}
+.st-wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:32px;}
+.st-head{display:flex;flex-direction:column;gap:12px;}
+.st-eyebrow{font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--st-accent);}
+.st-title{font-size:34px;font-weight:300;letter-spacing:-.02em;margin:0;}
+.st-lede{font-size:15px;line-height:1.55;color:var(--st-ink-2);margin:0;max-width:64ch;}
+.st-meta{display:flex;flex-wrap:wrap;gap:6px;padding-top:4px;}
+.st-code{font-family:var(--f-mono);font-size:11px;color:var(--st-ink-2);background:var(--st-chip);
+  border-radius:999px;padding:5px 10px;white-space:nowrap;}
+.st-spec{display:flex;flex-direction:column;gap:10px;min-width:0;}
+.st-spec-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;}
+.st-spec-name{font-size:14px;font-weight:600;margin:0;}
+.st-tag{font-family:var(--f-mono);font-size:11px;color:var(--st-ink-3);background:var(--st-chip);
+  border-radius:999px;padding:3px 8px;}
+.st-flag{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--loss-ink);border:1px solid currentColor;border-radius:999px;padding:2px 8px;}
+.st-ok{color:var(--gain-ink);}
+.st-note{font-size:12.5px;line-height:1.6;color:var(--st-ink-3);margin:0;max-width:62ch;}
+.st-panel{background:var(--st-panel);border:1px solid var(--st-rule);border-radius:16px;padding:18px;}
+
+.sw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;}
+.sw{display:flex;flex-direction:column;gap:7px;}
+.sw i{display:block;height:52px;border-radius:10px;border:1px solid var(--st-rule);}
+.sw b{font-size:12.5px;font-weight:600;}
+.sw span{font-family:var(--f-mono);font-size:11px;color:var(--st-ink-3);}
+.sw p{margin:0;font-size:11.5px;line-height:1.5;color:var(--st-ink-3);}
+
+.cvd{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:20px;}
+.cvd figure{margin:0;display:flex;flex-direction:column;gap:8px;}
+.cvd figcaption{font-size:11.5px;color:var(--st-ink-3);line-height:1.5;}
+.cvd svg{width:100%;height:auto;background:#11151b;border-radius:12px;}
+
+.rule-list{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:7px;
+  font-size:12.5px;line-height:1.6;color:var(--st-ink-2);max-width:66ch;}
+.rule-list b{color:var(--st-ink);}
+.st-foot{font-size:12px;line-height:1.65;color:var(--st-ink-3);border-top:1px solid var(--st-rule);
+  padding-top:16px;margin:0;max-width:72ch;}
+.st-foot b{color:var(--st-ink-2);font-weight:600;}
+</style>
+
+<div class="st-sheet"><div class="st-wrap">
+
+  <header class="st-head">
+    <div class="st-eyebrow">StockTracker · Foundations</div>
+    <h1 class="st-title">Colour</h1>
+    <p class="st-lede">Two families that must never blur into each other. <b>Semantic</b> says the
+      market moved and is only ever green or red. <b>System</b> says this app has an opinion and is
+      always amber. A dip tier rendered on the price scale would read as “it went up today”, which is
+      the opposite of the truth for a name down 40%.</p>
+    <div class="st-meta">
+      <span class="st-code">source: theme/Color.kt</span>
+      <span class="st-code">MD3 dynamic colour for chrome</span>
+      <span class="st-code">semantics fixed across themes</span>
+    </div>
+  </header>
+
+  <section class="st-spec">
+    <div class="st-spec-head"><h2 class="st-spec-name">Semantic — the market moved</h2>
+      <span class="st-tag">never used for app opinion</span></div>
+    <div class="st-panel"><div class="sw-grid">
+      <div class="sw"><i style="background:#4ADE80"></i><b>Gain</b><span>#4ADE80</span>
+        <p>Price up. Always paired with ▲ and a sign.</p></div>
+      <div class="sw"><i style="background:#F87171"></i><b>Loss</b><span>#F87171</span>
+        <p>Price down. Always paired with ▼ and a sign.</p></div>
+      <div class="sw"><i style="background:#39424E"></i><b>Flat</b><span>#39424E</span>
+        <p>Under ±0.05%. A slate, not a faint green.</p></div>
+      <div class="sw"><i style="background:#8A94A2"></i><b>Benchmark</b><span>#8A94A2</span>
+        <p>A reference, not a gain or a loss. Neutral by design, and drawn dashed.</p></div>
+    </div></div>
+  </section>
+
+  <section class="st-spec">
+    <div class="st-spec-head"><h2 class="st-spec-name">System — this app has an opinion</h2>
+      <span class="st-tag">amber family</span></div>
+    <div class="st-panel"><div class="sw-grid">
+      <div class="sw"><i style="background:#B0872B"></i><b>Signal</b><span>#B0872B</span>
+        <p>Dip tiers, staleness, degraded data, blocked orders.</p></div>
+      <div class="sw"><i style="background:#F7A928"></i><b>Crypto</b><span>#F7A928</span>
+        <p>Row accent only — asset class, not direction.</p></div>
+      <div class="sw"><i style="background:#14B8A6"></i><b>ETF</b><span>#14B8A6</span>
+        <p>Row accent only. Teal so it can't be read as gain.</p></div>
+    </div></div>
+  </section>
+
+  <section class="st-spec">
+    <div class="st-spec-head"><h2 class="st-spec-name">Red / green under deuteranopia</h2>
+      <span class="st-flag">the recurring risk</span></div>
+    <p class="st-note">Roughly 8% of men cannot separate these two hues. The app is already careful
+      — every change carries ▲/▼ and a sign, so direction survives without colour. The failures have
+      all been in <em>charts</em>, where the arrow has nowhere to live and shape has to do the work
+      instead. Simulated below: the same two lines, then the same pair as shipped now.</p>
+    <div class="cvd">
+      <figure>
+        <svg viewBox="0 0 320 90" role="img" aria-label="Green and pink lines, near-identical under deuteranopia">
+          <polyline points="8,74 60,60 112,66 164,36 216,46 312,14" fill="none" stroke="#8F8F5A" stroke-width="3"/>
+          <polyline points="8,76 60,66 112,62 164,52 216,48 312,34" fill="none" stroke="#8A7E86" stroke-width="2.4"/>
+        </svg>
+        <figcaption><b>Before</b> — green price vs pink benchmark, simulated. Two muddy olives.
+          Hue was the only channel, so there was nothing left.</figcaption>
+      </figure>
+      <figure>
+        <svg viewBox="0 0 320 90" role="img" aria-label="Solid price line against a dashed neutral benchmark">
+          <polyline points="8,74 60,60 112,66 164,36 216,46 312,14" fill="none" stroke="#8F8F5A" stroke-width="3"/>
+          <polyline points="8,76 60,66 112,62 164,52 216,48 312,34" fill="none" stroke="#8A94A2"
+                    stroke-width="2.2" stroke-dasharray="8 5"/>
+        </svg>
+        <figcaption><b>After</b> — the benchmark is neutral and dashed. Still legible with no hue
+          discrimination at all, and it stops a reference line spending a semantic colour.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="st-spec">
+    <div class="st-spec-head"><h2 class="st-spec-name">VIX severity ramp</h2>
+      <span class="st-tag">its own family</span></div>
+    <p class="st-note">Inverted against every other scale in the app: a HIGH reading is the bad end.
+      Five fixed bands rather than a gradient, so they can be counted, plus boundary values and a
+      pointer — position is readable numerically when the hues won't separate.</p>
+    <div class="st-panel">
+      <svg viewBox="0 0 640 54" width="100%" role="img" aria-label="VIX bands with boundary values at 15, 20, 30 and 40">
+        <rect x="0" y="10" width="210" height="14" rx="7" fill="#4ADE80"/>
+        <rect x="212" y="10" width="72" height="14" fill="#FACC15"/>
+        <rect x="286" y="10" width="140" height="14" fill="#F59E0B"/>
+        <rect x="428" y="10" width="140" height="14" fill="#FB923C"/>
+        <rect x="570" y="10" width="70" height="14" rx="7" fill="#F87171"/>
+        <path d="M198 0 L206 10 L190 10 Z" fill="currentColor"/>
+        <g font-family="ui-monospace,monospace" font-size="11" fill="currentColor" opacity=".65">
+          <text x="212" y="44" text-anchor="middle">15</text>
+          <text x="286" y="44" text-anchor="middle">20</text>
+          <text x="428" y="44" text-anchor="middle">30</text>
+          <text x="570" y="44" text-anchor="middle">40</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section class="st-spec">
+    <div class="st-spec-head"><h2 class="st-spec-name">Rules</h2></div>
+    <ol class="rule-list">
+      <li><b>Colour is never the only channel.</b> Direction gets an arrow and a sign; a chart line
+        gets a dash pattern; a band gets a boundary value.</li>
+      <li><b>Semantic and system never mix.</b> A tile carries which scale it is on, so a dip tier
+        cannot be rendered as a good day.</li>
+      <li><b>Absent is not flat.</b> Data we could not load renders as amber and says so — it never
+        borrows the neutral that means “genuinely unchanged”.</li>
+      <li><b>References are neutral.</b> A benchmark, a cost line, a previous close: grey and dashed.
+        Spending gain/loss on them makes a comparison look like a verdict.</li>
+    </ol>
+  </section>
+
+  <p class="st-foot">
+    <b>Why this sheet exists.</b> Every colour bug found in this app has been the same shape — a
+    value that was <em>absent</em> or <em>reference</em> rendered through a path written for
+    <em>present</em> or <em>semantic</em>. The palette is small on purpose; the discipline is in
+    which family a thing belongs to, not in how many hues are available.
+    <b>Open question:</b> the VIX ramp shares hues with the dip-tier amber. They never appear on the
+    same surface today, but if they ever do, the VIX bands should get tick marks rather than a re-hue
+    — the green-to-red convention is load-bearing for a fear gauge.
+  </p>
+
+</div></div>

@@ -11,7 +11,50 @@ import kotlin.math.sqrt
  */
 fun List<PricePoint>.asPercentChange(): List<PricePoint> {
     val base = firstOrNull { it.price != 0.0 }?.price ?: return this
-    return map { it.copy(price = (it.price / base - 1.0) * 100.0) }
+    // The bar extremes have to be rebased along with the close. Copying only `price` would leave a
+    // point holding a percentage next to two raw dollar figures, and both consumers read all three:
+    // the chart folds high/low into its y-scale (so a $18 low beside a -3% close blows the axis out
+    // by three orders of magnitude) and the high/low marker formats them with the percent formatter.
+    return map {
+        it.copy(
+            price = (it.price / base - 1.0) * 100.0,
+            high = it.high?.let { h -> (h / base - 1.0) * 100.0 },
+            low = it.low?.let { l -> (l / base - 1.0) * 100.0 },
+        )
+    }
+}
+
+/**
+ * The bar's true high / low, falling back to its close when the source reports neither.
+ *
+ * A close is what the price happened to be at one instant per bar, so a series of closes has no
+ * memory of the range traded inside it. That is invisible on the line but decides the high/low
+ * markers, and each chart range asks Yahoo for a different bar size — 1D in 1-minute bars, 1W in
+ * 5-minute, 1M in 30-minute. Picking extremes from closes therefore gives a different answer per
+ * range for the same trading day, and lets a WIDER window report a higher low than the narrower one
+ * it contains. Bar extremes nest by construction; closes do not.
+ */
+fun PricePoint.barHigh(): Double = high ?: price
+fun PricePoint.barLow(): Double = low ?: price
+
+/** Index of the highest bar in [from]..[to] inclusive, or -1 when the range is empty. */
+fun highIndexIn(points: List<PricePoint>, from: Int, to: Int): Int {
+    if (points.isEmpty() || from > to) return -1
+    val lo = from.coerceIn(0, points.lastIndex)
+    val hi = to.coerceIn(0, points.lastIndex)
+    var best = lo
+    for (k in lo..hi) if (points[k].barHigh() > points[best].barHigh()) best = k
+    return best
+}
+
+/** Index of the lowest bar in [from]..[to] inclusive, or -1 when the range is empty. */
+fun lowIndexIn(points: List<PricePoint>, from: Int, to: Int): Int {
+    if (points.isEmpty() || from > to) return -1
+    val lo = from.coerceIn(0, points.lastIndex)
+    val hi = to.coerceIn(0, points.lastIndex)
+    var best = lo
+    for (k in lo..hi) if (points[k].barLow() < points[best].barLow()) best = k
+    return best
 }
 
 /** Formats a percent-change value for the chart axis / scrub readout, e.g. "+3.42%". */

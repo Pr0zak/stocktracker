@@ -41,6 +41,10 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stocktracker.app.data.model.PricePoint
+import com.stocktracker.app.util.barHigh
+import com.stocktracker.app.util.barLow
+import com.stocktracker.app.util.highIndexIn
+import com.stocktracker.app.util.lowIndexIn
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import kotlin.math.abs
@@ -291,6 +295,12 @@ fun PriceChart(
                 val p = points[k].price
                 if (p < dataMin) dataMin = p
                 if (p > dataMax) dataMax = p
+                // Bar extremes count toward the scale ONLY when they will be drawn, or the plot
+                // reserves headroom for a wick that never appears.
+                if (showHighLow) {
+                    if (points[k].barLow() < dataMin) dataMin = points[k].barLow()
+                    if (points[k].barHigh() > dataMax) dataMax = points[k].barHigh()
+                }
             }
             // Fold visible overlay (MA) values in too, so zooming never pushes a line out of the plot.
             overlays.forEach { ov ->
@@ -446,18 +456,17 @@ fun PriceChart(
 
             // High / low markers over the visible extremes.
             if (showHighLow && range > 0.0) {
-                var maxIdx = startIdx
-                var minIdx = startIdx
-                for (k in startIdx..endIdx) {
-                    if (points[k].price > points[maxIdx].price) maxIdx = k
-                    if (points[k].price < points[minIdx].price) minIdx = k
-                }
+                // Bar extremes, not closes — see highIndexIn / PricePoint.high for why the two
+                // disagree and why only one of them nests across ranges.
+                val maxIdx = highIndexIn(points, startIdx, endIdx)
+                val minIdx = lowIndexIn(points, startIdx, endIdx)
                 val pad = 5.dp.toPx()
 
                 fun marker(idx: Int, dotColor: Color, above: Boolean) {
+                    val value = if (above) points[idx].barHigh() else points[idx].barLow()
                     val cx = xg(idx)
-                    val cy = y(points[idx].price)
-                    val layout = textMeasurer.measure(valueFormatter(points[idx].price), labelStyle)
+                    val cy = y(value)
+                    val layout = textMeasurer.measure(valueFormatter(value), labelStyle)
                     val tw = layout.size.width.toFloat()
                     val th = layout.size.height.toFloat()
                     val lx = (cx - tw / 2f).coerceIn(0f, (size.width - tw).coerceAtLeast(0f))
@@ -475,8 +484,8 @@ fun PriceChart(
                     drawCircle(surface, radius = 3.dp.toPx(), center = Offset(cx, cy), style = Stroke(1.2.dp.toPx()))
                 }
 
-                marker(maxIdx, GainGreen, above = true)
-                marker(minIdx, LossRed, above = false)
+                if (maxIdx >= 0) marker(maxIdx, GainGreen, above = true)
+                if (minIdx >= 0) marker(minIdx, LossRed, above = false)
             }
 
             // Dated markers (e.g. ex-dividend dates) — vertical line + a small tag at the bottom.

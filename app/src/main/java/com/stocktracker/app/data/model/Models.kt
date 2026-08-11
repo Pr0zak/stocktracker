@@ -96,6 +96,19 @@ data class PricePoint(
     val price: Double,
     val extended: Boolean = false,
     val volume: Double? = null,
+    /**
+     * The bar's true extremes, when the source reports them. Null means closes only (CoinGecko).
+     *
+     * [price] is the bar's CLOSE, and a close series has no memory of what happened inside the bar.
+     * That is invisible on the line itself but wrong for a high/low marker, because each chart range
+     * asks Yahoo for a different bar size — 1D in 1-minute bars, 1W in 5-minute, 1M in 30-minute. The
+     * same trading day therefore yields a different "low" per range, and the wider view can report a
+     * HIGHER low than the narrower one it contains: measured on GME 2026-08-11, 1D showed $18.59 and
+     * 1W showed $18.70 for a window that includes it. Bar extremes nest the way closes do not — a
+     * 5-minute bar's low IS the lowest of its five 1-minute lows.
+     */
+    val high: Double? = null,
+    val low: Double? = null,
 )
 
 /** Chart time ranges shown on the detail screen. */

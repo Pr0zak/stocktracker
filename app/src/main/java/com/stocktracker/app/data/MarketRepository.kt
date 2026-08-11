@@ -55,6 +55,27 @@ class MarketRepository(
         return value
     }
 
+    /**
+     * Drop every memoized price so the next read genuinely goes to the network. For a refresh the
+     * user asked for by name.
+     *
+     * Without this, "Refresh" is a suggestion. The TTL above would serve the same 15-second-old quote
+     * back, and — much worse — the stale-while-error branch hands back the last good value on every
+     * failure, forever, so a tap during an outage returns instantly with the old price and no error.
+     * Clearing the entry first is what lets that failure reach the caller, which is the only way the
+     * UI can say "this did not work" instead of leaving a frozen timestamp to be interpreted.
+     *
+     * History goes too, so the detail chart re-reads rather than redrawing the memo beside a price
+     * that just changed.
+     *
+     * Sparklines deliberately do NOT: they are decorative shape on a 10-minute TTL, and dropping them
+     * means a refresh that FAILS also erases the little chart it could not replace. Old shape is not
+     * wrong shape, and blanking it is a worse answer than leaving it a few minutes behind.
+     */
+    fun invalidateQuotes() {
+        cache.keys.removeIf { it.startsWith("q:") || it.startsWith("m:") || it.startsWith("h:") }
+    }
+
     /** Treats null / empty collection / empty map as "empty" so those get only the negative TTL. */
     private fun isEmptyResult(value: Any?): Boolean = when (value) {
         null -> true

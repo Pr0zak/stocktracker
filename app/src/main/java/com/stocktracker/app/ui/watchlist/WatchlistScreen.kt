@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -81,6 +82,9 @@ import androidx.compose.material3.Card
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.app.util.Freshness
+import com.stocktracker.app.util.listFreshness
+import com.stocktracker.app.util.staleRowCount
 import com.stocktracker.app.util.MarketClock
 import kotlinx.coroutines.delay
 import sh.calvin.reorderable.ReorderableItem
@@ -112,6 +116,15 @@ fun WatchlistScreen(
         while (true) {
             value = MarketClock.now()
             delay(60_000)
+        }
+    }
+    // The freshness line has to age on its own. Without a ticking clock it would read "Updated just
+    // now" for as long as the screen sits untouched — which is exactly the window where a price
+    // quietly going stale is worth knowing about.
+    val nowMs by produceState(initialValue = System.currentTimeMillis()) {
+        while (true) {
+            delay(20_000)
+            value = System.currentTimeMillis()
         }
     }
     val vix by produceState<VixQuote?>(initialValue = null) {
@@ -172,8 +185,12 @@ fun WatchlistScreen(
                     IconButton(onClick = onOpenCalendar) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = "Catalyst calendar")
                     }
-                    IconButton(onClick = { vm.refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    IconButton(onClick = { vm.refresh() }, enabled = !state.refreshing) {
+                        if (state.refreshing) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh prices")
+                        }
                     }
                 },
             )
@@ -246,6 +263,25 @@ fun WatchlistScreen(
                             )
                         }
                         NewListChip(onClick = { showNewListDialog = true })
+                    }
+                }
+
+                // When these prices were last read. Above the context strip because it qualifies
+                // every number below it, including the ones inside the collapsed cards.
+                if (state.items.isNotEmpty()) {
+                    item(key = "hdr:freshness") {
+                        val stamps = state.items.map { it.quote?.asOfEpochMs ?: 0L }
+                        FreshnessLine(
+                            freshness = listFreshness(stamps, nowMs, marketState.phase),
+                            staleRows = staleRowCount(stamps, nowMs, marketState.phase),
+                            totalRows = stamps.size,
+                            // Also while the initial load runs: on a first-ever launch every row has
+                            // no timestamp, and "Never updated" is true but reads as a fault when
+                            // the truth is that the first fetch simply has not landed yet.
+                            refreshing = state.refreshing || state.loading,
+                            error = state.refreshError,
+                            onRefresh = { vm.refresh() },
+                        )
                     }
                 }
 
@@ -416,6 +452,77 @@ fun WatchlistScreen(
  * Carries the same four facts the cards do — session, regime, VIX level, dip count — so collapsing
  * costs state, not information. Everything behind it stays reachable; nothing is deleted.
  */
+/**
+ * When these prices were last read, and a way to read them again.
+ *
+ * Every price surface in this app falls back to the last cached quote when a fetch fails, so an
+ * outage and a quiet market render identically — same numbers, nothing moving. This line is the only
+ * thing on the screen that can tell them apart, which is why it stays visible when everything is
+ * fine rather than appearing only on trouble: a line that shows up only when something is wrong
+ * teaches nobody where to look, and its absence is indistinguishable from not having noticed.
+ *
+ * Tapping it refreshes. That makes the diagnosis and the fix the same gesture, in the same place,
+ * instead of a warning here and an icon in the app bar.
+ */
+@Composable
+private fun FreshnessLine(
+    freshness: Freshness,
+    staleRows: Int,
+    totalRows: Int,
+    refreshing: Boolean,
+    error: String?,
+    onRefresh: () -> Unit,
+) {
+    // A refresh in flight is never a warning, whatever the timestamp still says — the alarm colour
+    // belongs to "this is old and nothing is being done about it", and on a first launch every row
+    // is legitimately timestamp-less while the first fetch is still on the wire.
+    val warn = !refreshing && (error != null || freshness.stale)
+    val tint = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(enabled = !refreshing) { onRefresh() }
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (refreshing) {
+            CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+        } else {
+            Icon(
+                imageVector = if (warn) Icons.Filled.Warning else Icons.Default.Refresh,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+        Text(
+            text = when {
+                refreshing -> "Refreshing…"
+                // The age belongs in the failure, not beside it: "couldn't reach it" answers why the
+                // numbers stopped moving, "last read 14m ago" answers how much that costs you.
+                error != null -> "$error · last read ${freshness.since}"
+                // Naming the count matters when it is a subset: "Updated 9m ago" alone invites the
+                // reading that everything is 9m old, when in fact one row is and eleven are current.
+                staleRows in 1 until totalRows -> "${freshness.label} · $staleRows of $totalRows out of date"
+                else -> freshness.label
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = tint,
+            maxLines = 2,
+            modifier = Modifier.weight(1f),
+        )
+        if (!refreshing) {
+            Text(
+                text = "Tap to refresh",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 private fun MarketContext(
     expanded: Boolean,

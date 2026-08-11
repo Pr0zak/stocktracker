@@ -64,6 +64,15 @@ data class WatchlistUiState(
     val regime: RegimeUi = RegimeUi(),
     /** Last deleted asset, held so the UI can offer UNDO. Non-null means the snackbar is due. */
     val recentlyRemoved: Asset? = null,
+    /** A refresh the user asked for is in flight — distinct from the initial [loading] spinner. */
+    val refreshing: Boolean = false,
+    /**
+     * Set when a fetch reached nothing at all and the rows are the previous prices.
+     *
+     * The timestamps alone would leave the user to infer this from a number that failed to move,
+     * which is a lot to ask of a line of small grey text. Say it.
+     */
+    val refreshError: String? = null,
 )
 
 class WatchlistViewModel : ViewModel() {
@@ -130,10 +139,20 @@ class WatchlistViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Re-read every price from the source, not from the memo.
+     *
+     * [MarketRepository.invalidateQuotes] first, because otherwise this is a no-op the user cannot
+     * distinguish from a market that did not move — the TTL would serve the same quote back and, in
+     * an outage, the stale-while-error path would return the old value with no error at all.
+     */
     fun refresh() {
         viewModelScope.launch {
+            _state.update { it.copy(refreshing = true, refreshError = null) }
+            repo.invalidateQuotes()
             loadQuotes(currentAssets)
             loadBelowLineFlags()
+            _state.update { it.copy(refreshing = false) }
         }
     }
 
@@ -389,6 +408,15 @@ class WatchlistViewModel : ViewModel() {
             WatchlistItemUi(f.asset, quote, spark, below200wma = belowLineMap[scanKey(f.asset)])
         }
         if (gen != loadGeneration) return // superseded (e.g. by a remove) — don't clobber the UI
-        _state.update { it.copy(items = items, loading = false) }
+        // Every row on screen came out of the cache: the fetch reached nothing. The rows still show
+        // prices, which is right, but nothing else on this screen would say why they stopped moving.
+        val reachedNothing = assets.isNotEmpty() && fetched.none { it.quote != null }
+        _state.update {
+            it.copy(
+                items = items,
+                loading = false,
+                refreshError = if (reachedNothing) "Couldn't reach the price service" else null,
+            )
+        }
     }
 }

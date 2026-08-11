@@ -44,6 +44,10 @@ import kotlinx.coroutines.launch
 data class DetailUiState(
     val asset: Asset,
     val quote: Quote? = null,
+    /** A price refresh the user asked for is in flight. */
+    val quoteRefreshing: Boolean = false,
+    /** The last such refresh reached nothing — the price on screen is the one that was already there. */
+    val quoteRefreshFailed: Boolean = false,
     val chart: List<PricePoint> = emptyList(),
     val range: ChartRange = ChartRange.MONTH,
     val loadingChart: Boolean = true,
@@ -605,6 +609,35 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             val q = runCatching { repo.quote(asset) }.getOrNull()
                 ?: ServiceLocator.priceCache.getQuote(asset.id)
             _state.update { it.copy(quote = q) }
+        }
+    }
+
+    /**
+     * Re-read the price and the chart from the source for a refresh the user asked for.
+     *
+     * Invalidating first is the whole point: [MarketRepository.quote] would otherwise answer from its
+     * memo, or — in an outage — from the stale-while-error branch, so the tap would return the same
+     * number with no error and nothing to distinguish "unchanged" from "never fetched". Failing
+     * loudly here is what lets the as-of line stay honest.
+     *
+     * Free (no LLM), so unlike [refreshAllAi] this is offered whether or not the analyst is on.
+     */
+    fun refreshQuote() {
+        if (_state.value.quoteRefreshing) return
+        viewModelScope.launch {
+            _state.update { it.copy(quoteRefreshing = true, quoteRefreshFailed = false) }
+            repo.invalidateQuotes()
+            val fresh = runCatching { repo.quote(asset) }.getOrNull()
+            _state.update {
+                it.copy(
+                    // Keep the old quote rather than blanking the screen — but record that it IS old,
+                    // so the as-of line can say the refresh failed instead of freezing silently.
+                    quote = fresh ?: it.quote,
+                    quoteRefreshing = false,
+                    quoteRefreshFailed = fresh == null,
+                )
+            }
+            selectRange(_state.value.range)   // the chart is the same reading drawn as a shape
         }
     }
 

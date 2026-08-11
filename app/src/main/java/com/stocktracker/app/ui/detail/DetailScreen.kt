@@ -131,7 +131,13 @@ import com.stocktracker.app.ui.theme.PriceLarge
 import com.stocktracker.app.ui.theme.TrafficAmber
 import com.stocktracker.app.ui.theme.TrafficGreen
 import com.stocktracker.app.ui.theme.TrafficRed
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.draw.clip
+import kotlinx.coroutines.delay
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.app.util.MarketClock
+import com.stocktracker.app.util.MarketPhase
+import com.stocktracker.app.util.freshnessOf
 import com.stocktracker.app.util.NumberInput
 import com.stocktracker.app.util.asPercentChange
 import com.stocktracker.app.util.bollingerBands
@@ -174,6 +180,15 @@ fun DetailScreen(
     // The chart point currently under the scrub crosshair (null at rest); drives the header.
     var scrubbed by remember(state.chart, percentMode) { mutableStateOf<PricePoint?>(null) }
 
+    // What counts as stale depends on whether the tape is moving, and the age has to advance on its
+    // own — a price left open on screen goes out of date without anything redrawing it.
+    val detailMarketState by produceState(initialValue = MarketClock.now()) {
+        while (true) { value = MarketClock.now(); delay(60_000) }
+    }
+    val detailNowMs by produceState(initialValue = System.currentTimeMillis()) {
+        while (true) { delay(20_000); value = System.currentTimeMillis() }
+    }
+
     // Event/benchmark data (only fetched when the matching indicator is enabled).
     val divEnabled = indicators.contains(Indicator.DIVIDENDS.key)
     val benchEnabled = indicators.contains(Indicator.BENCHMARK.key)
@@ -207,7 +222,9 @@ fun DetailScreen(
                     // plan), bypassing the server cache. Shown only when the AI analyst is configured.
                     if (state.aiEnabled) {
                         val aiBusy = state.aiLoading || state.newsMovesLoading || state.planLoading
-                        IconButton(onClick = { vm.refreshAllAi() }, enabled = !aiBusy) {
+                        // Refreshes the price too — a control labelled "refresh" on a screen with a
+                        // live price should not leave the price alone.
+                        IconButton(onClick = { vm.refreshAllAi(); vm.refreshQuote() }, enabled = !aiBusy) {
                             if (aiBusy) {
                                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                             } else {
@@ -258,6 +275,17 @@ fun DetailScreen(
                     fontWeight = FontWeight.Medium,
                 )
             }
+            // Directly under the price it qualifies, not in a footer. The "Today" line above is the
+            // strongest claim on the screen — it asserts a move since a specific close — and it is
+            // the one that goes quietly wrong when a fetch failed and the cached quote stayed put.
+            QuoteAsOfLine(
+                asOfEpochMs = quote?.asOfEpochMs ?: 0L,
+                phase = detailMarketState.phase,
+                nowMs = detailNowMs,
+                refreshing = state.quoteRefreshing,
+                failed = state.quoteRefreshFailed,
+                onRefresh = { vm.refreshQuote() },
+            )
 
             val chartValueFormatter: (Double) -> String = {
                 if (percentMode) formatPercentChange(it)
@@ -823,6 +851,64 @@ internal fun benchmarkPercent(
     // draw nothing rather than assert the index was unchanged.
     if (aligned.filterNotNull().distinct().size < 2) return List(tickerPoints.size) { null }
     return aligned.map { if (it != null) (it / base - 1.0) * 100.0 else null }
+}
+
+/**
+ * When this price was last read from the source, and a one-tap way to read it again.
+ *
+ * [DetailViewModel.loadQuote] falls back to the price cache when the fetch fails, so a stale screen
+ * and a live one are the same pixels. That matters most right here: the line above asserts a move
+ * "Today", against a specific previous close, and it keeps asserting it after the data behind it
+ * stops arriving.
+ *
+ * The refresh sits in this line rather than in the app bar because the app bar's refresh only appears
+ * when the AI analyst is configured — a price you cannot trust must be refreshable whether or not you
+ * pay for an analyst. It is also free, which the AI refresh is not, so they stay separate controls.
+ */
+@Composable
+private fun QuoteAsOfLine(
+    asOfEpochMs: Long,
+    phase: MarketPhase,
+    nowMs: Long,
+    refreshing: Boolean,
+    failed: Boolean,
+    onRefresh: () -> Unit,
+) {
+    val f = freshnessOf(asOfEpochMs, nowMs, phase)
+    // In-flight is never a warning — see FreshnessLine on the watchlist for the same reasoning.
+    val warn = !refreshing && (failed || f.stale)
+    val tint = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = !refreshing) { onRefresh() }
+            .padding(vertical = 2.dp, horizontal = 4.dp),
+    ) {
+        if (refreshing) {
+            CircularProgressIndicator(modifier = Modifier.size(11.dp), strokeWidth = 1.5.dp)
+        } else {
+            Icon(
+                imageVector = if (warn) Icons.Filled.Warning else Icons.Filled.Refresh,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(13.dp),
+            )
+        }
+        Text(
+            text = when {
+                refreshing -> "Refreshing…"
+                // Distinct from merely old: we tried, and it did not work. Without this the user taps
+                // refresh, the timestamp does not move, and nothing explains why. Lead with the
+                // failure — "Updated just now · refresh failed" asserts two opposing things.
+                failed -> "Refresh failed · last read ${f.since}"
+                else -> f.label
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = tint,
+        )
+    }
 }
 
 @Composable

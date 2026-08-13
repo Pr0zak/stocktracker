@@ -610,6 +610,9 @@ private fun TradeRow(
                     !skipped -> {
                         DetailLine("Filled", "${trimNum(t.shares)} sh @ ${Formatting.price(t.price ?: 0.0)}")
                         t.gross?.let { DetailLine("Value", Formatting.price(kotlin.math.abs(it))) }
+                        // A fill worth more than the order it came from has to account for the gap
+                        // here, otherwise the row reads as if the AI asked for exactly this.
+                        t.sizeNote?.takeIf { it.isNotBlank() }?.let { DetailLine("Sizing", it, AMBER) }
                         t.realizedPl?.takeIf { it != 0.0 }?.let {
                             DetailLine("Realized", signedMoney(it), if (it >= 0) GREEN else RED)
                         }

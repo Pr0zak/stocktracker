@@ -1021,6 +1021,9 @@ data class SandboxTrade(
     @SerialName("skip_reason") val skipReason: String? = null,
     @SerialName("entry_low") val entryLow: Double? = null,
     @SerialName("entry_high") val entryHigh: Double? = null,
+    /** Set only when the executed size differs from the size the analyst asked for — currently the
+     *  round-up of a buy that came in a few cents under one share. Absent on ordinary fills. */
+    @SerialName("size_note") val sizeNote: String? = null,
 )
 
 @Serializable

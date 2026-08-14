@@ -313,6 +313,15 @@ class SignalsApiService {
         }.getOrNull()
     }
 
+    /** Every arm's equity curve on one shared date axis, for charting them against each other. */
+    suspend fun sandboxArmsNav(baseUrl: String, days: Int = 180): SandboxArmsNav? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            Http.json.decodeFromString<SandboxArmsNav>(
+                sGet("${baseUrl.trimEnd('/')}/sandbox/arms/nav?days=$days", slow = true))
+        }.getOrNull()
+    }
+
     /** The equity-curve series (NAV + benchmark) for the value chart. */
     /** NULL when the call failed; an empty list genuinely means "no points yet". Collapsing the two
      *  made a failed fetch render as an empty equity curve beside a stale, confident equity figure. */
@@ -1016,6 +1025,27 @@ data class SandboxNavPoint(
 
 @Serializable
 data class SandboxArmsResponse(val arms: List<SandboxArm> = emptyList())
+
+/** All arms' curves on a shared date axis. [dates] is the union of every arm's observations and each
+ *  arm's [SandboxArmSeries.equity] is padded to it with nulls, so index i is the same day in every
+ *  series. [commonStartIndex] is the first index where every arm has a value — the only honest base
+ *  for an indexed comparison, and null when the arms have no overlapping history yet. */
+@Serializable
+data class SandboxArmsNav(
+    val dates: List<String> = emptyList(),
+    @SerialName("common_start") val commonStart: String? = null,
+    @SerialName("common_start_index") val commonStartIndex: Int? = null,
+    val arms: List<SandboxArmSeries> = emptyList(),
+)
+
+@Serializable
+data class SandboxArmSeries(
+    val arm: String = "",
+    val label: String = "",
+    val engine: String = "llm",
+    val equity: List<Double?> = emptyList(),
+    @SerialName("benchmark_value") val benchmarkValue: List<Double?> = emptyList(),
+)
 
 /** One comparison arm's scoreboard. [vsBenchmarkPct] is the only figure comparable ACROSS arms —
  *  raw equity is not, since arms can be funded with different amounts on different days, so each

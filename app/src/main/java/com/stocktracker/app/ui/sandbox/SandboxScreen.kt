@@ -71,6 +71,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.remote.SandboxPosition
 import com.stocktracker.app.data.remote.SandboxState
 import com.stocktracker.app.data.remote.SandboxStrategyNote
@@ -248,6 +249,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             // amounts on different days — so the shadow-relative number is the one that lines up.
             if (ui.arms.size > 1) {
                 item { ArmComparison(arms = ui.arms, selected = ui.arm, onSelect = { vm.selectArm(it) }) }
+                ui.armsNav?.let { n -> item { ArmTrendCard(nav = n, arms = ui.arms, selected = ui.arm) } }
             }
             // The auto-trade switch and settings write to whichever arm the ENDPOINTS default to,
             // which is main. Offering them while another arm is on screen would let a tap labelled
@@ -1168,6 +1170,135 @@ private fun ArmComparison(
                     style = MaterialTheme.typography.labelSmall, color = neutral,
                 )
             }
+        }
+    }
+}
+
+/** One colour per arm, stable across recompositions and independent of list order — so an arm keeps
+ *  its colour when another is added or deleted. */
+private val ARM_COLORS = listOf(
+    Color(0xFF2563EB), Color(0xFFB0872B), Color(0xFF16A34A),
+    Color(0xFF9333EA), Color(0xFFDC2626), Color(0xFF0891B2),
+)
+
+private fun armColor(arm: String): Color =
+    ARM_COLORS[(arm.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }) % ARM_COLORS.size]
+
+/** "2026-08-13" → epoch millis at UTC midnight. The NAV axis is ET trading DATES, not instants, so
+ *  the wall-clock time within the day is meaningless — anchoring to a fixed offset keeps the chart's
+ *  x-spacing exactly one day per point regardless of the device's timezone or DST. Falls back to 0
+ *  on an unparseable date rather than throwing inside a composable. */
+private fun dateToEpochMillis(d: String): Long =
+    runCatching { java.time.LocalDate.parse(d).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }
+        .getOrDefault(0L)
+
+/** Every arm's trajectory on one axis, indexed to 100 at the first day they all existed.
+ *
+ *  Indexed, not raw equity, because raw equity across arms is not a comparison: arms can be funded
+ *  with different amounts on different days, so the tallest line would just be the richest one. And
+ *  indexed from the COMMON start — before that date at least one arm did not exist, and basing there
+ *  would credit or blame it for a period it never traded.
+ *
+ *  When there is no overlapping history yet, this says so and draws nothing. An empty chart is not a
+ *  finding; a chart drawn from one arm's history pretending to be five is. */
+@Composable
+private fun ArmTrendCard(
+    nav: com.stocktracker.app.data.remote.SandboxArmsNav,
+    arms: List<com.stocktracker.app.data.remote.SandboxArm>,
+    selected: String,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val base = nav.commonStartIndex
+    Box(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("How they're tracking", style = MaterialTheme.typography.titleSmall)
+            if (base == null || nav.dates.size - base < 2) {
+                Text(
+                    "The arms don't have overlapping history yet. This chart appears once every arm " +
+                        "has at least two days in common — arms created today start contributing at " +
+                        "their first tick.",
+                    style = MaterialTheme.typography.bodySmall, color = neutral,
+                )
+                return@Column
+            }
+            val dates = nav.dates.drop(base)
+            // Index each arm to 100 at the common start. A null inside an arm's window is a day that
+            // arm didn't tick; left null so the line breaks rather than inventing a flat segment.
+            val indexed = nav.arms.mapNotNull { s ->
+                val window = s.equity.drop(base)
+                val b = window.firstOrNull() ?: return@mapNotNull null
+                if (b <= 0.0) return@mapNotNull null
+                Triple(s, window.map { v -> v?.let { it / b * 100.0 } }, b)
+            }
+            if (indexed.size < 2) {
+                Text("Not enough arms with data to compare yet.",
+                     style = MaterialTheme.typography.bodySmall, color = neutral)
+                return@Column
+            }
+            // The selected arm is the solid line; the rest are overlays. PriceChart needs a concrete
+            // main series, and making it the one you're already looking at keeps the two consistent.
+            val primary = indexed.firstOrNull { it.first.arm == selected } ?: indexed.first()
+            val points = dates.indices.mapNotNull { i ->
+                primary.second[i]?.let { v ->
+                    PricePoint(dateToEpochMillis(dates[i]), v)
+                }
+            }
+            val overlays = indexed.filter { it !== primary }.map { (s, vals, _) ->
+                ChartLineOverlay(s.label.ifBlank { s.arm }, armColor(s.arm), vals)
+            }
+            if (points.size >= 2) {
+                PriceChart(
+                    points = points,
+                    up = points.last().price >= points.first().price,
+                    showAxis = true,
+                    overlays = overlays,
+                    modifier = Modifier.fillMaxWidth().height(240.dp),
+                    valueFormatter = { "%.1f".format(it) },
+                    timeFormatter = {
+                        com.stocktracker.app.util.formatChartTimestamp(
+                            it, com.stocktracker.app.data.model.ChartRange.ALL)
+                    },
+                )
+            }
+            // Legend: the solid line is named too, since the chart itself only labels overlays.
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                indexed.forEach { (s, vals, _) ->
+                    val last = vals.lastOrNull { it != null }
+                    val isPrimary = s === primary.first
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(9.dp).clip(RoundedCornerShape(2.dp))
+                                .background(if (isPrimary) GREEN else armColor(s.arm)),
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            s.label.ifBlank { s.arm } + if (isPrimary) " (shown)" else "",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isPrimary) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            last?.let { (if (it >= 100) "+" else "") + "%.2f".format(it - 100) + "%" } ?: "—",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when {
+                                last == null -> neutral
+                                last >= 100 -> GREEN
+                                else -> RED
+                            },
+                        )
+                    }
+                }
+            }
+            Text(
+                "Indexed to 100 on ${nav.commonStart} — the first day all arms existed. " +
+                    "${dates.size} day${if (dates.size == 1) "" else "s"} of overlap: far too short " +
+                    "to separate skill from luck, and with ${indexed.size} arms the best-looking one " +
+                    "is most likely the luckiest.",
+                style = MaterialTheme.typography.labelSmall, color = neutral,
+            )
         }
     }
 }

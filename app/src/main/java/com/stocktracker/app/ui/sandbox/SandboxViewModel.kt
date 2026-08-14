@@ -35,6 +35,8 @@ data class SandboxUiState(
     val arms: List<com.stocktracker.app.data.remote.SandboxArm> = emptyList(),
     /** Which arm the rest of this screen is showing. Always a real arm id; "main" is the account. */
     val arm: String = "main",
+    /** All arms' curves on one date axis, for the over-time comparison. Null until loaded. */
+    val armsNav: com.stocktracker.app.data.remote.SandboxArmsNav? = null,
     // The AI's own scorecard (GET /memory/stats) — null until enough decisions have been graded.
     val memory: com.stocktracker.app.data.remote.MemoryStats? = null,
     /** The macro backdrop the trader reasons against (GET /macro/catalysts). Null = couldn't load,
@@ -77,6 +79,8 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
             val st = api.sandboxState(base, arm)
             val navRows = api.sandboxNav(base, days = 180, arm = arm)
             val trades = api.sandboxTrades(base, limit = 120, arm = arm)
+            // Only worth a round trip when there is something to compare against.
+            val aNav = if ((arms?.size ?: 0) > 1) api.sandboxArmsNav(base, days = 180) else null
             val mem = api.memoryStats(base)
             val mac = api.macroCatalysts(base)
             if (gen != refreshGeneration) return@launch   // superseded by a newer refresh
@@ -85,6 +89,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
                     loading = false,
                     arms = arms ?: it.arms,
                     arm = arm,
+                    armsNav = aNav ?: it.armsNav,
                     state = st ?: it.state,
                     // A null list means the CALL failed — keep what we had rather than rendering an
                     // empty curve and "No trades yet." beside a confident (stale) equity figure.
@@ -112,6 +117,9 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
     fun selectArm(arm: String) {
         if (arm == _state.value.arm) return
         _state.update {
+            // armsNav is deliberately KEPT: it spans every arm, so it is still correct for the arm
+            // being switched to. Clearing it would make the comparison chart flicker out on a change
+            // that does not affect it.
             it.copy(arm = arm, state = null, nav = emptyList(), benchmarkValues = emptyList(),
                     trendValues = emptyList(), vsBenchmarkSeries = emptyList(),
                     trendPctPerMonth = null, trades = emptyList(), loading = true)

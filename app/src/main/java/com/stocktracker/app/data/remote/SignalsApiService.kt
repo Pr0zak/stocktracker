@@ -295,32 +295,42 @@ class SignalsApiService {
     // ---- AI Sandbox (autonomous paper trader) ----
 
     /** Live-marked sandbox state (cash, positions, equity, vs-benchmark, settings, strategy note). */
-    suspend fun sandboxState(baseUrl: String): SandboxState? {
+    suspend fun sandboxState(baseUrl: String, arm: String = "main"): SandboxState? {
         if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxState>(
-                sGet("${baseUrl.trimEnd('/')}/sandbox/state", slow = true))
+                sGet("${baseUrl.trimEnd('/')}/sandbox/state?arm=$arm", slow = true))
+        }.getOrNull()
+    }
+
+    /** Every comparison arm with a scoreboard. Empty list (not null) is a real answer — a server
+     *  without the arms endpoint yet. Null means the call failed. */
+    suspend fun sandboxArms(baseUrl: String): List<SandboxArm>? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            Http.json.decodeFromString<SandboxArmsResponse>(
+                sGet("${baseUrl.trimEnd('/')}/sandbox/arms", slow = true)).arms
         }.getOrNull()
     }
 
     /** The equity-curve series (NAV + benchmark) for the value chart. */
     /** NULL when the call failed; an empty list genuinely means "no points yet". Collapsing the two
      *  made a failed fetch render as an empty equity curve beside a stale, confident equity figure. */
-    suspend fun sandboxNav(baseUrl: String, days: Int = 120): List<SandboxNavPoint>? {
+    suspend fun sandboxNav(baseUrl: String, days: Int = 120, arm: String = "main"): List<SandboxNavPoint>? {
         if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxNavResponse>(
-                sGet("${baseUrl.trimEnd('/')}/sandbox/nav?days=$days")).series
+                sGet("${baseUrl.trimEnd('/')}/sandbox/nav?days=$days&arm=$arm")).series
         }.getOrNull()
     }
 
     /** The trade log (executed + skipped, newest first). */
     /** NULL when the call failed; empty means genuinely no trades — see [sandboxNav]. */
-    suspend fun sandboxTrades(baseUrl: String, limit: Int = 100): List<SandboxTrade>? {
+    suspend fun sandboxTrades(baseUrl: String, limit: Int = 100, arm: String = "main"): List<SandboxTrade>? {
         if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxTradesResponse>(
-                sGet("${baseUrl.trimEnd('/')}/sandbox/trades?limit=$limit")).trades
+                sGet("${baseUrl.trimEnd('/')}/sandbox/trades?limit=$limit&arm=$arm")).trades
         }.getOrNull()
     }
 
@@ -901,6 +911,9 @@ data class MacroCatalyst(
 
 @Serializable
 data class SandboxState(
+    val arm: String = "main",
+    val label: String = "",
+    val engine: String = "llm",          // llm | rules — a rules arm takes no view, so no AI reasons
     val cash: Double = 0.0,
     val equity: Double = 0.0,
     @SerialName("positions_value") val positionsValue: Double = 0.0,
@@ -1000,6 +1013,30 @@ data class SandboxNavPoint(
      *  Null when the row predates funded_total being recorded. */
     val perDollar: Double? get() = fundedTotal?.takeIf { it > 0 }?.let { equity / it }
 }
+
+@Serializable
+data class SandboxArmsResponse(val arms: List<SandboxArm> = emptyList())
+
+/** One comparison arm's scoreboard. [vsBenchmarkPct] is the only figure comparable ACROSS arms —
+ *  raw equity is not, since arms can be funded with different amounts on different days, so each
+ *  carries its own "same money in the S&P" shadow and the excess over it is what lines up. */
+@Serializable
+data class SandboxArm(
+    val arm: String = "main",
+    val label: String = "",
+    val engine: String = "llm",          // llm | rules
+    val enabled: Boolean = false,
+    val cash: Double = 0.0,
+    val equity: Double = 0.0,
+    @SerialName("positions_value") val positionsValue: Double = 0.0,
+    @SerialName("funded_total") val fundedTotal: Double = 0.0,
+    val positions: Int = 0,
+    @SerialName("cash_pct") val cashPct: Double? = null,
+    @SerialName("total_return_pct") val totalReturnPct: Double? = null,
+    @SerialName("benchmark_value") val benchmarkValue: Double? = null,
+    @SerialName("vs_benchmark_pct") val vsBenchmarkPct: Double? = null,
+    @SerialName("last_tick_date") val lastTickDate: String? = null,
+)
 
 @Serializable
 data class SandboxTradesResponse(val trades: List<SandboxTrade> = emptyList())

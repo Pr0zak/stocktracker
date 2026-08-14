@@ -2,6 +2,7 @@ package com.stocktracker.app.ui.sandbox
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,11 +22,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -41,8 +44,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,8 +67,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.remote.SandboxPosition
@@ -73,9 +76,9 @@ import com.stocktracker.app.data.remote.SandboxState
 import com.stocktracker.app.data.remote.SandboxStrategyNote
 import com.stocktracker.app.data.remote.SandboxTrade
 import com.stocktracker.app.ui.components.AllocationDonut
-import com.stocktracker.app.ui.components.DONUT_COLORS
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.ChartMarker
+import com.stocktracker.app.ui.components.DONUT_COLORS
 import com.stocktracker.app.ui.components.PriceChart
 import com.stocktracker.app.ui.theme.BenchmarkGrey
 import com.stocktracker.app.ui.theme.GainGreen
@@ -190,6 +193,11 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             }
 
             item { Spacer(Modifier.height(4.dp)) }
+            // Which book you are looking at, before any number on the screen. Only shown when there
+            // is actually a choice — one arm needs no switcher.
+            if (ui.arms.size > 1) {
+                item { ArmSwitcher(arms = ui.arms, selected = ui.arm, onSelect = { vm.selectArm(it) }) }
+            }
             item { HeaderMetrics(st, trendPctPerMonth = ui.trendPctPerMonth) }
             st.settings.goalAmount?.takeIf { it > 0 }?.let { goal ->
                 item { GoalCard(equity = st.equity, goal = goal, goalDate = st.settings.goalDate) }
@@ -235,7 +243,20 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                     InfoCard("The equity curve appears after the first daily tick.")
                 }
             }
-            item { AutoTradeRow(st, onToggle = { vm.setEnabled(it) }, onRunNow = { vm.runTick() }, ticking = ui.ticking) }
+            // The comparison itself, directly under the curve: every arm's excess over its OWN S&P
+            // shadow. Raw equity across arms is not comparable — they can be funded with different
+            // amounts on different days — so the shadow-relative number is the one that lines up.
+            if (ui.arms.size > 1) {
+                item { ArmComparison(arms = ui.arms, selected = ui.arm, onSelect = { vm.selectArm(it) }) }
+            }
+            // The auto-trade switch and settings write to whichever arm the ENDPOINTS default to,
+            // which is main. Offering them while another arm is on screen would let a tap labelled
+            // "Mechanical" change the real account, so a side arm is read-only here and says so.
+            if (ui.arm == "main") {
+                item { AutoTradeRow(st, onToggle = { vm.setEnabled(it) }, onRunNow = { vm.runTick() }, ticking = ui.ticking) }
+            } else {
+                item { SideArmNotice(st) }
+            }
             // Directly under the equity curve and the auto-trade switch: right where someone deciding
             // whether to trust this thing is already looking.
             ui.memory?.let { mem -> item { ScorecardCard(mem) } }
@@ -307,7 +328,9 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                     )
                 }
             }
-            item { SettingsSummary(st, onOpen = onOpenSettings) }
+            // Settings edits main; on a side arm this would be a control that changes a different
+            // book than the one on screen.
+            if (ui.arm == "main") item { SettingsSummary(st, onOpen = onOpenSettings) }
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
@@ -1042,6 +1065,152 @@ private fun InfoCard(text: String) = Box(
     Modifier.fillMaxWidth().padding(top = 24.dp)
         .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)).padding(16.dp),
 ) { Text(text, style = MaterialTheme.typography.bodyMedium) }
+
+/** Which book the screen is showing. A side arm is a paper experiment against the main account;
+ *  saying so on the chip itself is cheaper than a legend nobody reads. */
+@Composable
+private fun ArmSwitcher(
+    arms: List<com.stocktracker.app.data.remote.SandboxArm>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        arms.forEach { a ->
+            FilterChip(
+                selected = a.arm == selected,
+                onClick = { onSelect(a.arm) },
+                label = { Text(a.label.ifBlank { a.arm }) },
+                leadingIcon = if (a.engine == "rules") {
+                    { Icon(Icons.Filled.Calculate, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                } else null,
+            )
+        }
+    }
+}
+
+/** Every arm side by side on the only figure that is comparable between them.
+ *
+ *  Deliberately NOT raw equity or total return: arms can be funded with different amounts on
+ *  different days, so those differ for reasons that have nothing to do with the strategy. Each arm
+ *  carries its own "same money in the S&P" shadow, and the excess over that shadow is what lines up. */
+@Composable
+private fun ArmComparison(
+    arms: List<com.stocktracker.app.data.remote.SandboxArm>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Arms", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Same market, same tick, same day — so the difference between them is the strategy. " +
+                    "Each is measured against its own S&P shadow, since raw equity isn't comparable.",
+                style = MaterialTheme.typography.bodySmall, color = neutral,
+            )
+            // The spread is the actual result; showing it saves the reader doing the subtraction,
+            // and it is only meaningful once at least two arms have a shadow to measure against.
+            val measured = arms.mapNotNull { it.vsBenchmarkPct }
+            arms.forEach { a ->
+                val vs = a.vsBenchmarkPct
+                Row(
+                    Modifier.fillMaxWidth().clickable { onSelect(a.arm) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            a.label.ifBlank { a.arm },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (a.arm == selected) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                        Text(
+                            buildString {
+                                append(if (a.engine == "rules") "mechanical" else "analyst")
+                                a.cashPct?.let { append(" · ${"%.0f".format(it)}% cash") }
+                                append(" · ${a.positions} holding${if (a.positions == 1) "" else "s"}")
+                                if (!a.enabled) append(" · paused")
+                            },
+                            style = MaterialTheme.typography.labelSmall, color = neutral,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            "$" + Formatting.compact(a.equity),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            // Absent is not zero — an arm with no benchmark shadow yet has no
+                            // comparable number, and a confident "0.00%" would be a fabrication.
+                            if (vs == null) "—"
+                            else (if (vs >= 0) "+" else "") + "%.2f".format(vs) + "% vs S&P",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when {
+                                vs == null -> neutral
+                                vs >= 0 -> GREEN
+                                else -> RED
+                            },
+                        )
+                    }
+                }
+            }
+            if (measured.size >= 2) {
+                val spread = measured.max() - measured.min()
+                Text(
+                    "Spread: %.2f points between best and worst.".format(spread) +
+                        " Too few days to mean anything yet — this needs weeks, not ticks.",
+                    style = MaterialTheme.typography.labelSmall, color = neutral,
+                )
+            }
+        }
+    }
+}
+
+/** Shown in place of the auto-trade row on a side arm. The controls it replaces write to main. */
+@Composable
+private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (st.engine == "rules") Icons.Filled.Calculate else Icons.Filled.SmartToy,
+                    contentDescription = null, tint = neutral, modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (st.engine == "rules") "Mechanical arm — no AI" else "Comparison arm",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            Text(
+                if (st.engine == "rules") {
+                    "Fills toward the standing plan's targets, largest gap first. It takes no view " +
+                        "and never sells — it exists to show what the analyst is worth on top of " +
+                        "simply executing the plan."
+                } else {
+                    "Runs the same analyst on the same market as the main account, with one setting " +
+                        "changed, so the two can be compared."
+                },
+                style = MaterialTheme.typography.bodySmall, color = neutral,
+            )
+            Text(
+                "Read-only here. Funding, settings and the auto-trade switch belong to the main " +
+                    "account — switch to it to change them.",
+                style = MaterialTheme.typography.labelSmall, color = neutral,
+            )
+        }
+    }
+}
 
 @Composable
 private fun EmptyState(onFund: (Double) -> Unit) {

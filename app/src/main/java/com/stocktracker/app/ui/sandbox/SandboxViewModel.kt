@@ -30,6 +30,11 @@ data class SandboxUiState(
     val trendPctPerMonth: Double? = null,
     val trades: List<SandboxTrade> = emptyList(),
     val ticking: Boolean = false,
+    /** Every comparison arm's scoreboard. Empty = the server has none (or predates them), which the
+     *  UI renders by simply not showing the switcher rather than by showing an empty one. */
+    val arms: List<com.stocktracker.app.data.remote.SandboxArm> = emptyList(),
+    /** Which arm the rest of this screen is showing. Always a real arm id; "main" is the account. */
+    val arm: String = "main",
     // The AI's own scorecard (GET /memory/stats) — null until enough decisions have been graded.
     val memory: com.stocktracker.app.data.remote.MemoryStats? = null,
     /** The macro backdrop the trader reasons against (GET /macro/catalysts). Null = couldn't load,
@@ -64,15 +69,22 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
                 return@launch
             }
             _state.update { it.copy(configured = true, loading = it.state == null, error = null) }
-            val st = api.sandboxState(base)
-            val navRows = api.sandboxNav(base, days = 180)
-            val trades = api.sandboxTrades(base, limit = 120)
+            val arms = api.sandboxArms(base)
+            // Fall back to "main" if the selected arm has been deleted server-side, rather than
+            // holding a dead id and rendering another arm's numbers under its name.
+            val arm = _state.value.arm.takeIf { a ->
+                arms == null || arms.isEmpty() || arms.any { it.arm == a } } ?: "main"
+            val st = api.sandboxState(base, arm)
+            val navRows = api.sandboxNav(base, days = 180, arm = arm)
+            val trades = api.sandboxTrades(base, limit = 120, arm = arm)
             val mem = api.memoryStats(base)
             val mac = api.macroCatalysts(base)
             if (gen != refreshGeneration) return@launch   // superseded by a newer refresh
             _state.update {
                 it.copy(
                     loading = false,
+                    arms = arms ?: it.arms,
+                    arm = arm,
                     state = st ?: it.state,
                     // A null list means the CALL failed — keep what we had rather than rendering an
                     // empty curve and "No trades yet." beside a confident (stale) equity figure.
@@ -92,6 +104,19 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
                 )
             }
         }
+    }
+
+    /** Switch which arm the screen is showing. Clears the per-arm data immediately rather than
+     *  leaving the previous arm's chart and trade log on screen under the new arm's name while the
+     *  fetch is in flight — a wrong attribution is worse than a blank moment. */
+    fun selectArm(arm: String) {
+        if (arm == _state.value.arm) return
+        _state.update {
+            it.copy(arm = arm, state = null, nav = emptyList(), benchmarkValues = emptyList(),
+                    trendValues = emptyList(), vsBenchmarkSeries = emptyList(),
+                    trendPctPerMonth = null, trades = emptyList(), loading = true)
+        }
+        refresh()
     }
 
     /** Guards the money-shaped actions. Fund/withdraw and reset are not idempotent — two taps meant

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.stocktracker.app.data.remote.Http
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -24,6 +25,7 @@ class SettingsStore(private val context: Context) {
     private val finnhubKeyKey = stringPreferencesKey("finnhub_api_key")
     private val hideZeroCentsKey = booleanPreferencesKey("hide_zero_cents")
     private val groupBySectorKey = booleanPreferencesKey("watchlist_group_by_sector")
+    private val collapsedVerticalsKey = stringSetPreferencesKey("watchlist_collapsed_verticals")
     private val extendedHoursKey = booleanPreferencesKey("show_extended_hours")
     private val marketStatusKey = booleanPreferencesKey("show_market_status")
     private val showVolumeKey = booleanPreferencesKey("show_volume")
@@ -188,6 +190,22 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setWatchlistGroupBySector(enabled: Boolean) =
         context.dataStore.edit { it[groupBySectorKey] = enabled }
+
+    /**
+     * Sector sections the user has collapsed, by heading.
+     *
+     * Stored as the COLLAPSED set rather than the expanded one so a sector that appears for the
+     * first time -- a new ticker in a sector nothing was held in -- opens by default. Recording
+     * expansions instead would hide every new section until it was found and opened, which is the
+     * one state a user cannot discover by scrolling.
+     */
+    val collapsedVerticals: Flow<Set<String>> =
+        context.dataStore.data.map { it[collapsedVerticalsKey] ?: emptySet() }
+
+    suspend fun toggleCollapsedVertical(name: String) = context.dataStore.edit { prefs ->
+        val cur = prefs[collapsedVerticalsKey] ?: emptySet()
+        prefs[collapsedVerticalsKey] = if (name in cur) cur - name else cur + name
+    }
     suspend fun setShowExtendedHours(enabled: Boolean) = context.dataStore.edit { it[extendedHoursKey] = enabled }
     suspend fun setShowMarketStatus(enabled: Boolean) = context.dataStore.edit { it[marketStatusKey] = enabled }
     suspend fun setShowVolume(enabled: Boolean) = context.dataStore.edit { it[showVolumeKey] = enabled }

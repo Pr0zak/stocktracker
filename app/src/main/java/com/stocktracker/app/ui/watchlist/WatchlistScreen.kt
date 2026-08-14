@@ -139,9 +139,16 @@ fun WatchlistScreen(
         }
     }
     var selected by remember { mutableStateOf(TAB_ALL) }
+    val collapsed by ServiceLocator.settingsStore.collapsedVerticals.collectAsState(initial = emptySet())
     // A deleted/emptied list shouldn't leave us stranded on a missing tab.
     LaunchedEffect(groups) {
         if (selected !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO, TAB_BELOW) && selected !in groups) selected = TAB_ALL
+    }
+    // Switching to grouped removes the Stocks/Crypto pills. Standing on one when it disappears would
+    // leave the list silently filtered by a control no longer on screen — a subset with nothing to
+    // explain it, and no way back except guessing.
+    LaunchedEffect(groupBySector) {
+        if (groupBySector && selected in listOf(TAB_STOCKS, TAB_CRYPTO)) selected = TAB_ALL
     }
     // Collapsed by default — the holdings are why the screen exists.
     var contextOpen by rememberSaveable { mutableStateOf(false) }
@@ -237,7 +244,15 @@ fun WatchlistScreen(
                 }
                 item(key = "hdr:tabs") {
                     val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
-                    val tabs = listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO) + belowTab + groups
+                    // Stocks and Crypto are dropped while grouping is on, because the sections
+                    // already do that job: everything crypto sits under its own heading and
+                    // everything else is, by definition, the Stocks tab. Keeping them would leave
+                    // two controls for one split, and the pill row is where the horizontal space
+                    // runs out first -- "Below 200w" was already scrolling off the right edge.
+                    //
+                    // They stay in the flat view, where they are the ONLY way to separate the two.
+                    val typeTabs = if (groupBySector) emptyList() else listOf(TAB_STOCKS, TAB_CRYPTO)
+                    val tabs = listOf(TAB_ALL) + typeTabs + belowTab + groups
                     val faint = MaterialTheme.colorScheme.onSurfaceVariant
                     val primary = MaterialTheme.colorScheme.primary
                     Row(
@@ -245,6 +260,18 @@ fun WatchlistScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // The view mode leads the row rather than owning a line of its own. It was a
+                        // full-width row carrying a label and five words of instruction ("Tap to
+                        // reorder manually") for one binary toggle, on a screen where four stacked
+                        // control rows stood between the title and the first ticker.
+                        ModeChip(
+                            label = if (groupBySector) "Sector" else "Manual",
+                            onClick = {
+                                scope.launch {
+                                    ServiceLocator.settingsStore.setWatchlistGroupBySector(!groupBySector)
+                                }
+                            },
+                        )
                         tabs.forEach { tab ->
                             val count = when (tab) {
                                 TAB_ALL -> state.items.size
@@ -269,39 +296,6 @@ fun WatchlistScreen(
                             )
                         }
                         NewListChip(onClick = { showNewListDialog = true })
-                    }
-                }
-
-                // The grouping switch lives beside the list itself rather than in Settings — it
-                // changes what is on this screen right now, and burying a view toggle two screens
-                // away makes it undiscoverable to the one person it exists for.
-                item(key = "hdr:grouping") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(onClick = {
-                            scope.launch {
-                                ServiceLocator.settingsStore.setWatchlistGroupBySector(!groupBySector)
-                            }
-                        }) {
-                            Icon(Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                if (groupBySector) "Grouped by sector" else "Custom order",
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
-                        // Say why the drag handles vanished. Otherwise reordering looks broken
-                        // rather than switched off, and the way back is not obvious from the row.
-                        if (groupBySector && selected == TAB_ALL) {
-                            Text(
-                                "Tap to reorder manually",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
                     }
                 }
 
@@ -443,9 +437,26 @@ fun WatchlistScreen(
                         },
                     )
                     sections.forEach { (heading, rows) ->
-                        item(key = "sec:$heading") { SectionHeading(heading, rows.size) }
-                        items(rows, key = { it.asset.id }) { item ->
-                            GroupedAssetRow(item, Modifier, draggable = false)
+                        val isOpen = heading !in collapsed
+                        item(key = "sec:$heading") {
+                            SectionHeading(
+                                label = heading,
+                                count = rows.size,
+                                expanded = isOpen,
+                                onToggle = {
+                                    scope.launch {
+                                        ServiceLocator.settingsStore.toggleCollapsedVertical(heading)
+                                    }
+                                },
+                            )
+                        }
+                        // Collapsed sections emit no row items at all, so the LazyColumn does not
+                        // compose or measure them. With 52 tickers across a dozen sectors that is
+                        // the difference between a screen you scroll and one you navigate.
+                        if (isOpen) {
+                            items(rows, key = { it.asset.id }) { item ->
+                                GroupedAssetRow(item, Modifier, draggable = false)
+                            }
                         }
                     }
                 } else {
@@ -799,19 +810,35 @@ private fun NewListChip(onClick: () -> Unit) {
  * "Technology 1" is a fact, whereas one lonely row under a heading looks like a rendering fault.
  */
 @Composable
-private fun SectionHeading(label: String, count: Int) {
+private fun SectionHeading(label: String, count: Int, expanded: Boolean, onToggle: () -> Unit) {
+    val accent = if (label == WatchlistVerticals.FAVORITES) Color(0xFFD29922)
+                 else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        // The whole heading is the hit target, not just the chevron. A 16dp icon is a poor thing to
+        // aim at on a list that now has a dozen of them.
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onToggle() }
+            .padding(top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        Icon(
+            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            contentDescription = if (expanded) "Collapse $label" else "Expand $label",
+            tint = accent,
+            modifier = Modifier.size(18.dp),
+        )
         Text(
             label.uppercase(Locale.US),
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
-            color = if (label == WatchlistVerticals.FAVORITES) Color(0xFFD29922)
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = accent,
         )
+        // The count carries the section when it is CLOSED — collapsed, it is the only thing left
+        // saying what is in there, so a heading without one would hide the list's shape rather than
+        // tidy it.
         Text(
             count.toString(),
             style = MaterialTheme.typography.labelSmall,
@@ -820,6 +847,29 @@ private fun SectionHeading(label: String, count: Int) {
                 .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
                 .padding(horizontal = 6.dp, vertical = 1.dp),
         )
+    }
+}
+
+/** The view-mode chip that leads the filter row: "Sector" or "Manual". */
+@Composable
+private fun ModeChip(label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            Icons.Default.Sort,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(15.dp),
+        )
+        Text(label, style = MaterialTheme.typography.labelLarge,
+             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -131,6 +131,18 @@ class SignalsApiService {
         return Http.json.decodeFromString<HeatmapResponse>(body)
     }
 
+    /** Sector + industry per ticker, for grouping the watchlist into verticals. FREE (no LLM).
+     *
+     *  A symbol the server could not classify comes back PRESENT with a null sector; a symbol
+     *  missing from the map was never looked up. The caller must keep those apart — the first is
+     *  legitimately "Other", the second is a gap it should retry rather than label. */
+    suspend fun sectors(baseUrl: String, symbols: List<String>): Map<String, SectorProfile>? {
+        if (baseUrl.isBlank() || symbols.isEmpty()) return null
+        val q = symbols.joinToString(",") { it.uppercase() }
+        val body = sGet("${baseUrl.trimEnd('/')}/sectors?symbols=$q")
+        return Http.json.decodeFromString<SectorsResponse>(body).sectors
+    }
+
     /** Theme C — where insiders and members of Congress have been BUYING across the watchlist.
      *  FREE (no LLM). Corroborating context, not a buy signal: insider buys are disclosed within two
      *  business days, congressional filings lag up to ~45 days and report amount ranges. */
@@ -1828,6 +1840,19 @@ data class SmartMoneyRow(
     /** Newest DISCLOSED trade date and when it was filed — congressional filings lag ~45 days. */
     @SerialName("congress_newest_trade") val congressNewestTrade: String? = null,
     @SerialName("congress_latest_filing") val congressLatestFiling: String? = null,
+)
+
+/** GET /sectors — the classification the watchlist groups by. Free, no LLM. */
+@Serializable
+data class SectorsResponse(val sectors: Map<String, SectorProfile> = emptyMap())
+
+@Serializable
+data class SectorProfile(
+    /** Null when the server looked and could not classify the symbol — ETFs and warrants have no
+     *  sector at Yahoo. Null is a real answer here and renders as "Other"; a symbol ABSENT from the
+     *  response is a different thing entirely and must not be treated as this. */
+    val sector: String? = null,
+    val industry: String? = null,
 )
 
 /** GET /heatmap — tile values for the treemap. Free, no LLM. */

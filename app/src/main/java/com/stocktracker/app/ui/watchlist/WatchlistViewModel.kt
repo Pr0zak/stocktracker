@@ -10,6 +10,7 @@ import com.stocktracker.app.data.remote.MarketNowResponse
 import com.stocktracker.app.data.remote.RegimeResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.data.prefs.PriceCache
+import com.stocktracker.app.data.prefs.SectorCache
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.downsample
 import kotlinx.coroutines.async
@@ -62,6 +63,14 @@ data class WatchlistUiState(
     val dips: List<DipEntry> = emptyList(),
     val marketNow: MarketNowUi = MarketNowUi(),
     val regime: RegimeUi = RegimeUi(),
+    /**
+     * Symbol -> sector, for the vertical sections.
+     *
+     * A key present with a NULL value means the server classified it and found no sector; a key
+     * ABSENT means nobody has looked yet. The screen renders those as "Other" and "Not classified
+     * yet" respectively, so the two must not be flattened into one here.
+     */
+    val sectors: Map<String, String?> = emptyMap(),
     /** Last deleted asset, held so the UI can offer UNDO. Non-null means the snackbar is due. */
     val recentlyRemoved: Asset? = null,
     /** A refresh the user asked for is in flight — distinct from the initial [loading] spinner. */
@@ -81,6 +90,7 @@ class WatchlistViewModel : ViewModel() {
     private val store = ServiceLocator.watchlistStore
     private val settings = ServiceLocator.settingsStore
     private val cache = ServiceLocator.priceCache
+    private val sectorCache = ServiceLocator.sectorCache
     private val signalsApi = SignalsApiService()
 
     private val _state = MutableStateFlow(WatchlistUiState(stocksEnabled = repo.stocksEnabled))
@@ -114,6 +124,9 @@ class WatchlistViewModel : ViewModel() {
                     lastKey = key
                     ServiceLocator.finnhubKeyOverride = key // ensure repo sees it before we fetch
                     currentAssets = assets
+                    // Cheap and cached — a new ticker needs a vertical before its first price lands,
+                    // or it appears under "Not classified yet" and then jumps sections a second later.
+                    loadSectors()
 
                     // Removal (or shares/alerts edit that only drops/keeps existing ids) shouldn't
                     // trigger a network refetch — reconcile the list instantly. Only fetch when new
@@ -152,6 +165,7 @@ class WatchlistViewModel : ViewModel() {
             repo.invalidateQuotes()
             loadQuotes(currentAssets)
             loadBelowLineFlags()
+            loadSectors()
             _state.update { it.copy(refreshing = false) }
         }
     }
@@ -264,6 +278,60 @@ class WatchlistViewModel : ViewModel() {
         if (ordered.isEmpty()) return
         viewModelScope.launch { store.setAll(ordered) }
     }
+
+    /**
+     * Star / unstar a row. Written straight through to the store so it survives a restart.
+     *
+     * Nothing here defaults to true. A watchlist entry is not a favourite until the user says so —
+     * a favourites section pre-filled with the whole watchlist would be a filter that filters
+     * nothing, and the user would have to un-star their way to a useful one.
+     */
+    fun toggleFavorite(asset: Asset) {
+        val next = asset.copy(favorite = !asset.favorite)
+        // Optimistic: the star is a direct manipulation and must not wait on a DataStore round trip.
+        _state.update { st ->
+            st.copy(items = st.items.map { if (it.asset.id == asset.id) it.copy(asset = next) else it })
+        }
+        viewModelScope.launch { store.update(next) }
+    }
+
+    /**
+     * Sector per symbol, for the vertical sections.
+     *
+     * Served from the on-device cache first so the sections survive a backend outage, then topped up
+     * for anything unseen or older than the cache TTL. Crypto is skipped entirely — it is bucketed
+     * locally and asking Yahoo about it would only ever return null.
+     *
+     * Failure is silent BY DESIGN and safe because of how the missing case renders: a symbol with no
+     * cached answer falls into "Not classified yet", never "Other". The screen says it does not know
+     * rather than claiming the security has no sector, so there is nothing to alarm the user with.
+     */
+    fun loadSectors() {
+        viewModelScope.launch {
+            val symbols = currentAssets
+                .filter { it.type != AssetType.CRYPTO }
+                .map { it.symbol.uppercase() }
+                .distinct()
+            if (symbols.isEmpty()) return@launch
+
+            sectorCache.snapshot().let { cached -> _state.update { it.copy(sectors = cached.toLabels()) } }
+
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) return@launch
+            val stale = sectorCache.stale(symbols)
+            if (stale.isEmpty()) return@launch
+
+            val fetched = runCatching { signalsApi.sectors(base, stale) }.getOrNull() ?: return@launch
+            val now = System.currentTimeMillis()
+            sectorCache.put(fetched.mapValues { (_, p) -> SectorCache.Entry(p.sector, p.industry, now) })
+            _state.update { it.copy(sectors = sectorCache.snapshot().toLabels()) }
+        }
+    }
+
+    /** Cache entries → the map the UI groups by. Keeps the null/absent distinction intact: a key
+     *  present with a null value is "classified, no sector"; an absent key is "never looked up". */
+    private fun Map<String, SectorCache.Entry>.toLabels(): Map<String, String?> =
+        mapValues { (_, e) -> e.sector }
 
     /** Create a new named watchlist. */
     fun createGroup(name: String) {

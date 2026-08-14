@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +49,11 @@ fun AssetRow(
     isEtf: Boolean = false,
     belowLine: Boolean = false,
     showDragHandle: Boolean = false,
+    /** Starred — pinned to the Favorites section at the top of the watchlist. */
+    favorite: Boolean = false,
+    /** Null hides the star entirely, for the screens that render a row without the concept
+     *  (detail, widgets, search results). The star is only meaningful where a list is grouped. */
+    onToggleFavorite: (() -> Unit)? = null,
 ) {
     // Crypto takes precedence over ETF; equities get no accent.
     val accent: Color? = if (isCrypto) CryptoAccent else if (isEtf) EtfAccent else null
@@ -140,6 +148,18 @@ fun AssetRow(
                     color = if (up) GainGreen else LossRed,
                     fontWeight = FontWeight.Medium,
                 )
+            }
+            // The star sits where the eye already ends up — after the price, at the trailing edge.
+            // An outlined star for "not a favourite" rather than no icon at all: an absent control
+            // cannot be discovered, and the whole feature depends on the user finding it once.
+            if (onToggleFavorite != null) {
+                IconButton(onClick = onToggleFavorite, modifier = Modifier.width(36.dp)) {
+                    Icon(
+                        if (favorite) Icons.Default.Star else Icons.Outlined.StarBorder,
+                        contentDescription = if (favorite) "Remove $symbol from favorites" else "Add $symbol to favorites",
+                        tint = if (favorite) Color(0xFFD29922) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             // Drag-to-reorder affordance, shown only in the reorderable "All" tab. The whole row is
             // the long-press-drag handle; this icon makes that discoverable.

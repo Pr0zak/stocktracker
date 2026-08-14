@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,6 +61,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.setValue
@@ -87,6 +89,7 @@ import com.stocktracker.app.util.listFreshness
 import com.stocktracker.app.util.staleRowCount
 import com.stocktracker.app.util.MarketClock
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -112,6 +115,8 @@ fun WatchlistScreen(
     val showMarketStatus by ServiceLocator.settingsStore.showMarketStatus.collectAsState(initial = true)
     val showVix by ServiceLocator.settingsStore.showVix.collectAsState(initial = true)
     val groups by ServiceLocator.settingsStore.watchlistGroups.collectAsState(initial = emptyList())
+    val groupBySector by ServiceLocator.settingsStore.watchlistGroupBySector.collectAsState(initial = true)
+    val scope = rememberCoroutineScope()
     val marketState by produceState(initialValue = MarketClock.now()) {
         while (true) {
             value = MarketClock.now()
@@ -144,8 +149,9 @@ fun WatchlistScreen(
     var newListName by remember { mutableStateOf("") }
     var confirmDeleteGroup by remember { mutableStateOf<String?>(null) }
 
-    // Reorder is only meaningful in the unfiltered "All" view, where display order == stored order.
-    val reorderEnabled = selected == TAB_ALL
+    // Reorder is only meaningful in the unfiltered, UNGROUPED view, where display order == stored
+    // order. Grouped, the position of a row is derived from its sector and a drag has nowhere to land.
+    val reorderEnabled = selected == TAB_ALL && !groupBySector
     val lazyListState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
         val fromId = from.key as? String
@@ -266,6 +272,39 @@ fun WatchlistScreen(
                     }
                 }
 
+                // The grouping switch lives beside the list itself rather than in Settings — it
+                // changes what is on this screen right now, and burying a view toggle two screens
+                // away makes it undiscoverable to the one person it exists for.
+                item(key = "hdr:grouping") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = {
+                            scope.launch {
+                                ServiceLocator.settingsStore.setWatchlistGroupBySector(!groupBySector)
+                            }
+                        }) {
+                            Icon(Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (groupBySector) "Grouped by sector" else "Custom order",
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                        // Say why the drag handles vanished. Otherwise reordering looks broken
+                        // rather than switched off, and the way back is not obvious from the row.
+                        if (groupBySector && selected == TAB_ALL) {
+                            Text(
+                                "Tap to reorder manually",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
                 // When these prices were last read. Above the context strip because it qualifies
                 // every number below it, including the ones inside the collapsed cards.
                 if (state.items.isNotEmpty()) {
@@ -348,39 +387,75 @@ fun WatchlistScreen(
                     }
                 }
 
-                items(filtered, key = { it.asset.id }) { item ->
-                    ReorderableItem(reorderState, key = item.asset.id) { _ ->
-                        val handleMod = if (reorderEnabled) Modifier.longPressDraggableHandle() else Modifier
-                        SwipeToDeleteRow(
-                            onDelete = { vm.remove(item.asset) },
-                        ) {
-                            val q = item.quote
-                            val up = q?.isUp ?: true
-                            val shares = item.asset.shares
-                            val holdingsText = if (shares != null && shares > 0.0 && q != null) {
-                                "${Formatting.shares(shares)} sh · ${Formatting.price(shares * q.price, q.currency, hideZeroCents)}"
-                            } else {
-                                null
-                            }
-                            Box(handleMod) {
-                                AssetRow(
-                                    symbol = item.asset.symbol,
-                                    name = item.asset.displayName,
-                                    priceText = q?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
-                                    changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents) } ?: "…",
-                                    up = up,
-                                    sparkline = item.sparkline,
-                                    // The level changeText is measured from, so the line and the
-                                    // number can be read against the same baseline.
-                                    previousClose = q?.prevClose,
-                                    holdingsText = holdingsText,
-                                    isCrypto = item.asset.type == AssetType.CRYPTO,
-                                    isEtf = item.quote?.isEtf == true,
-                                    belowLine = item.below200wma == true,
-                                    onClick = { onOpenDetail(item.asset) },
-                                    showDragHandle = reorderEnabled,
-                                )
-                            }
+                // One row, rendered identically whether it sits in a flat list or under a heading.
+                // Hoisted so the two paths below cannot drift apart — a favourite that lost its
+                // sparkline, or a grouped row that stopped being swipeable, is exactly the kind of
+                // difference nobody notices until it has shipped.
+                @Composable
+                fun GroupedAssetRow(item: WatchlistItemUi, handle: Modifier, draggable: Boolean) {
+                    SwipeToDeleteRow(onDelete = { vm.remove(item.asset) }) {
+                        val q = item.quote
+                        val up = q?.isUp ?: true
+                        val shares = item.asset.shares
+                        val holdingsText = if (shares != null && shares > 0.0 && q != null) {
+                            "${Formatting.shares(shares)} sh · ${Formatting.price(shares * q.price, q.currency, hideZeroCents)}"
+                        } else {
+                            null
+                        }
+                        // The drag modifier is passed IN, not built here: longPressDraggableHandle
+                        // is an extension on ReorderableItem's own scope, which this hoisted helper
+                        // is deliberately outside of so the grouped path can reuse it.
+                        Box(handle) {
+                            AssetRow(
+                                symbol = item.asset.symbol,
+                                name = item.asset.displayName,
+                                priceText = q?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
+                                changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents) } ?: "…",
+                                up = up,
+                                sparkline = item.sparkline,
+                                // The level changeText is measured from, so the line and the
+                                // number can be read against the same baseline.
+                                previousClose = q?.prevClose,
+                                holdingsText = holdingsText,
+                                isCrypto = item.asset.type == AssetType.CRYPTO,
+                                isEtf = item.quote?.isEtf == true,
+                                belowLine = item.below200wma == true,
+                                onClick = { onOpenDetail(item.asset) },
+                                showDragHandle = draggable,
+                                favorite = item.asset.favorite,
+                                onToggleFavorite = { vm.toggleFavorite(item.asset) },
+                            )
+                        }
+                    }
+                }
+
+                if (groupBySector) {
+                    val sections = WatchlistVerticals.group(
+                        rows = filtered,
+                        isFavorite = { it.asset.favorite },
+                        verticalOf = {
+                            WatchlistVerticals.verticalFor(
+                                type = it.asset.type,
+                                symbol = it.asset.symbol,
+                                isEtf = it.quote?.isEtf == true,
+                                knownSectors = state.sectors,
+                            )
+                        },
+                    )
+                    sections.forEach { (heading, rows) ->
+                        item(key = "sec:$heading") { SectionHeading(heading, rows.size) }
+                        items(rows, key = { it.asset.id }) { item ->
+                            GroupedAssetRow(item, Modifier, draggable = false)
+                        }
+                    }
+                } else {
+                    items(filtered, key = { it.asset.id }) { item ->
+                        ReorderableItem(reorderState, key = item.asset.id) { _ ->
+                            GroupedAssetRow(
+                                item,
+                                if (reorderEnabled) Modifier.longPressDraggableHandle() else Modifier,
+                                draggable = reorderEnabled,
+                            )
                         }
                     }
                 }
@@ -713,6 +788,38 @@ private fun NewListChip(onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("＋ New list", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/**
+ * A vertical's heading, with the number of rows under it.
+ *
+ * The count is carried because a heading without one invites the reader to count, and a section that
+ * scrolls past the fold cannot be counted at a glance. It also makes an empty-looking group legible:
+ * "Technology 1" is a fact, whereas one lonely row under a heading looks like a rendering fault.
+ */
+@Composable
+private fun SectionHeading(label: String, count: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            label.uppercase(Locale.US),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (label == WatchlistVerticals.FAVORITES) Color(0xFFD29922)
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+                .padding(horizontal = 6.dp, vertical = 1.dp),
+        )
     }
 }
 

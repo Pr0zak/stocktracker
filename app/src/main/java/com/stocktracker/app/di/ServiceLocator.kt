@@ -6,6 +6,7 @@ import com.stocktracker.app.data.MarketRepository
 import com.stocktracker.app.data.prefs.CallPositionStore
 import com.stocktracker.app.data.prefs.ClosedCallPositionStore
 import com.stocktracker.app.data.prefs.PriceCache
+import com.stocktracker.app.data.prefs.SectorCache
 import com.stocktracker.app.data.prefs.SettingsStore
 import com.stocktracker.app.data.prefs.WatchlistStore
 import com.stocktracker.app.data.remote.CoinGeckoService
@@ -28,6 +29,7 @@ object ServiceLocator {
     lateinit var settingsStore: SettingsStore
         private set
     lateinit var priceCache: PriceCache
+    lateinit var sectorCache: SectorCache
         private set
     lateinit var callPositionStore: CallPositionStore
         private set
@@ -53,6 +55,7 @@ object ServiceLocator {
         watchlistStore = WatchlistStore(app)
         settingsStore = SettingsStore(app)
         priceCache = PriceCache(app)
+        sectorCache = SectorCache(app)
         callPositionStore = CallPositionStore(app)
         closedCallPositionStore = ClosedCallPositionStore(app)
         // Poll the self-hosted backend so the UI can show one clear "unreachable" banner rather than

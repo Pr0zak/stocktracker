@@ -16,6 +16,16 @@ data class Asset(
     val avgCost: Double? = null,         // average cost per share (for total return)
     val alerts: AssetAlerts? = null,     // price / percent threshold alerts
     val groups: List<String> = emptyList(), // named watchlists this asset belongs to
+    /**
+     * Starred, so the row is pinned above the sector sections.
+     *
+     * Defaults to FALSE, and the default is the point: being on the watchlist is not the same claim
+     * as being a favourite. Every existing entry deserializes without this key and lands on false,
+     * so the feature arrives empty and means something the first time it is used. A migration that
+     * starred the whole list to "preserve" it would have produced a favourites section identical to
+     * the watchlist -- a filter that filters nothing, which is worse than no filter at all.
+     */
+    val favorite: Boolean = false,
 ) {
     /**
      * Stable identity. Crypto is keyed by CoinGecko id (falling back to ticker) so distinct coins

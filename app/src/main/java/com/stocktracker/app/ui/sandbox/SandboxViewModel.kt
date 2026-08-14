@@ -193,6 +193,9 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
 
     fun setAllowEtf(on: Boolean) = patchSettings(SandboxSettingsPatch(allowEtf = on))
 
+    /** Smallest company the market screen may propose, in USD of market cap. 0 = no floor. */
+    fun setMinMarketCap(usd: Double) = patchSettings(SandboxSettingsPatch(minMarketCap = usd))
+
     fun setAllowCryptoEtf(on: Boolean) = patchSettings(SandboxSettingsPatch(allowCryptoEtf = on))
 
     /** Which spot-bitcoin ETF the trader buys for BTC exposure. They all hold the same asset, so this

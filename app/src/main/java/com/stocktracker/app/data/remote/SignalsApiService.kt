@@ -988,6 +988,9 @@ data class SandboxSettings(
      *  and fee choice, not an exposure one. Blank = no preference. */
     @SerialName("preferred_btc_etf") val preferredBtcEtf: String = "FBTC",
     @SerialName("allow_etf") val allowEtf: Boolean = true,
+    /** Smallest company the market screen may propose, in USD of market cap. 0 = no floor.
+     *  ETFs are exempt server-side — they report AUM, not market cap. */
+    @SerialName("min_market_cap") val minMarketCap: Double = 2_000_000_000.0,
     val exclusions: List<String> = emptyList(),
     val cadence: String = "daily",
     @SerialName("allow_after_hours") val allowAfterHours: Boolean = false,
@@ -1159,6 +1162,7 @@ data class SandboxSettingsPatch(
     @SerialName("allow_crypto_etf") val allowCryptoEtf: Boolean? = null,
     @SerialName("preferred_btc_etf") val preferredBtcEtf: String? = null,
     @SerialName("allow_etf") val allowEtf: Boolean? = null,
+    @SerialName("min_market_cap") val minMarketCap: Double? = null,
     val exclusions: List<String>? = null,
     val cadence: String? = null,
     @SerialName("allow_after_hours") val allowAfterHours: Boolean? = null,

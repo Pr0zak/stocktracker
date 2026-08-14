@@ -263,6 +263,19 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                            else "At most ${s.maxTurnoverPct.toInt()}% of the book changes hands per decision.")
 
                     Spacer(Modifier.height(8.dp))
+                    Label("Smallest company it may buy")
+                    ChipRow(
+                        listOf(0.0, 2e9, 10e9, 50e9), s.minMarketCap, { vm.setMinMarketCap(it) },
+                    ) { if (it == 0.0) "Any" else "\$${(it / 1e9).toInt()}B" }
+                    Helper(
+                        if (s.minMarketCap == 0.0)
+                            "No size floor — the screen can propose anything it surfaces, including micro caps."
+                        else
+                            "Only companies above \$${(s.minMarketCap / 1e9).toInt()}B. " +
+                            "Index funds are unaffected — they report assets under management, not market cap.",
+                    )
+
+                    Spacer(Modifier.height(8.dp))
                     Label("Minimum conviction to buy")
                     ChipRow(listOf(40.0, 55.0, 70.0, 85.0), s.minConvictionToTrade.toDouble(),
                         { vm.setMinConviction(it.toInt()) }) { it.toInt().toString() }

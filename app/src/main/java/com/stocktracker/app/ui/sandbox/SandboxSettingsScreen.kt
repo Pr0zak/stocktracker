@@ -195,32 +195,33 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     }
 
                     Spacer(Modifier.height(10.dp))
-                    Label("Your age / retirement age")
-                    var ageNow by remember(s.currentAge) { mutableStateOf(s.currentAge?.toString() ?: "") }
+                    Label("Date of birth / retirement age")
                     var ageRet by remember(s.retirementAge) { mutableStateOf(s.retirementAge?.toString() ?: "") }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = ageNow, onValueChange = { ageNow = it.filter(Char::isDigit).take(3) },
-                            label = { Text("Now") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f),
-                        )
+                        // A DATE, not a typed-in age. An age is only true for a year, and this one
+                        // is load-bearing — the runway below is (retirement age − age), so a number
+                        // entered once keeps reporting the runway it had on the day it was entered.
+                        // The server derives s.currentAge from this date on every read.
+                        DateField(
+                            "Born", s.birthDate, Modifier.weight(1f),
+                            yearRange = 1900..java.time.LocalDate.now().year,
+                        ) { vm.setBirthDate(it) }
                         OutlinedTextField(
                             value = ageRet, onValueChange = { ageRet = it.filter(Char::isDigit).take(3) },
                             label = { Text("Retire at") }, singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f),
                         )
-                        Button(onClick = { vm.setAges(ageNow.toIntOrNull(), ageRet.toIntOrNull()) }) { Text("Save") }
+                        Button(onClick = { vm.setRetirementAge(ageRet.toIntOrNull()) }) { Text("Save") }
                     }
                     val runway = (s.retirementAge ?: 0) - (s.currentAge ?: 0)
                     Helper(
                         if (s.currentAge != null && runway > 0)
-                            "$runway years of runway — " + (
-                                if (runway >= 15) "long horizon, so it favours total-return growth over dividend income."
-                                else "shorter horizon, so it leans toward preservation and lower drawdown."
+                            "You're ${s.currentAge} — $runway years of runway. " + (
+                                if (runway >= 15) "Long horizon, so it favours total-return growth over dividend income."
+                                else "Shorter horizon, so it leans toward preservation and lower drawdown."
                             )
-                        else "Set your ages so the AI can pick growth vs income appropriately.",
+                        else "Set your date of birth and retirement age so the AI can pick growth vs income appropriately.",
                     )
 
                     Spacer(Modifier.height(10.dp))

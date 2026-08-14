@@ -957,6 +957,9 @@ data class SandboxSettings(
     @SerialName("master_enabled") val masterEnabled: Boolean = false,
     @SerialName("risk_tolerance") val riskTolerance: String = "balanced",
     @SerialName("retirement_date") val retirementDate: String? = null,
+    /** Birth date (ISO yyyy-mm-dd). The source of truth for the glidepath's runway; [currentAge] is
+     *  derived from it server-side on every read, so the age shown here is always today's. */
+    @SerialName("birth_date") val birthDate: String? = null,
     @SerialName("current_age") val currentAge: Int? = null,
     @SerialName("retirement_age") val retirementAge: Int? = null,
     @SerialName("account_type") val accountType: String = "cash",
@@ -1126,6 +1129,7 @@ data class SandboxSettingsPatch(
     @SerialName("master_enabled") val masterEnabled: Boolean? = null,
     @SerialName("risk_tolerance") val riskTolerance: String? = null,
     @SerialName("retirement_date") val retirementDate: String? = null,
+    @SerialName("birth_date") val birthDate: String? = null,
     @SerialName("current_age") val currentAge: Int? = null,
     @SerialName("retirement_age") val retirementAge: Int? = null,
     // Nullable like every other field here. As non-nullable defaults they vanished from the JSON

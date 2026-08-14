@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -912,7 +913,16 @@ private fun SettingsSummary(st: SandboxState, onOpen: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun DateField(label: String, iso: String?, modifier: Modifier = Modifier, onPicked: (String?) -> Unit) {
+internal fun DateField(
+    label: String,
+    iso: String?,
+    modifier: Modifier = Modifier,
+    /** Selectable years. Defaults to Material3's 1900..2100. A birth date narrows it to the past,
+     *  which both rules out an impossible answer and drops the year list somewhere useful — the
+     *  default opens on this year, roughly fifty scrolls from where a birth date lives. */
+    yearRange: IntRange = DatePickerDefaults.YearRange,
+    onPicked: (String?) -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { open = true }, modifier = modifier) {
         Text(iso ?: label, maxLines = 1)
@@ -922,6 +932,7 @@ internal fun DateField(label: String, iso: String?, modifier: Modifier = Modifie
             initialSelectedDateMillis = iso?.let {
                 runCatching { java.time.LocalDate.parse(it).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }.getOrNull()
             },
+            yearRange = yearRange,
         )
         DatePickerDialog(
             onDismissRequest = { open = false },

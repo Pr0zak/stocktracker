@@ -180,6 +180,11 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
 
     fun setExitDate(iso: String?) = patchSettings(SandboxSettingsPatch(exitDate = iso ?: ""))
 
+    /** Empty string clears it, matching the other date fields — a null would be dropped from the
+     *  patch entirely and the server would keep the old value. The server rejects a date it cannot
+     *  parse or one in the future, so [patchSettings]' error path is the one that surfaces it. */
+    fun setBirthDate(iso: String?) = patchSettings(SandboxSettingsPatch(birthDate = iso ?: ""))
+
     fun setMaxPositionPct(pct: Double) = patchSettings(SandboxSettingsPatch(maxPositionPct = pct))
 
     fun setCashFloorPct(pct: Double) = patchSettings(SandboxSettingsPatch(cashFloorPct = pct))
@@ -251,8 +256,10 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
 
     fun setRespectEntryZones(on: Boolean) = patchSettings(SandboxSettingsPatch(respectEntryZones = on))
 
-    fun setAges(current: Int?, retire: Int?) =
-        patchSettings(SandboxSettingsPatch(currentAge = current ?: 0, retirementAge = retire ?: 0), note = "Ages updated")
+    /** Only the retirement age is a typed number now — the current age is derived from
+     *  [setBirthDate] server-side, so there is nothing here to keep in sync with the calendar. */
+    fun setRetirementAge(retire: Int?) =
+        patchSettings(SandboxSettingsPatch(retirementAge = retire ?: 0), note = "Retirement age updated")
 
     fun setAccountType(t: String) = patchSettings(SandboxSettingsPatch(accountType = t))
 

@@ -48,6 +48,21 @@ class RequestBodyTest {
     }
 
     @Test
+    fun `clearing the birth date sends an empty string rather than dropping the field`() {
+        // A null would be omitted from the patch entirely and the server would keep the old date --
+        // "Clear" in the picker would appear to work and change nothing. The empty string is what
+        // the server reads as "unset it", same as the retirement and exit dates beside it.
+        val cleared = Http.json.encodeToString(SandboxSettingsPatch(birthDate = ""))
+        assertTrue("birth_date was dropped, so the date can never be cleared: $cleared",
+            cleared.contains("birth_date"))
+        val set = Http.json.encodeToString(SandboxSettingsPatch(birthDate = "1979-08-20"))
+        assertTrue(set.contains("1979-08-20"))
+        // Sending a stale current_age alongside it would be ignored server-side, but it must not be
+        // sent at all -- the date is the only input now.
+        assertTrue("the age must not ride along with the date: $set", !set.contains("current_age"))
+    }
+
+    @Test
     fun `a patch still omits fields the caller did not set`() {
         // The whole point of a patch is partial update — this must NOT become "send everything".
         val body = Http.json.encodeToString(SandboxSettingsPatch(accountType = "margin"))

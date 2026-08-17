@@ -42,6 +42,9 @@ data class SandboxUiState(
     /** The macro backdrop the trader reasons against (GET /macro/catalysts). Null = couldn't load,
      *  which the card renders as "couldn't load", never as a calm market. */
     val macro: com.stocktracker.app.data.remote.MacroState? = null,
+    /** Settings changelog for the selected arm. Empty means none recorded — the log starts the day
+     *  the feature shipped, so an old account legitimately has nothing to show. */
+    val changes: List<com.stocktracker.app.data.remote.SandboxChange> = emptyList(),
     val message: String? = null,      // transient toast-style feedback
     val error: String? = null,
 )
@@ -81,6 +84,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
             val trades = api.sandboxTrades(base, limit = 120, arm = arm)
             // Only worth a round trip when there is something to compare against.
             val aNav = if ((arms?.size ?: 0) > 1) api.sandboxArmsNav(base, days = 180) else null
+            val changes = api.sandboxChanges(base, limit = 40, arm = arm)
             val mem = api.memoryStats(base)
             val mac = api.macroCatalysts(base)
             if (gen != refreshGeneration) return@launch   // superseded by a newer refresh
@@ -100,6 +104,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
                     trendPctPerMonth = navRows?.let { r -> trendPerMonth(r) } ?: it.trendPctPerMonth,
                     trades = trades ?: it.trades,
                     memory = mem ?: it.memory,
+                    changes = changes ?: it.changes,
                     macro = mac ?: it.macro,
                     error = when {
                         st == null -> "Couldn't reach the sandbox service."

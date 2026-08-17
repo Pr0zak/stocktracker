@@ -388,6 +388,36 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
             }
 
             // ---------------- DANGER ZONE ----------------
+            // What changed, and when. Sits directly under the controls that produce it, because the
+            // question it answers -- "did I change something, or did the strategy?" -- is asked while
+            // looking at these controls, not from a separate screen.
+            if (ui.changes.isNotEmpty()) {
+                item {
+                    Section("What changed", "Settings history, newest first") {
+                        ui.changes.take(12).forEach { c ->
+                            Column(Modifier.padding(bottom = 8.dp)) {
+                                Text(
+                                    c.date,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                c.changed.forEach { (key, v) ->
+                                    Text(
+                                        // The raw setting name, not a prettified one. This is a
+                                        // debugging record: the name here has to match the name in
+                                        // the API and the ledger, or it cannot be searched for.
+                                        "$key: ${jsonShort(v.from)} → ${jsonShort(v.to)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                        if (ui.changes.size > 12) {
+                            Helper("Showing the 12 most recent of ${ui.changes.size}.")
+                        }
+                    }
+                }
+            }
             item {
                 var confirm by remember { mutableStateOf(false) }
                 Section("Danger zone", "Irreversible", tint = RED) {
@@ -483,6 +513,22 @@ private fun ExclusionSearchField(already: List<String>, onPick: (String) -> Unit
 }
 
 // ---- local building blocks ----
+
+/** A settings value as one short token. Lists collapse to a count: a 20-ticker exclusion list
+ *  printed in full would bury every other row, and the count is what tells you it moved. */
+private fun jsonShort(e: kotlinx.serialization.json.JsonElement?): String {
+    if (e == null) return "—"
+    val s = e.toString()
+    return when {
+        s == "null" -> "unset"
+        s.startsWith("[") -> {
+            val n = (e as? kotlinx.serialization.json.JsonArray)?.size ?: 0
+            if (n == 0) "empty" else "$n item" + if (n == 1) "" else "s"
+        }
+        s.length > 24 -> s.take(21).trim('"') + "…"
+        else -> s.trim('"')
+    }
+}
 
 @Composable
 private fun Section(title: String, subtitle: String? = null, tint: Color? = null, content: @Composable () -> Unit) {

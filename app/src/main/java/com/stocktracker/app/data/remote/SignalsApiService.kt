@@ -131,6 +131,13 @@ class SignalsApiService {
         return Http.json.decodeFromString<HeatmapResponse>(body)
     }
 
+    /** Settings changelog for an arm, newest first. FREE (no LLM). */
+    suspend fun sandboxChanges(baseUrl: String, limit: Int = 50, arm: String = "main"): List<SandboxChange>? {
+        if (baseUrl.isBlank()) return null
+        val body = sGet("${baseUrl.trimEnd('/')}/sandbox/changes?limit=$limit&arm=$arm")
+        return Http.json.decodeFromString<SandboxChangesResponse>(body).changes
+    }
+
     /** Sector + industry per ticker, for grouping the watchlist into verticals. FREE (no LLM).
      *
      *  A symbol the server could not classify comes back PRESENT with a null sector; a symbol
@@ -948,6 +955,15 @@ data class SandboxState(
     val settings: SandboxSettings = SandboxSettings(),
     val enabled: Boolean = false,
     @SerialName("last_tick_date") val lastTickDate: String? = null,
+    /** One-line read of what the last tick decided. Null on an account that has not ticked since the
+     *  field was added — a hold with no posture is not the same as a hold that explained itself. */
+    @SerialName("last_posture") val lastPosture: String? = null,
+    /** Peak-to-trough risk, from the NAV series. Null on a curve too short to have one: "no drawdown
+     *  yet" and "measured, and it was zero" are different claims and only the second is earned. */
+    @SerialName("max_drawdown_pct") val maxDrawdownPct: Double? = null,
+    @SerialName("current_drawdown_pct") val currentDrawdownPct: Double? = null,
+    @SerialName("peak_equity") val peakEquity: Double? = null,
+    @SerialName("days_underwater") val daysUnderwater: Int? = null,
     @SerialName("last_weekly_review_date") val lastWeeklyReviewDate: String? = null,
     @SerialName("last_strategy_note") val strategyNote: SandboxStrategyNote? = null,
     @SerialName("created_at") val createdAt: Double? = null,
@@ -1844,6 +1860,33 @@ data class SmartMoneyRow(
     /** Newest DISCLOSED trade date and when it was filed — congressional filings lag ~45 days. */
     @SerialName("congress_newest_trade") val congressNewestTrade: String? = null,
     @SerialName("congress_latest_filing") val congressLatestFiling: String? = null,
+)
+
+/** GET /sandbox/changes — the settings changelog. The companion to the trade log: that says what the
+ *  account DID, this says what it was told to do it with. */
+@Serializable
+data class SandboxChange(
+    val ts: Double = 0.0,
+    val date: String = "",
+    val arm: String = "main",
+    val source: String = "api",
+    /** setting name -> {from, to}. Only keys that actually moved are recorded, so an empty map
+     *  never appears — a no-op write produces no row at all. */
+    val changed: Map<String, SandboxChangeValue> = emptyMap(),
+)
+
+@Serializable
+data class SandboxChangeValue(
+    /** Deliberately JsonElement, not String: a setting's value may be a number, bool, string, null
+     *  or a list, and coercing them all to text would render `false` and `"false"` identically. */
+    val from: kotlinx.serialization.json.JsonElement? = null,
+    val to: kotlinx.serialization.json.JsonElement? = null,
+)
+
+@Serializable
+data class SandboxChangesResponse(
+    val arm: String = "main",
+    val changes: List<SandboxChange> = emptyList(),
 )
 
 /** GET /sectors — the classification the watchlist groups by. Free, no LLM. */

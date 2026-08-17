@@ -235,6 +235,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                     PriceChart(
                         points = ui.nav, up = up, showHighLow = true, showAxis = true,
                         overlays = overlays, markers = markers, subPanes = panes,
+                        shadeDrawdown = true,
                         modifier = Modifier.fillMaxWidth().height(280.dp),
                         valueFormatter = { "$" + Formatting.compact(it) },
                         timeFormatter = {
@@ -371,6 +372,19 @@ private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
             st.vsBenchmarkPct?.let {
                 Text("vs S&P " + signedPct(it), color = if (it >= 0) GREEN else RED, style = MaterialTheme.typography.titleSmall)
             }
+        }
+        // Risk beside return. Without it "+2.48%" describes a book that could have got there in a
+        // straight line or been 20% underwater on the way, and the two read identically. Shown only
+        // once the curve is long enough to HAVE a drawdown -- a fresh account displaying "max DD
+        // 0.00%" claims a measurement it has not earned.
+        st.maxDrawdownPct?.let { maxDd ->
+            val cur = st.currentDrawdownPct ?: 0.0
+            Text(
+                "Max drawdown ${pctPlain(maxDd)}" +
+                    if (cur > 0.05) " · ${pctPlain(cur)} below peak" else " · at its peak",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (cur > 0.05) AMBER else neutral,
+            )
         }
         trendPctPerMonth?.let { rate ->
             Text(
@@ -1373,6 +1387,10 @@ private fun EmptyState(onFund: (Double) -> Unit) {
 }
 
 private fun signedPct(v: Double) = (if (v >= 0) "+" else "") + String.format(java.util.Locale.US, "%.1f%%", v)
+
+/** A magnitude, deliberately unsigned. A drawdown carries no sign — printing "-2.7%" beside "+2.5%
+ *  return invites the reader to net them, which is not what either number means. */
+private fun pctPlain(v: Double) = String.format(java.util.Locale.US, "%.2f%%", kotlin.math.abs(v))
 
 /** Abbreviated money, for places where width is scarce (a collapsed log line, the header metrics). */
 private fun signedUsd(v: Double) = (if (v >= 0) "+$" else "-$") + Formatting.compact(kotlin.math.abs(v))

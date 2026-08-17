@@ -170,6 +170,10 @@ fun PriceChart(
     overlays: List<ChartLineOverlay> = emptyList(),
     subPanes: List<ChartSubPane> = emptyList(),
     markers: List<ChartMarker> = emptyList(),
+    /** Shade the region between the running peak and the line wherever the series is below its own
+     *  all-time high. Turns drawdown from a number the reader has to hold in their head into the
+     *  shape of the curve. Only meaningful for a cumulative series (equity), never for a price. */
+    shadeDrawdown: Boolean = false,
     onScrubChange: (PricePoint?) -> Unit = {},
     valueFormatter: (Double) -> String = { it.toString() },
     timeFormatter: (Long) -> String = { "" },
@@ -346,6 +350,39 @@ fun PriceChart(
                     i = j
                 } else {
                     i++
+                }
+            }
+
+            // Underwater shading: the area between the running peak and the curve, wherever the
+            // series sits below its own high. Drawn BEFORE the line and its gradient so it reads as
+            // background rather than as another series.
+            if (shadeDrawdown && endIdx > startIdx) {
+                // Running peak over the WHOLE series, not the visible window: a drawdown is measured
+                // from the all-time high, and restarting the peak at the left edge of a zoomed view
+                // would show a shallower one than the account actually suffered.
+                val peaks = DoubleArray(points.size)
+                var run = points[0].price
+                for (k in points.indices) {
+                    if (points[k].price > run) run = points[k].price
+                    peaks[k] = run
+                }
+                val ddColor = LossRed.copy(alpha = 0.14f)
+                var k = startIdx
+                while (k <= endIdx) {
+                    if (points[k].price < peaks[k]) {
+                        var j = k
+                        while (j <= endIdx && points[j].price < peaks[j]) j++
+                        val seg = Path().apply {
+                            moveTo(xg(k), y(peaks[k]))
+                            for (m in k..(j - 1).coerceAtMost(endIdx)) lineTo(xg(m), y(peaks[m]))
+                            for (m in (j - 1).coerceAtMost(endIdx) downTo k) lineTo(xg(m), y(points[m].price))
+                            close()
+                        }
+                        drawPath(seg, ddColor)
+                        k = j
+                    } else {
+                        k++
+                    }
                 }
             }
 

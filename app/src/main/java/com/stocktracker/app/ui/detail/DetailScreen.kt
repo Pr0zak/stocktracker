@@ -83,6 +83,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetAlerts
 import com.stocktracker.app.data.model.AssetType
+import com.stocktracker.app.data.model.TakenState
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
@@ -533,7 +534,9 @@ fun DetailScreen(
                     chase = state.chase,
                     loading = state.planLoading,
                     error = state.planError,
+                    journalNote = state.journalNote,
                     onPlan = { cash -> vm.requestPlan(cash) },
+                    onLogVerdict = { decision -> vm.logVerdict(decision) },
                 )
             }
 
@@ -2514,7 +2517,9 @@ private fun EntryPlanCard(
     chase: ChaseState?,
     loading: Boolean,
     error: String?,
+    journalNote: String?,
     onPlan: (Double) -> Unit,
+    onLogVerdict: (TakenState) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val savedCash by ServiceLocator.settingsStore.investableCash.collectAsState(initial = 0.0)
@@ -2677,6 +2682,27 @@ private fun EntryPlanCard(
             }
             if (plan.thesis.isNotBlank()) {
                 Text(plan.thesis, style = MaterialTheme.typography.bodySmall)
+            }
+
+            // SWT-8 — the journal's front door. Both decisions are here, side by side and equally
+            // cheap, because a "log it" that only records the trades you take turns the journal's
+            // headline number ("you passed on 6 of 10") into a number about what you bothered to log.
+            // "I passed" is one tap and writes immediately; it is deliberately not behind a menu.
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { onLogVerdict(TakenState.UNDECIDED) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Log to journal") }
+                OutlinedButton(
+                    onClick = { onLogVerdict(TakenState.NOT_TAKEN) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("I passed") }
+            }
+            journalNote?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
             }
         }
         Text("Scenario planner · staged buy, not advice", style = MaterialTheme.typography.labelSmall, color = neutral)

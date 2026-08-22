@@ -48,6 +48,14 @@ data class VerdictJournalEntry(
     val exitDateIso: String? = null,
     /** Free text — why you skipped it, why you sized it that way, what you'd do differently. */
     val notes: String? = null,
+    /**
+     * The MECHANICAL leg: what the plan as written would have done, as the backend's replay engine
+     * reported it. RECORDED, never recomputed at render time — see [JournalReplay].
+     *
+     * Null means nobody has replayed this entry yet, which is not the same as a replay that came back
+     * with nothing to say ([JournalReplay.isPending]). Both are ordinary; neither is an error.
+     */
+    val replay: JournalReplay? = null,
 ) {
 
     /** Where this entry stands right now. Derived, so it can never disagree with the fields. */
@@ -116,6 +124,16 @@ data class VerdictJournalEntry(
     val exitKind: ExitTaxonomy.ExitKind?
         get() = if (!isClosed) null
         else ExitTaxonomy.classifyAgainstLevels(exitPrice, plan.stop, plan.target)
+
+    /**
+     * The PLAN's R on this entry, from the recorded replay — the number [rMultiple] is drawn against.
+     *
+     * Null whenever the replay is absent, refused, still running, never filled, or resolved without a
+     * stop to divide by. Every one of those is a reason this entry cannot appear on the mechanical
+     * curve, and [JournalComparison] keeps it off BOTH curves rather than letting your point stand
+     * alone — a comparison over a population only one side could take is not a comparison.
+     */
+    val mechanicalR: Double? get() = replay?.scoredR
 }
 
 /**

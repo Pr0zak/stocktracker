@@ -2,6 +2,7 @@ package com.stocktracker.app.ui
 
 import android.net.Uri
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Lightbulb
@@ -53,6 +54,10 @@ private sealed class TopDest(val route: String, val label: String, val icon: Ima
     // tab bar that is already at the width its labels can take.
     data object MarketScan : TopDest("market_scan", "Market scan", Icons.Filled.Leaderboard)
     data object Sandbox : TopDest("sandbox", "Sandbox", Icons.Filled.SmartToy)
+    // Reached from Portfolio's app bar, for the same reason Ideas is: the tab bar is already at the
+    // width its five labels can take, and the journal is something you visit after a decision rather
+    // than a place you live.
+    data object Journal : TopDest("journal", "Verdict journal", Icons.AutoMirrored.Filled.MenuBook)
     data object Widgets : TopDest("widgets", "Widgets", Icons.Filled.Widgets)
     data object Settings : TopDest("settings", "Settings", Icons.Filled.Settings)
 }
@@ -145,7 +150,11 @@ fun StockTrackerRoot() {
                             restoreState = true
                         }
                     },
+                    onOpenJournal = { nav.navigate(TopDest.Journal.route) },
                 )
+            }
+            composable(TopDest.Journal.route) {
+                com.stocktracker.app.ui.journal.JournalScreen(onBack = { nav.popBackStack() })
             }
             composable(TopDest.Heatmap.route) {
                 com.stocktracker.app.ui.heatmap.HeatmapScreen(

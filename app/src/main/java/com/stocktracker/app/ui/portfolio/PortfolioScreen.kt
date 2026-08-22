@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Balance
 import androidx.compose.material.icons.filled.Lightbulb
@@ -68,7 +69,7 @@ import com.stocktracker.app.util.asPercentChange
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
+fun PortfolioScreen(onOpenIdeas: () -> Unit = {}, onOpenJournal: () -> Unit = {}) {
     val vm: PortfolioViewModel = viewModel()
     val state by vm.state.collectAsState()
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
@@ -94,6 +95,11 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}) {
             TopAppBar(
                 title = { Text("Portfolio") },
                 actions = {
+                    // NOT gated on holdings: the journal records verdicts you PASSED on, and someone
+                    // who owns nothing yet is exactly the person with passes to record.
+                    IconButton(onClick = onOpenJournal) {
+                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Verdict journal")
+                    }
                     if (state.hasHoldings) {
                         IconButton(onClick = { vm.openRebalance() }) {
                             Icon(Icons.Filled.Balance, contentDescription = "AI rebalance plan")

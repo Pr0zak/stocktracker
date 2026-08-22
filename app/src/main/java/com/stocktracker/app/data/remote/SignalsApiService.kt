@@ -1,5 +1,6 @@
 package com.stocktracker.app.data.remote
 
+import com.stocktracker.app.data.model.JournalReplay
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -659,7 +660,75 @@ class SignalsApiService {
             sPost("${baseUrl.trimEnd('/')}/market_scan/run", "{}", slow = true),
         )
     }
+
+    /**
+     * SWT-8 — replay ONE recorded plan against the daily bars that actually followed it. Free, no LLM.
+     *
+     * The mechanical half of the verdict journal: the caller supplies the plan exactly as it was
+     * snapshotted ([com.stocktracker.app.data.model.JournalPlan]) and the day it was given, and the
+     * server walks the sessions after that date. `slow = true` because it fetches and parses up to
+     * two years of bars — a quote-endpoint timeout would abandon a request that was working.
+     *
+     * A RETURNED RESULT WITH `outcome == null` IS A SUCCESS, not a failure, and it is the normal
+     * answer for a plan written today: nothing has traded since, so nothing has been decided. Callers
+     * must render it as "not replayed yet"; treating it as an error would flag most of a fresh journal
+     * red for behaving exactly as designed.
+     *
+     * Throws [HttpStatusException] on the refusals the route makes: 422 for a plan that cannot be
+     * replayed (a date that is not a date or is in the future, an inverted zone, a stop that is not
+     * below the entry, a target that is not above it), 404 for a symbol with no price history at all,
+     * 502 when the price fetch fails. Those are DIFFERENT facts — 422 is permanent and about the plan,
+     * 502 is transient and about the network — so they are left as statuses for the caller to tell
+     * apart rather than flattened into a null.
+     */
+    suspend fun journalReplay(
+        baseUrl: String,
+        symbol: String,
+        dateIso: String,
+        entryLow: Double?,
+        entryHigh: Double?,
+        stop: Double?,
+        target: Double?,
+    ): JournalReplay {
+        val body = Http.json.encodeToString(
+            PlanReplayRequestBody(
+                symbol = symbol.uppercase(),
+                date = dateIso,
+                entryLow = entryLow,
+                entryHigh = entryHigh,
+                stop = stop,
+                target = target,
+            ),
+        )
+        return Http.json.decodeFromString<JournalReplay>(
+            sPost("${baseUrl.trimEnd('/')}/journal/replay", body, slow = true),
+        )
+    }
 }
+
+/**
+ * POST /journal/replay's body — the plan as it stood, plus the session it was recorded on.
+ *
+ * NO DEFAULT VALUES, for the reason spelled out on [SandboxTickRequest]: `Http.json` leaves
+ * `encodeDefaults` at false, so a field equal to its class default is dropped from the payload
+ * entirely. Here that would be quietly wrong rather than loudly broken — a plan whose stop happened
+ * to be absent and a plan whose stop was never sent are the same request, but only by luck, and the
+ * first field that gained a non-null default would start replaying a plan nobody wrote.
+ *
+ * `horizon_days` / `fill_window_days` are deliberately NOT sent. They are the replay's judgement
+ * calls (40 sessions to reach a level, 5 to get filled), argued out in the backend's plan_replay.py,
+ * and a second copy of those numbers on the phone would be a second place for them to be wrong.
+ */
+@Serializable
+data class PlanReplayRequestBody(
+    val symbol: String,
+    /** The day the plan was recorded. ISO yyyy-MM-dd or bare YYYYMMDD — the route accepts both. */
+    val date: String,
+    @SerialName("entry_low") val entryLow: Double?,
+    @SerialName("entry_high") val entryHigh: Double?,
+    val stop: Double?,
+    val target: Double?,
+)
 
 @Serializable
 data class ShortPressureResponse(

@@ -6,8 +6,11 @@ import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetAlerts
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.ChartRange
+import com.stocktracker.app.data.model.JournalPlan
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.model.TakenState
+import com.stocktracker.app.data.model.VerdictJournalEntry
 import com.stocktracker.app.data.remote.SignalsHealth
 import com.stocktracker.app.data.remote.AiUsage
 import com.stocktracker.app.data.remote.AiVerdict
@@ -33,6 +36,7 @@ import com.stocktracker.app.signals.Backtest
 import com.stocktracker.app.signals.BacktestResult
 import com.stocktracker.app.signals.SignalEngine
 import com.stocktracker.app.signals.SignalResult
+import java.time.LocalDate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -109,6 +113,12 @@ data class DetailUiState(
     val plan: EntryPlan? = null,
     val planLoading: Boolean = false,
     val planError: String? = null,
+    /**
+     * Confirmation that the plan on screen was written into the verdict journal (SWT-8), and what
+     * was recorded. One line, cleared by the next plan fetch — a silent write leaves the user tapping
+     * "Log to journal" twice and building a duplicate history.
+     */
+    val journalNote: String? = null,
     /**
      * The server's chase read for [plan] (SWT-3) — where the live price sits against the analyst's
      * own entry zone.
@@ -385,6 +395,9 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     deep = deep, shares = s.shares, avgCost = s.avgCost, refresh = refresh,
                 )
             }
+            // A fresh plan is a fresh verdict; the note from the last one no longer describes what is
+            // on screen, and leaving it up would read as "this one is already logged".
+            _state.update { it.copy(journalNote = null) }
             ensureActive() // runCatching swallows cancellation; don't apply a superseded result
             val resp = res.getOrNull()
             _state.update {
@@ -400,6 +413,60 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                         analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't reach the analyst service"
                     } else {
                         null
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * SWT-8 — write the plan ON SCREEN into the verdict journal, with the decision you have made
+     * about it so far.
+     *
+     * A SNAPSHOT, NOT A LINK. The plan endpoint caches for hours and regenerates on demand, so a
+     * reference would silently rewrite the history the journal exists to measure against: you would
+     * end up comparing your fill to a plan you were never given. Every level is copied as it stands,
+     * and an absent level is copied as absent — [EntryPlan.conviction] is a non-nullable Int whose
+     * 0 means "the analyst named none", and storing that 0 would put a confident "conviction 0/100"
+     * on an entry nobody graded.
+     *
+     * [decision] carries UNDECIDED, TAKEN or NOT_TAKEN, so passing on a verdict is a single tap from
+     * the card that suggested it. If declining were harder than ignoring, the journal would only ever
+     * hold the trades you took.
+     */
+    fun logVerdict(decision: TakenState) {
+        val plan = _state.value.plan
+        if (plan == null) {
+            _state.update { it.copy(journalNote = "Ask for a plan first — the journal stores the plan, not the ticker.") }
+            return
+        }
+        viewModelScope.launch {
+            val entry = VerdictJournalEntry(
+                // The symbol the REPLAY will need: the signals service prices crypto off Yahoo, whose
+                // crypto symbols take a -USD suffix, and a journal entry saying "BTC" would 404 every
+                // time its plan was replayed.
+                symbol = if (asset.type == AssetType.CRYPTO) "${asset.symbol.uppercase()}-USD" else asset.symbol.uppercase(),
+                // The day you were given it. The plan cache is hours deep, not days, so today is the
+                // session it was drawn against.
+                verdictDateIso = LocalDate.now().toString(),
+                plan = JournalPlan(
+                    action = plan.action.takeIf { it.isNotBlank() },
+                    entryLow = plan.entryLow,
+                    entryHigh = plan.entryHigh,
+                    stop = plan.stop,
+                    target = plan.target,
+                    conviction = plan.conviction.takeIf { it > 0 },
+                    thesis = plan.thesis.takeIf { it.isNotBlank() },
+                ),
+                taken = decision,
+            )
+            ServiceLocator.verdictJournalStore.add(entry)
+            _state.update {
+                it.copy(
+                    journalNote = when (decision) {
+                        TakenState.NOT_TAKEN -> "Logged as passed. It counts in your taken-vs-passed record."
+                        TakenState.TAKEN -> "Logged as taken — add your fill in the journal so it can be scored."
+                        TakenState.UNDECIDED -> "Logged. Say whether you took it in the journal."
                     },
                 )
             }

@@ -15,6 +15,11 @@ package com.stocktracker.app.data.model
  * zone and the target would put a fabricated curve next to a real one on the same chart, with nothing
  * on screen to say which was which. [ActualVsPlanCurve.mechanical] is left null until something
  * actually replays the plans.
+ *
+ * [JournalComparison] is that something: it fills the slot from the replay results RECORDED on the
+ * entries ([VerdictJournalEntry.replay]) and, crucially, pairs the two series over a population both
+ * sides could take. Prefer it over [curve] wherever both curves are drawn — [curve] alone will
+ * happily plot trades the plan never took.
  */
 object VerdictJournal {
 

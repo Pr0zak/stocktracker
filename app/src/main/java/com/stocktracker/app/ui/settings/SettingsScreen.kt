@@ -68,7 +68,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(onOpenMethodology: () -> Unit = {}) {
     val settings = ServiceLocator.settingsStore
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -403,6 +403,32 @@ fun SettingsScreen() {
                 }
             }
             UpdateDialog(updater) // shows the Available/Downloading modal
+
+            SettingsSection("How the numbers are made") {
+                // A methodology page nobody can reach is a methodology page nobody has. It sits in
+                // Settings rather than behind any one card because it qualifies figures on half a
+                // dozen screens, and every one of them would otherwise need its own footnote.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenMethodology() }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("What these numbers don't account for", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Read",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                HelperText(
+                    "Slippage and fees, survivorship, simulated versus recorded-live figures, why a " +
+                        "time exit counts as a win, and every threshold that was chosen rather than " +
+                        "measured.",
+                )
+            }
 
             SettingsSection("About") {
                 var showChangelog by remember { mutableStateOf(false) }

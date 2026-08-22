@@ -1,7 +1,7 @@
 # Breadth, Gate & Journal Roadmap (SWT-1…10)
 
-**Status: SWT-1…7 shipped 2026-08-21/22.** Signals `0.18.0`, app `0.96.0`. SWT-8 in progress; SWT-9
-and SWT-10 remain. Companion to `ai-enhancement-roadmap.md`, `ai-signals-roadmap.md` and
+**Status: SWT-1…10 shipped 2026-08-21/22.** Signals `0.19.0` (deployed), app `0.99.0`. All ten
+items are committed on main; the app is not released to a device yet. Companion to `ai-enhancement-roadmap.md`, `ai-signals-roadmap.md` and
 `options-roadmap.md`.
 
 | | What landed | Where |
@@ -13,6 +13,9 @@ and SWT-10 remain. Companion to `ai-enhancement-roadmap.md`, `ai-signals-roadmap
 | SWT-5 | Dip-radar reject reasons, and four honest states where there was one | `scan_job.py`, `DipRadar.kt` |
 | SWT-6 | R multiples, and the risk capture that makes them possible at all | `RiskMultiple.kt` |
 | SWT-7 | Exit taxonomy; hard win rate never shown without profitable exit rate | `ExitTaxonomy.kt` |
+| SWT-8 | Verdict journal — what you did with each verdict, drawn against the plan replayed | `VerdictJournal.kt`, `JournalComparison.kt`, `journal_replay.py` |
+| SWT-9 | Every performance number paired with its opposite half, each with its n | `PairedStat.kt`, `PairedStatBlock.kt` |
+| SWT-10 | "How these numbers are made" — the page a sceptic can check the work against | `MethodologyScreen.kt` |
 
 **Four defects surfaced by running this against live data, none of which the tests would have
 caught.** Yahoo serves some reverse-split names as interleaved pre- and post-split bars with no

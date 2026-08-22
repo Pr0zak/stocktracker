@@ -1,5 +1,6 @@
 package com.stocktracker.app.signals
 
+import com.stocktracker.app.data.model.PairedStat
 import com.stocktracker.app.data.model.PricePoint
 import kotlin.math.max
 
@@ -9,7 +10,19 @@ data class BacktestResult(
     val strategyReturnPct: Double,
     val buyHoldReturnPct: Double,
     val maxDrawdownPct: Double,
-    val winRatePct: Double,
+    /**
+     * Percent of simulated trades that closed green, or NULL when none were taken.
+     *
+     * Nullable — never 0.0 — because "the rule never traded this chart" and "the rule traded and lost
+     * every time" are opposite statements about a signal, and 0.0 makes the harsher one. Callers must
+     * pair it with [trades] wherever it is shown (SWT-9).
+     */
+    val winRatePct: Double?,
+    /**
+     * Simulated trades that closed green. Carried alongside the rate so a render site under the
+     * shared small-sample floor can print "3 of 4" instead of a confident "75%" over four trades.
+     */
+    val wins: Int,
     val trades: Int,
     val exposurePct: Double,
 ) {
@@ -21,6 +34,11 @@ data class BacktestResult(
  * Walk the series bar by bar, turning each bar's signal into a long/flat position and realizing the
  * NEXT bar's return — strictly causal, so there is no lookahead. A [feeBps] cost is charged on every
  * position change, so results are "after cost". Long-only, single position, fully invested or flat.
+ *
+ * WHAT "AFTER COST" DOES AND DOES NOT INCLUDE. The fee is a flat 10 bps of the position on each side
+ * of a trade and that is the whole cost model: no bid/ask spread, no slippage, no gap through the
+ * intended price, no per-order commission. Fills are assumed at the close of the signal bar. The
+ * methodology screen states this in the app's own words — keep the two in step.
  *
  * This is the honesty check for Tier 1: a signal that doesn't beat buy-and-hold here (see
  * [BacktestResult.edgeVsBuyHoldPct]) isn't worth acting on.
@@ -87,9 +105,41 @@ object Backtest {
             strategyReturnPct = (equity - 1.0) * 100.0,
             buyHoldReturnPct = buyHold * 100.0,
             maxDrawdownPct = maxDd * 100.0,
-            winRatePct = if (trades > 0) wins.toDouble() / trades * 100.0 else 0.0,
+            winRatePct = if (trades > 0) wins.toDouble() / trades * 100.0 else null,
+            wins = wins,
             trades = trades,
             exposurePct = if (evaluated > 0) barsInMarket.toDouble() / evaluated * 100.0 else 0.0,
         )
     }
+}
+
+/**
+ * The backtested win rate PAIRED with its forward twin (SWT-9).
+ *
+ * THE FORWARD SIDE IS ABSENT, AND THAT IS THE POINT. Nothing in this app has ever recorded a rule
+ * engine signal as it fired and scored it afterwards — the backend's memory layer grades the ANALYST's
+ * calls, which is a different subject and must not be borrowed to fill this slot. Presenting the two
+ * as one record would be the mislabelling this pairing exists to prevent, so the honest output is a
+ * simulated number standing next to a stated absence rather than standing alone.
+ *
+ * Returns null when the rule never traded this chart: with no simulated trades there is no rate to
+ * qualify, and a pair of two absences is nothing to draw.
+ */
+fun BacktestResult.winRatePair(): PairedStat? {
+    if (trades <= 0) return null
+    return PairedStat(
+        label = "Win rate",
+        unit = PairedStat.StatUnit.RATE_PCT,
+        backtest = PairedStat.Side.backtest(
+            subject = "this rule, on this chart",
+            // Built from the counts so a thin sample degrades to "3 of 4" rather than "75%".
+            sample = PairedStat.StatSample.rate(hits = wins, n = trades),
+        ),
+        forward = PairedStat.Side.forward(
+            subject = "this rule, live",
+            sample = null,
+            absentReason = "never recorded — this app has never logged a rule signal as it fired " +
+                "and scored it afterwards, so there is nothing to check the simulation against",
+        ),
+    )
 }

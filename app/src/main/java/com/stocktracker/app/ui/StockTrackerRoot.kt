@@ -180,7 +180,12 @@ fun StockTrackerRoot() {
                 com.stocktracker.app.ui.sandbox.SandboxSettingsScreen(onBack = { nav.popBackStack() })
             }
             composable(TopDest.Widgets.route) { WidgetGalleryScreen() }
-            composable(TopDest.Settings.route) { SettingsScreen() }
+            composable(TopDest.Settings.route) {
+                SettingsScreen(onOpenMethodology = { nav.navigate("methodology") })
+            }
+            composable("methodology") {
+                com.stocktracker.app.ui.settings.MethodologyScreen(onBack = { nav.popBackStack() })
+            }
             composable("add") { AddTickerScreen(onBack = { nav.popBackStack() }) }
             composable(
                 route = "detail/{type}/{symbol}?name={name}&cg={cg}",

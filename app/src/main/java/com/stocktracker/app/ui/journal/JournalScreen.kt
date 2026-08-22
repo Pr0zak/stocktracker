@@ -54,11 +54,13 @@ import com.stocktracker.app.data.model.ExitTaxonomy
 import com.stocktracker.app.data.model.JournalComparison
 import com.stocktracker.app.data.model.JournalReplay
 import com.stocktracker.app.data.model.JournalStatus
+import com.stocktracker.app.data.model.PairedStat
 import com.stocktracker.app.data.model.RiskMultiple
 import com.stocktracker.app.data.model.TakenState
 import com.stocktracker.app.data.model.VerdictJournal
 import com.stocktracker.app.data.model.VerdictJournalEntry
 import com.stocktracker.app.ui.components.BackendStatusBanner
+import com.stocktracker.app.ui.components.PairedStatBlock
 import com.stocktracker.app.ui.ideas.usd
 import com.stocktracker.app.ui.theme.BenchmarkGrey
 import com.stocktracker.app.ui.theme.GainGreen
@@ -209,8 +211,14 @@ fun JournalScreen(onBack: () -> Unit) {
 /**
  * The headline: what you decided, what you got, and what the plan got over the same trades.
  *
- * The two expectancies are printed on ONE line over ONE stated population, for the same reason the
- * options history prints its two win rates together — separated, the flattering one travels alone.
+ * EVERY PERFORMANCE NUMBER HERE IS A [PairedStat] (SWT-9), never a bare figure. The two expectancies
+ * belong to different KINDS of evidence — the plan's is a simulation walked over bars that had
+ * already traded, yours is a record of fills taken before the outcome was known — and the labels say
+ * which is which, because the second is the one worth trusting as it accumulates and the first is the
+ * one that flatters. Your own record over EVERY close is a pair too, with its simulated half stated
+ * as absent: no replay covers the closes the plan was never run against, and letting that number
+ * stand alone is how a forward figure quietly acquires the authority of a tested one.
+ *
  * Under the shared small-sample floor no expectancy is dressed up as an edge; the counts are printed
  * and the caveat travels with the number rather than sitting where it can be missed.
  */
@@ -261,53 +269,83 @@ private fun HeadlineCard(record: VerdictJournal.ActualRecord, paired: JournalCom
         }
 
         // --- your own R record, over every close you have ---
-        val avg = record.expectancyR
-        if (avg == null) {
-            if (record.closedCount > 0) {
-                Text(
-                    "No expectancy in R yet — none of your ${record.closedCount} closed entries could be " +
-                        "scored. R needs the stop the plan was written with, and a plan snapshotted " +
-                        "without one can never be scored after the fact.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = neutral,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
-        } else {
-            Text(
-                "Your expectancy ${RiskMultiple.format(avg)} · scored ${record.scored} of ${record.closedCount} closes",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (avg >= 0) GainGreen else LossRed,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(top = 6.dp),
+        //
+        // A PAIR WITH ONE HALF MISSING, not a lone number. Your expectancy over every close is the
+        // app's most flattering-looking figure and it has no simulated twin over the same trades:
+        // an entry the backend never replayed is on your side of the ledger and on nobody else's.
+        // Stating that absence is the whole job — an unqualified "+0.8R" here reads as a tested
+        // result rather than as what it is, a handful of real trades.
+        val overall = record.expectancyR
+        if (overall != null) {
+            PairedStatBlock(
+                stat = PairedStat(
+                    label = "Your expectancy, over every close you have",
+                    unit = PairedStat.StatUnit.R_MULTIPLE,
+                    backtest = PairedStat.Side.backtest(
+                        subject = "the plan, over these same closes",
+                        sample = null,
+                        absentReason = if (paired.pairedCount > 0) {
+                            "no replay covers all ${record.scored} of them — the plan's figure is " +
+                                "below, over the ${paired.pairedCount} both sides could take"
+                        } else {
+                            "no plan here has been replayed yet, so there is nothing to compare " +
+                                "these closes against"
+                        },
+                    ),
+                    forward = PairedStat.Side.forward(
+                        subject = "your real fills",
+                        sample = PairedStat.StatSample.of(n = record.scored, value = overall),
+                        absentReason = "nothing of yours has been scored yet",
+                    ),
+                ),
+                modifier = Modifier.padding(top = 8.dp),
+                tint = { side -> side.sample?.value?.let { if (it >= 0.0) GainGreen else LossRed } },
             )
-            if (record.smallSample) {
-                Text(
-                    "Small sample — under ${RiskMultiple.MIN_SCORED_FOR_EXPECTANCY} scored closes this is " +
-                        "noise, not an edge.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = neutral,
-                )
-            }
             if (record.unscoreable > 0) {
                 Text(
-                    "${record.unscoreable} not scored — the plan snapshot carried no stop.",
+                    "${record.unscoreable} of your ${record.closedCount} closes are not scored at all — " +
+                        "the plan snapshot carried no stop, so there is no risk to divide by.",
                     style = MaterialTheme.typography.labelSmall,
                     color = neutral,
                 )
             }
+        } else if (record.closedCount > 0) {
+            Text(
+                "No expectancy in R yet — none of your ${record.closedCount} closed entries could be " +
+                    "scored. R needs the stop the plan was written with, and a plan snapshotted " +
+                    "without one can never be scored after the fact.",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+                modifier = Modifier.padding(top = 6.dp),
+            )
         }
 
         // --- you vs the plan, over the SHARED population only ---
+        //
+        // The pairing this screen exists for. Both halves come out of JournalComparison, so they are
+        // the same trades in the same order and their expectancies are comparable by construction;
+        // the labels carry the difference that matters, which is that one of them was simulated.
         val mine = paired.yours.avgR
         val plan = paired.mechanical.avgR
-        if (mine != null && plan != null) {
-            Text(
-                "Over the ${paired.pairedCount} entr${if (paired.pairedCount == 1) "y" else "ies"} both " +
-                    "curves cover: you ${RiskMultiple.format(mine)} avg · the plan ${RiskMultiple.format(plan)} avg",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(top = 6.dp),
+        if (mine != null || plan != null) {
+            val population = JournalComparison.populationSentence(paired)
+            PairedStatBlock(
+                stat = PairedStat(
+                    label = "Expectancy per trade, over the entries both sides could take",
+                    unit = PairedStat.StatUnit.R_MULTIPLE,
+                    backtest = PairedStat.Side.backtest(
+                        subject = "the plan as written, replayed bar by bar",
+                        sample = PairedStat.StatSample.of(paired.mechanical.scored, plan),
+                        absentReason = population,
+                    ),
+                    forward = PairedStat.Side.forward(
+                        subject = "your real fills on the same entries",
+                        sample = PairedStat.StatSample.of(paired.yours.scored, mine),
+                        absentReason = population,
+                    ),
+                ),
+                modifier = Modifier.padding(top = 8.dp),
+                tint = { side -> side.sample?.value?.let { if (it >= 0.0) GainGreen else LossRed } },
             )
             paired.executionGapR?.let { gap ->
                 Text(
@@ -320,14 +358,11 @@ private fun HeadlineCard(record: VerdictJournal.ActualRecord, paired: JournalCom
                     color = if (gap >= 0) GainGreen else LossRed,
                 )
             }
-            if (paired.yours.smallSample) {
-                Text(
-                    "Both sides are over the same ${paired.pairedCount} trades — comparable to each other, " +
-                        "and too few to be an edge either way.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = neutral,
-                )
-            }
+            Text(
+                PairedStat.EVIDENCE_NOTE,
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
         }
     }
 }

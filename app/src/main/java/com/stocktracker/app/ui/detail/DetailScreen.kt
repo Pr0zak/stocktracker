@@ -109,13 +109,16 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.calls.CallDraft
 import com.stocktracker.app.ui.calls.CallEntryDialog
 import com.stocktracker.app.ui.calls.callDraftFrom
+import com.stocktracker.app.data.model.PairedStat
 import com.stocktracker.app.signals.BacktestResult
+import com.stocktracker.app.signals.winRatePair
 import com.stocktracker.app.signals.SignalLabel
 import com.stocktracker.app.signals.SignalResult
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.ChartMarker
 import com.stocktracker.app.ui.components.ChartSubPane
 import com.stocktracker.app.ui.components.FiftyTwoWeekRangeBar
+import com.stocktracker.app.ui.components.PairedStatBlock
 import com.stocktracker.app.ui.components.ThresholdMeter
 import com.stocktracker.app.ui.components.TwoHundredWeekLineBar
 import com.stocktracker.app.ui.components.PriceChart
@@ -1369,12 +1372,31 @@ private fun SignalsCard(
                         color = edgeColor,
                     )
                     Text(
-                        "${bt.trades} trades · ${"%.0f".format(bt.winRatePct)}% win · " +
-                            "${"%.0f".format(bt.maxDrawdownPct)}% max drawdown · " +
-                            "${"%.0f".format(bt.exposurePct)}% in market",
+                        // The win rate has MOVED OUT of this line into the paired block below (SWT-9):
+                        // a rate printed here beside a drawdown reads as a measured property of the
+                        // signal, when it is a simulation with no live counterpart. What is left are
+                        // the numbers that describe the simulation itself.
+                        "${bt.trades} simulated trades · ${"%.0f".format(bt.maxDrawdownPct)}% max " +
+                            "drawdown · ${"%.0f".format(bt.exposurePct)}% in market",
                         style = MaterialTheme.typography.labelSmall,
                         color = neutral,
                     )
+                    // Both halves or neither. The forward half does not exist for the rule engine and
+                    // says so; leaving the backtested rate standing alone is what this replaced.
+                    bt.winRatePair()?.let { pair ->
+                        PairedStatBlock(
+                            stat = pair,
+                            modifier = Modifier.padding(top = 6.dp),
+                            tint = { side ->
+                                side.sample?.value?.let { if (it >= 50.0) buy else sell }
+                            },
+                        )
+                        Text(
+                            PairedStat.EVIDENCE_NOTE,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = neutral,
+                        )
+                    }
                 }
             }
 

@@ -25,12 +25,15 @@ object SignalScanNotifier {
         runCatching { pushWatchlist(base) }
 
         val scan = runCatching { api.latestScan(base) }.getOrNull() ?: return
+        // No scan on the server = nothing happened that we know of. Every list in that payload is
+        // null, and notifying off it would be posting silence as news.
+        val results = scan.results?.takeIf { scan.hasScan } ?: return
         val generated = scan.generatedAt?.toLong() ?: return
         val last = ServiceLocator.settingsStore.lastScanNotifiedAt.first()
         if (generated <= last) return // already processed this scan
 
-        val flips = scan.results.filter { it.flipped }
-        val squeezes = scan.results.filter { it.squeezeChanged }
+        val flips = results.filter { it.flipped }
+        val squeezes = results.filter { it.squeezeChanged }
         if (flips.isNotEmpty() || squeezes.isNotEmpty()) {
             val parts = buildList {
                 flips.forEach { add("${it.symbol} → ${it.signal.replace('_', ' ')}") }
@@ -44,20 +47,22 @@ object SignalScanNotifier {
         }
         // 200-week-line crosses — a stance-neutral "heads up" (below the line is long-term
         // mean-reversion context, NOT a buy signal); its own notification so it doesn't muddy flips.
-        if (scan.crossedBelow200wma.isNotEmpty()) {
-            val n = scan.crossedBelow200wma.size
+        val crossed = scan.crossedBelow200wma.orEmpty()
+        if (crossed.isNotEmpty()) {
+            val n = crossed.size
             AlertNotifier.notify(
                 context,
-                ("wma_cross:" + scan.crossedBelow200wma.joinToString(",")).hashCode(),
+                ("wma_cross:" + crossed.joinToString(",")).hashCode(),
                 if (n == 1) "1 name crossed below its 200-week line" else "$n names crossed below their 200-week line",
-                scan.crossedBelow200wma.joinToString(", "),
+                crossed.joinToString(", "),
             )
         }
         // "Good time to add" dip alerts — a cue to add EXTRA cash on weakness, framed as such (never
         // "the bottom is in"). Deep dips get a distinct, more urgent title.
-        if (scan.dipAlerts.isNotEmpty()) {
-            val hasMega = scan.dipAlerts.any { it.dip == "mega_dip" }
-            val body = scan.dipAlerts.take(6).joinToString("\n") { a ->
+        val dipAlerts = scan.dipAlerts.orEmpty()
+        if (dipAlerts.isNotEmpty()) {
+            val hasMega = dipAlerts.any { it.dip == "mega_dip" }
+            val body = dipAlerts.take(6).joinToString("\n") { a ->
                 val tier = when (a.dip) {
                     "mega_dip" -> "rare deep dip"
                     "below_line" -> "below its 200-week line"
@@ -71,12 +76,13 @@ object SignalScanNotifier {
             AlertNotifier.notify(context, ("dip_alerts:" + body).hashCode(), title, body)
         }
         // Key-date warnings get their own notification so they don't drown in signal noise.
-        if (scan.dateAlerts.isNotEmpty()) {
+        val dateAlerts = scan.dateAlerts.orEmpty()
+        if (dateAlerts.isNotEmpty()) {
             AlertNotifier.notify(
                 context,
-                ("date_alerts:" + scan.dateAlerts.joinToString(",")).hashCode(),
+                ("date_alerts:" + dateAlerts.joinToString(",")).hashCode(),
                 "Market dates to watch",
-                scan.dateAlerts.joinToString("\n"),
+                dateAlerts.joinToString("\n"),
             )
         }
         maybeWeeklyDigest(context, scan)
@@ -97,18 +103,19 @@ object SignalScanNotifier {
     /** Once every 7 days, post a roundup of the watchlist's current signals + short-pressure — a
      *  pulse even in weeks with no flips. Deduped by a stored timestamp. */
     private suspend fun maybeWeeklyDigest(context: Context, scan: com.stocktracker.app.data.remote.ScanLatest) {
-        if (scan.results.isEmpty()) return
+        val results = scan.results?.takeIf { scan.hasScan }
+        if (results.isNullOrEmpty()) return
         val store = ServiceLocator.settingsStore
         val last = store.lastDigestAt.first()
         val now = System.currentTimeMillis()
         if (now - last < 7L * 24 * 3600 * 1000) return
 
-        val buys = scan.results.filter { it.signal.contains("buy") }.sortedByDescending { it.conviction }
-        val sells = scan.results.filter { it.signal.contains("sell") }.sortedByDescending { it.conviction }
-        val hot = scan.results.filter { it.squeeze == "ignition" || it.squeeze == "fuel" }
-        val belowLine = scan.results.filter { it.below200wma == true }
+        val buys = results.filter { it.signal.contains("buy") }.sortedByDescending { it.conviction }
+        val sells = results.filter { it.signal.contains("sell") }.sortedByDescending { it.conviction }
+        val hot = results.filter { it.squeeze == "ignition" || it.squeeze == "fuel" }
+        val belowLine = results.filter { it.below200wma == true }
         val lines = buildList {
-            add("${scan.results.size} tracked · ${buys.size} buy · ${sells.size} sell")
+            add("${results.size} tracked · ${buys.size} buy · ${sells.size} sell")
             if (buys.isNotEmpty()) add("Buy: " + buys.take(3).joinToString(", ") { "${it.symbol} ${it.conviction}" })
             if (sells.isNotEmpty()) add("Sell: " + sells.take(3).joinToString(", ") { "${it.symbol} ${it.conviction}" })
             if (hot.isNotEmpty()) add("Short pressure: " + hot.joinToString(", ") { "${it.symbol} ${it.squeeze?.uppercase()}" })

@@ -530,6 +530,7 @@ fun DetailScreen(
                 EntryPlanCard(
                     plan = state.plan,
                     currentPrice = quote?.price,
+                    chase = state.chase,
                     loading = state.planLoading,
                     error = state.planError,
                     onPlan = { cash -> vm.requestPlan(cash) },
@@ -2510,6 +2511,7 @@ private fun ShortPressureCard(sp: ShortPressureResponse) {
 private fun EntryPlanCard(
     plan: EntryPlan?,
     currentPrice: Double?,
+    chase: ChaseState?,
     loading: Boolean,
     error: String?,
     onPlan: (Double) -> Unit,
@@ -2598,6 +2600,11 @@ private fun EntryPlanCard(
             }
             val perTranche = if (levels.isNotEmpty()) deploy / levels.size else 0.0
 
+            // SWT-3: the server's own read of the live price against this zone, above the ladder —
+            // the ladder is the instruction, and "you are already 4.6% past the top of it" has to be
+            // read before it, not inferred from two numbers on the same screen. Absent = nothing here.
+            ChaseLine(chase)
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2673,6 +2680,66 @@ private fun EntryPlanCard(
             }
         }
         Text("Scenario planner · staged buy, not advice", style = MaterialTheme.typography.labelSmall, color = neutral)
+    }
+}
+
+/**
+ * The chase read (SWT-3): where the live price sits against this plan's entry zone.
+ *
+ * Renders NOTHING when the read is absent — no zone from the analyst, or no quote for the server to
+ * measure against. A "0%" or an "ok" invented out of a missing value on a card people act on with
+ * money is the defect this whole feature exists to remove, and it would be worse than saying nothing.
+ *
+ * Only [ChaseTone.ALARM] gets the filled treatment. The other tones are one quiet line: a card that
+ * shouts when the plan is working teaches the reader to ignore it when it isn't.
+ */
+@Composable
+private fun ChaseLine(chase: ChaseState?) {
+    val banner = chase?.let {
+        ChaseRead.banner(it.status, it.pct, it.price?.takeIf { p -> p > 0.0 }?.let { p -> usd(p) }, it.warning)
+    } ?: return
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val color = when (banner.tone) {
+        ChaseTone.ALARM -> Color(0xFFC64040)
+        ChaseTone.CAUTION -> Color(0xFFD29922)
+        ChaseTone.CALM -> Color(0xFF2E9E57)
+        ChaseTone.NEUTRAL -> neutral
+    }
+    val loud = banner.tone == ChaseTone.ALARM
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (loud) {
+                    Modifier
+                        .background(color.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                } else {
+                    Modifier
+                },
+            ),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (loud) {
+            Icon(
+                Icons.Filled.Warning,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                banner.headline,
+                style = if (loud) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium,
+                fontWeight = if (loud) FontWeight.Bold else FontWeight.Medium,
+                color = color,
+            )
+            banner.detail?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+        }
     }
 }
 

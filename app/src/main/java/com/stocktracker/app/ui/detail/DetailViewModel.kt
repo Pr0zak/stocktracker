@@ -109,6 +109,16 @@ data class DetailUiState(
     val plan: EntryPlan? = null,
     val planLoading: Boolean = false,
     val planError: String? = null,
+    /**
+     * The server's chase read for [plan] (SWT-3) — where the live price sits against the analyst's
+     * own entry zone.
+     *
+     * Held separately from [plan] and CLEARED whenever the plan is not freshly fetched. The zone is
+     * a judgement that keeps for hours; "am I paying up right now?" is not, so a chase read kept
+     * alongside a retained plan after a failed refresh would be a stale price claim wearing a fresh
+     * card. Null renders as no line at all.
+     */
+    val chase: ChaseState? = null,
     /** Short-pressure read (SI/short-volume/FTDs) — free data, auto-fetched for stocks. */
     val shortPressure: ShortPressureResponse? = null,
     /** Insider buying (Form 4 open-market purchases) — free, auto-fetched for stocks (only set when >0). */
@@ -380,6 +390,11 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             _state.update {
                 it.copy(
                     plan = resp?.plan ?: it.plan, // keep the prior plan on a failed refresh
+                    // ...but NOT the prior chase read. The entry zone is a judgement that keeps;
+                    // "you are 4.6% above it" is a claim about the price this second, and re-showing
+                    // it beside a retained plan would age a live number into a lie. A failed fetch
+                    // wipes the line rather than leaving the last one standing.
+                    chase = ChaseState.from(resp),
                     planLoading = false,
                     planError = if (resp == null) {
                         analystErrorDetail(res.exceptionOrNull()) ?: "Couldn't reach the analyst service"

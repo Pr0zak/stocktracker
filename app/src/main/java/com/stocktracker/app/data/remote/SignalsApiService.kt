@@ -583,6 +583,74 @@ class SignalsApiService {
             sPost("${baseUrl.trimEnd('/')}/recommendations", body, slow = true),
         )
     }
+
+    // ---------------------------------------------------------- SWT-1: the nightly market scan
+    //
+    // A separate wrapper from [latestScan] rather than a widened one. /scan/latest is the WATCHLIST
+    // payload — three callers depend on it, two of them on a background worker — and this is a
+    // sweep of ~3,100 names. Widening one into the other would make a worker that wants a handful of
+    // symbols pay for a market-wide cross-section.
+    //
+    // All four go out on `slow = true`. Not politeness: the default client's 12s read / 20s call
+    // ceiling is sized for quote endpoints, and these are universe-derived (the run itself takes
+    // ~50s). `slow` is also what enrols the call in [SignalsHealth.slowCallsInFlight], so a long
+    // call in flight cannot be mistaken for the backend being unreachable and trip a false offline
+    // banner. Everything goes through [sGet]/[sPost] — that is the ONLY path that reports health.
+
+    /**
+     * The night's cross-section, ranked. FREE (no LLM), so it works with the AI analyst switched off.
+     *
+     * @param sort a metric name, descending; prefix "-" for ascending (e.g. "-atr14_pct" for the
+     *             calmest names). Null leaves the choice to the server.
+     */
+    suspend fun marketScan(
+        baseUrl: String, limit: Int = 50, sort: String? = null,
+    ): MarketScanResponse? {
+        if (baseUrl.isBlank()) return null
+        val s = sort?.trim()?.takeIf { it.isNotEmpty() }?.let { "&sort=${it.urlEncode()}" } ?: ""
+        val body = sGet("${baseUrl.trimEnd('/')}/market_scan?limit=$limit$s", slow = true)
+        return Http.json.decodeFromString<MarketScanResponse>(body)
+    }
+
+    /**
+     * Market breadth off the same night. Free, no LLM. Check [MarketBreadth.available] before
+     * rendering ANY of it — the "no scan yet" shape carries nulls, not zeroes, precisely so that a
+     * forgotten check shows a dash instead of announcing that 0% of the market is above its 50-day.
+     */
+    suspend fun marketBreadth(baseUrl: String): MarketBreadth? {
+        if (baseUrl.isBlank()) return null
+        val body = sGet("${baseUrl.trimEnd('/')}/market_scan/breadth", slow = true)
+        return Http.json.decodeFromString<MarketBreadth>(body)
+    }
+
+    /**
+     * One symbol's row from the scan. Null on 404 — the name was not in the scan (never in the
+     * universe, or halted/delisted/failed on every night we hold), which is an absence, not an error.
+     * The returned row's [MarketScanRow.d] says which night it is actually from: the server answers
+     * with the symbol's latest observation, which may be older than the latest scan.
+     */
+    suspend fun marketScanSymbol(baseUrl: String, symbol: String): MarketScanRow? {
+        if (baseUrl.isBlank()) return null
+        return try {
+            Http.json.decodeFromString<MarketScanRow>(
+                sGet("${baseUrl.trimEnd('/')}/market_scan/${symbol.uppercase().urlEncode()}", slow = true),
+            )
+        } catch (e: HttpStatusException) {
+            if (e.code == 404) null else throw e
+        }
+    }
+
+    /**
+     * Kick the scan off now instead of waiting for tonight. Minutes of server work, so this is
+     * user-initiated only — never wire it to a timer. Returns the run summary, whose counters are
+     * nullable: a refused run reports null, not zero.
+     */
+    suspend fun runMarketScan(baseUrl: String): MarketScanRunResponse? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<MarketScanRunResponse>(
+            sPost("${baseUrl.trimEnd('/')}/market_scan/run", "{}", slow = true),
+        )
+    }
 }
 
 @Serializable
@@ -1462,6 +1530,17 @@ data class EntryPlan(
     val thesis: String = "",
 )
 
+/**
+ * GET /plan/{symbol} — the entry plan plus the server's CHASE READ (SWT-3).
+ *
+ * The chase fields are the server dividing the live price by the analyst's own entry zone, because
+ * nobody does that division on a phone with a buy button on the same screen. They are derived, not
+ * asked of the model, and they are computed fresh on every response — including cache hits, where
+ * the plan is up to 4h old but the price question is about right now.
+ *
+ * All four are nullable together: no zone, no quote, or a broken zone makes the read UNKNOWABLE, and
+ * an unknowable chase read renders as nothing at all. Never 0%, never "ok".
+ */
 @Serializable
 data class PlanResponse(
     val symbol: String,
@@ -1470,6 +1549,14 @@ data class PlanResponse(
     val plan: EntryPlan,
     val cached: Boolean = false,
     val usage: AiUsage? = null,
+    /** Percent above the TOP of the entry zone; negative means under it. */
+    @SerialName("chase_pct") val chasePct: Double? = null,
+    /** below_zone | in_zone | ok | chase_too_deep, or null when the read couldn't be taken. */
+    @SerialName("chase_status") val chaseStatus: String? = null,
+    /** Set only when the zone itself is malformed (inverted bounds) — a plain absence is silent. */
+    @SerialName("chase_warning") val chaseWarning: String? = null,
+    /** The quote the read was taken against, so the card can show its own arithmetic. */
+    @SerialName("chase_price") val chasePrice: Double? = null,
 )
 
 /**
@@ -1685,17 +1772,80 @@ data class WatchlistSync(
     @SerialName("crypto_watchlist") val cryptoWatchlist: List<String>,
 )
 
+/**
+ * GET /scan/latest — the nightly scan, or the server saying it hasn't got one.
+ *
+ * EVERY list here is nullable, and that is the whole point. The server distinguishes "a scan ran and
+ * found nothing" (lists present, possibly empty) from "there is no scan" (every list null, with
+ * [scanAvailable] false and an [unavailableReason]). Modelling them as `= emptyList()` collapsed the
+ * second into the first — `coerceInputValues = true` turns an explicit `null` into the default — and
+ * the dip radar then printed "No dips right now" at a user whose scan service was unreachable.
+ */
 @Serializable
 data class ScanLatest(
     @SerialName("generated_at") val generatedAt: Double? = null,
-    val results: List<ScanResult> = emptyList(),
-    val flips: List<String> = emptyList(),
+    /**
+     * TRUE = a scan exists and the lists below are its result. FALSE = the server has no scan (none
+     * has run, or the stored file couldn't be read) and every list is null. NULL = a backend older
+     * than the flag — fall back to whether [results] decoded, which [hasScan] does.
+     */
+    @SerialName("scan_available") val scanAvailable: Boolean? = null,
+    /** Which flavour of "no scan" it was, in the server's words. Only set when [scanAvailable] is false. */
+    @SerialName("unavailable_reason") val unavailableReason: String? = null,
+    val results: List<ScanResult>? = null,
+    val flips: List<String>? = null,
     /** Symbols that newly closed below their 200-week line since the prior scan (mungbeans' signal). */
-    @SerialName("crossed_below_200wma") val crossedBelow200wma: List<String> = emptyList(),
+    @SerialName("crossed_below_200wma") val crossedBelow200wma: List<String>? = null,
     /** Symbols that newly entered a "good time to add" dip tier this scan. */
-    @SerialName("dip_alerts") val dipAlerts: List<DipAlert> = emptyList(),
+    @SerialName("dip_alerts") val dipAlerts: List<DipAlert>? = null,
     /** Today/tomorrow key-date warnings (SI publication, OPEX, earnings). */
-    @SerialName("date_alerts") val dateAlerts: List<String> = emptyList(),
+    @SerialName("date_alerts") val dateAlerts: List<String>? = null,
+    /**
+     * What the dip radar TURNED DOWN this scan, split three ways (SWT-5). Nothing in here is a dip.
+     * NULL means the stored scan predates the audit — which is not the same as "nothing was
+     * rejected", so it must never render as zeros.
+     */
+    @SerialName("dip_rejects") val dipRejects: DipRejects? = null,
+    /** The partition of the scanned set: qualified + near_miss + nowhere_near + unmeasured == scanned. */
+    @SerialName("dip_counts") val dipCounts: DipCounts? = null,
+) {
+    /**
+     * Did a scan actually run? An older backend sends no flag, so a decoded [results] list is the
+     * fallback evidence. Both halves matter: `scanAvailable == true` with null results is a server
+     * that couldn't hand over what it claims to have, and that is not a scan either.
+     */
+    val hasScan: Boolean get() = scanAvailable != false && results != null
+}
+
+/** The three reject buckets. Each is null on a scan that predates the audit — never an empty list. */
+@Serializable
+data class DipRejects(
+    @SerialName("near_miss") val nearMiss: List<DipReject>? = null,
+    @SerialName("nowhere_near") val nowhereNear: List<DipReject>? = null,
+    /** Symbols the scan could not measure at all (fetch failed, history too short). NOT "no dip". */
+    val unmeasured: List<DipReject>? = null,
+)
+
+/** One symbol the dip radar turned down, with the server's plain-language reason. */
+@Serializable
+data class DipReject(
+    val symbol: String = "",
+    /** Always grounded in the symbol's own numbers, e.g. "4.2% off its 3-month high — needs 5%…". */
+    val reason: String = "",
+    /** Percentage points still needed to reach the nearest dip threshold. Null when unmeasurable. */
+    @SerialName("gap_pp") val gapPp: Double? = null,
+    @SerialName("pct_off_recent_high") val pctOffRecentHigh: Double? = null,
+    @SerialName("pct_off_52w_high") val pctOff52wHigh: Double? = null,
+)
+
+/** Every counter nullable: an absent counter is "the scan didn't report this", never a zero. */
+@Serializable
+data class DipCounts(
+    val scanned: Int? = null,
+    val qualified: Int? = null,
+    @SerialName("near_miss") val nearMiss: Int? = null,
+    @SerialName("nowhere_near") val nowhereNear: Int? = null,
+    val unmeasured: Int? = null,
 )
 
 @Serializable
@@ -1715,6 +1865,18 @@ data class ScanResult(
     val dip: String? = null,
     @SerialName("pct_off_recent_high") val pctOffRecentHigh: Double? = null,
     @SerialName("pct_off_52w_high") val pctOff52wHigh: Double? = null,
+    /**
+     * Was a dip measurement actually completed for this symbol? FALSE means nothing could be
+     * evaluated (fetch failed, history too short) — which is UNMEASURED, not "no dip". NULL means a
+     * scan older than the field, where the two are indistinguishable, so it must not be read as true.
+     */
+    @SerialName("dip_measured") val dipMeasured: Boolean? = null,
+    /** Why no dip tier applied, in the server's words. Null when the symbol actually qualified. */
+    @SerialName("dip_reject_reason") val dipRejectReason: String? = null,
+    /** Within ~1.5pp of the nearest threshold. Null when it qualified or couldn't be measured. */
+    @SerialName("dip_near_miss") val dipNearMiss: Boolean? = null,
+    /** Percentage points still needed to reach the nearest dip threshold. */
+    @SerialName("dip_gap_pp") val dipGapPp: Double? = null,
 )
 
 /** A symbol that newly entered a dip tier this scan — the "good time to add" event. */
@@ -1951,4 +2113,166 @@ data class HeatmapTile(
     val conviction: Int? = null,
     @SerialName("pct_off_52w_high") val pctOff52wHigh: Double? = null,
     @SerialName("below_200wma") val below200wma: Boolean = false,
+)
+
+// ------------------------------------------------------------------ SWT-1: the nightly market scan
+//
+// A once-a-night sweep of the whole liquid US equity universe (~3,100 names), stored server-side in
+// SQLite and served back as a ranked cross-section. FREE — no LLM anywhere in it.
+//
+// NULLABILITY IS THE CONTRACT HERE, not a style choice. `Http.json` sets `coerceInputValues = true`,
+// so a non-nullable `Double = 0.0` swallows BOTH an omitted key and an explicit `null` into a
+// confident zero — the defect that shipped "Stop $0 · target $0" (see [EntryPlan]). The producing
+// store is explicit that it emits null for "not measurable" and never a stand-in zero, because on
+// this data a zero is a market claim: `pct_above_sma50: 0` says every stock in America is below its
+// 50-day average. Every uncertain number below is therefore `Double?`/`Int?`, every uncertain flag
+// is `Boolean?`, and render sites must print an em dash or omit the row — NEVER `?: 0.0`.
+
+/**
+ * GET /market_scan?limit=&sort= — the night's leaders on one metric.
+ *
+ * The four coverage counters ([universeSize], [scanned], [fetchFailed], [tooShort]) are a partition
+ * of the run and must be surfaced SEPARATELY. "34 too short" is a fact about young listings; "0
+ * fetch failed" is a fact about the network. Summing them into one "problems" number destroys the
+ * only thing that tells the user whether the scan is healthy or the internet is.
+ */
+@Serializable
+data class MarketScanResponse(
+    /** The scanned session, as the store's night key (e.g. "20260821"). Null when nothing is stored
+     *  yet. This is a NIGHTLY scan — without this on screen it reads as live. */
+    @SerialName("as_of") val asOf: String? = null,
+    /** Epoch seconds the rows were produced, for ageing the reading. */
+    @SerialName("generated_at") val generatedAt: Double? = null,
+    /** How many symbols the universe held. Null = not reported; 0 would mean "the market is empty". */
+    @SerialName("universe_size") val universeSize: Int? = null,
+    val scanned: Int? = null,
+    /** Symbols whose data could not be FETCHED — a network/vendor fact, never a fact about a stock. */
+    @SerialName("fetch_failed") val fetchFailed: Int? = null,
+    /** Symbols with too little history to measure (recent IPOs). NOT a failure, and not summable
+     *  with [fetchFailed]. */
+    @SerialName("too_short") val tooShort: Int? = null,
+    /** True when the universe file is older than its refresh window — the ranking is over a stale
+     *  membership list, which is a different claim from a stale scan. */
+    @SerialName("universe_stale") val universeStale: Boolean? = null,
+    /** The sort the server actually applied. May be normalised away from what was asked for, so it
+     *  is displayed, never used to decide whether a response matches the request. */
+    val sort: String? = null,
+    val limit: Int? = null,
+    /** Rows matching before [limit] was applied — so "top 50" can say what it is the top 50 of. */
+    @SerialName("total_matching") val totalMatching: Int? = null,
+    val results: List<MarketScanRow> = emptyList(),
+    /** The server's own framing. Rendered verbatim: this is a screen, not a buy list. */
+    val note: String = "",
+    val cached: Boolean = false,
+    @SerialName("cached_age_seconds") val cachedAgeSeconds: Long? = null,
+)
+
+/**
+ * One symbol's row in a night's cross-section. [symbol] is the only field that must be present; a row
+ * without one is not a row. Everything else is optional because the scan stores null for any metric
+ * it could not compute on that name's history.
+ */
+@Serializable
+data class MarketScanRow(
+    val symbol: String,
+    val price: Double? = null,
+    /** Average daily range, % of price — the "how much does this thing move" number. */
+    @SerialName("adr20_pct") val adr20Pct: Double? = null,
+    val atr14: Double? = null,
+    @SerialName("atr14_pct") val atr14Pct: Double? = null,
+    val adx14: Double? = null,
+    /** Close location value: where the close sat inside the day's range. */
+    val clv: Double? = null,
+    @SerialName("rel_volume") val relVolume: Double? = null,
+    @SerialName("dollar_volume_20d") val dollarVolume20d: Double? = null,
+    @SerialName("mom_20d") val mom20d: Double? = null,
+    @SerialName("mom_60d") val mom60d: Double? = null,
+    val rsi14: Double? = null,
+    @SerialName("pct_off_52w_high") val pctOff52wHigh: Double? = null,
+    @SerialName("pct_vs_sma50") val pctVsSma50: Double? = null,
+    @SerialName("pct_vs_sma200") val pctVsSma200: Double? = null,
+    /** Performance vs the benchmark over ~3 months. */
+    @SerialName("rel_strength_3mo") val relStrength3mo: Double? = null,
+    @SerialName("ema20_slope_pct") val ema20SlopePct: Double? = null,
+    /**
+     * NULLABLE ON PURPOSE. null means "not measured" — a name with under 50 bars has no 50-day
+     * average to be above or below. `false` would say we checked and it is below, which is a
+     * different and unearned claim.
+     */
+    @SerialName("above_sma50") val aboveSma50: Boolean? = null,
+    @SerialName("above_sma200") val aboveSma200: Boolean? = null,
+    /** 20 > 50 > 150 > 200 in order. Null = not measurable, not "not stacked". */
+    @SerialName("ma_stacked") val maStacked: Boolean? = null,
+    /** Daily bars behind the row — the sample size for everything above it. */
+    val bars: Int? = null,
+    /**
+     * Metric names that came back null for this row. NULLABLE, and null is NOT the empty list: []
+     * means the producer checked and everything was measurable, null means no producer ever said.
+     * Collapsing the second into the first reports a row of unknown provenance as fully measured.
+     */
+    val unmeasured: List<String>? = null,
+    /** The night this row is from, when the server names it (a symbol lookup can return an older
+     *  night than the latest scan — the name was halted or failed to fetch since). */
+    val d: String? = null,
+    /** Epoch seconds the row was produced. */
+    val ts: Double? = null,
+)
+
+/**
+ * GET /market_scan/breadth — how much of the market is participating.
+ *
+ * [available] gates EVERYTHING: when it is false the percentages are null, and a caller that forgets
+ * to check gets an em dash rather than "0% above the 50-day", which is the most bearish market
+ * reading that exists, invented out of an empty table.
+ */
+@Serializable
+data class MarketBreadth(
+    val available: Boolean = false,
+    @SerialName("as_of") val asOf: String? = null,
+    /** Rows behind the reading. Null = not reported (distinct from a genuine zero-row night). */
+    val n: Int? = null,
+    @SerialName("pct_above_sma50") val pctAboveSma50: Double? = null,
+    @SerialName("pct_above_sma200") val pctAboveSma200: Double? = null,
+    /** Change since the last night STORED, which after a missed run is not the previous session. */
+    val advancers: Int? = null,
+    val decliners: Int? = null,
+    @SerialName("new_52w_highs") val new52wHighs: Int? = null,
+    /** Names trading WITHIN [near52wHighPct]% of a 52-week high — proximity, not an event. Read
+     *  alongside [new52wHighs], never instead of it. */
+    @SerialName("near_52w_high") val near52wHigh: Int? = null,
+    @SerialName("near_52w_high_pct") val near52wHighPct: Double? = null,
+    /**
+     * Currently always null by design on the server: the store keeps 90 nights, not 52 weeks, so it
+     * cannot derive a low-side extreme. A rendered 0 would be a bullish all-clear made out of a
+     * missing column, so this must render as "not measured".
+     */
+    @SerialName("new_52w_lows") val new52wLows: Int? = null,
+    @SerialName("age_hours") val ageHours: Double? = null,
+)
+
+/**
+ * POST /market_scan/run — the job summary. Every counter is nullable because the job's own skeleton
+ * starts them at null: a run that refused before the fetch loop reports `scanned: null`, and
+ * `scanned: 0` would read as "we scanned the market and found nothing", which is a market claim.
+ */
+@Serializable
+data class MarketScanRunResponse(
+    val job: String? = null,
+    /** "ok" | "empty" | "refused" — [reason] carries the why for the latter two. */
+    val status: String? = null,
+    val reason: String? = null,
+    @SerialName("generated_at") val generatedAt: Double? = null,
+    @SerialName("as_of") val asOf: String? = null,
+    val session: String? = null,
+    @SerialName("session_is_holiday") val sessionIsHoliday: Boolean? = null,
+    @SerialName("universe_symbols") val universeSymbols: Int? = null,
+    val attempted: Int? = null,
+    val scanned: Int? = null,
+    @SerialName("fetch_failed") val fetchFailed: Int? = null,
+    @SerialName("too_short") val tooShort: Int? = null,
+    /** Series that looked split-corrupted and were refused — a data-quality bucket kept out of
+     *  [fetchFailed] so a vendor problem is never filed as a network one. */
+    @SerialName("suspect_series") val suspectSeries: Int? = null,
+    @SerialName("rows_written") val rowsWritten: Int? = null,
+    @SerialName("duration_s") val durationSeconds: Double? = null,
 )

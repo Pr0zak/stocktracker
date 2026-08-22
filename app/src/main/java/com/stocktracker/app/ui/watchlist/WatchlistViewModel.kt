@@ -239,12 +239,14 @@ class WatchlistViewModel : ViewModel() {
         val base = settings.signalsApiUrl.first()
         if (base.isBlank()) return
         val scan = runCatching { signalsApi.latestScan(base) }.getOrNull() ?: return
-        belowLineMap = scan.results.mapNotNull { r -> r.below200wma?.let { r.symbol.uppercase() to it } }.toMap()
+        // No scan on the server (or an unreadable one) means we learned NOTHING — leave the previous
+        // flags and dip strip exactly as they were rather than overwriting them with an emptiness
+        // that would read as "checked, all clear". The full radar screen is where that distinction
+        // gets explained; here the honest move is to not speak.
+        val rows = scan.results?.takeIf { scan.hasScan } ?: return
+        belowLineMap = rows.mapNotNull { r -> r.below200wma?.let { r.symbol.uppercase() to it } }.toMap()
         // "Good time to add" dips, most-severe first, for the strip atop the watchlist.
-        val order = listOf("mega_dip", "below_line", "oversold", "pullback_10", "pullback_5")
-        val dips = scan.results.mapNotNull { r ->
-            r.dip?.let { DipEntry(r.symbol.removeSuffix("-USD"), it, r.pctOffRecentHigh, r.pctOff52wHigh) }
-        }.sortedBy { order.indexOf(it.tier).let { i -> if (i < 0) 99 else i } }
+        val dips = DipRadar.entries(rows)
         _state.update { st ->
             st.copy(
                 items = st.items.map { it.copy(below200wma = belowLineMap[scanKey(it.asset)]) },

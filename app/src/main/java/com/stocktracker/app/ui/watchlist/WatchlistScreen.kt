@@ -73,6 +73,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.VixQuote
+import com.stocktracker.app.data.remote.DipReject
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.first
@@ -873,22 +874,36 @@ private fun ModeChip(label: String, onClick: () -> Unit) {
     }
 }
 
-/** Full "Good time to add" list — every current dip, most-severe first. Reached by tapping the
- *  watchlist strip. Fetches the latest scan itself so it stays a lightweight standalone screen. */
+/**
+ * Full "Good time to add" list — every current dip, most-severe first, plus (SWT-5) what the scan
+ * turned down. Reached by tapping the watchlist strip; fetches the latest scan itself so it stays a
+ * lightweight standalone screen.
+ *
+ * The states are deliberately kept apart. This screen used to collapse a failed fetch into an empty
+ * list and print "No dips right now — nothing you track is notably off its highs", which told a user
+ * whose scan service was down that the market was calm. "We looked and there are none" is now a
+ * conclusion the screen may only draw when it is holding a scan that actually ran; everything else
+ * is an error state with a retry.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
-    val data by produceState(emptyList<DipEntry>() to emptyMap<String, Asset>()) {
+    var reload by remember { mutableStateOf(0) }
+    var state by remember { mutableStateOf<DipRadarState>(DipRadarState.Loading) }
+    var bySym by remember { mutableStateOf(emptyMap<String, Asset>()) }
+    // rememberSaveable: the audit section stays open across a retry and a rotation, so a user who
+    // opened it to read the reasons isn't sent back to the summary by a refresh.
+    var rejectsOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(reload) {
+        state = DipRadarState.Loading
         val base = ServiceLocator.settingsStore.signalsApiUrl.first()
-        val scan = runCatching { SignalsApiService().latestScan(base) }.getOrNull()
-        val bySym = ServiceLocator.watchlistStore.watchlist.first().associateBy { it.symbol.uppercase() }
-        val order = listOf("mega_dip", "below_line", "oversold", "pullback_10", "pullback_5")
-        val dips = scan?.results?.mapNotNull { r ->
-            r.dip?.let { DipEntry(r.symbol.removeSuffix("-USD"), it, r.pctOffRecentHigh, r.pctOff52wHigh) }
-        }?.sortedBy { order.indexOf(it.tier).let { i -> if (i < 0) 99 else i } } ?: emptyList()
-        value = dips to bySym
+        bySym = ServiceLocator.watchlistStore.watchlist.first().associateBy { it.symbol.uppercase() }
+        val res = runCatching { SignalsApiService().latestScan(base) }
+        state = DipRadar.state(res.getOrNull(), res.exceptionOrNull(), configured = base.isNotBlank())
     }
-    val (dips, bySym) = data
+    val open: (String) -> Unit = { sym ->
+        onOpenDetail(bySym[sym.uppercase()] ?: Asset(sym, AssetType.STOCK, sym))
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -896,6 +911,11 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { reload++ }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Reload the scan")
                     }
                 },
             )
@@ -908,20 +928,216 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (dips.isEmpty()) {
-                item {
-                    Text(
-                        "No dips right now — nothing you track is notably off its highs.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            when (val s = state) {
+                is DipRadarState.Loading -> item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("Checking the latest scan…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                // We hold NO scan. Nothing here may mention dips one way or the other.
+                is DipRadarState.Unreachable -> item {
+                    DipNotice(
+                        title = "Couldn't reach the scan service",
+                        body = s.message?.takeIf { it.isNotBlank() }
+                            ?: "The request failed, so there's nothing to show — this is not a quiet market.",
+                        onRetry = { reload++ },
+                    )
+                }
+                is DipRadarState.NotConfigured -> item {
+                    DipNotice(
+                        title = "No scan service configured",
+                        body = "Set the Signals service URL in Settings and the dip radar starts working.",
+                        onRetry = null,
+                    )
+                }
+                // The server answered and told us it has nothing. Its answer, in its words.
+                is DipRadarState.NoScan -> item {
+                    DipNotice(
+                        title = "No scan has run yet",
+                        body = s.reason?.takeIf { it.isNotBlank() }
+                            ?.replaceFirstChar { c -> c.uppercase() }
+                            ?: "The scan service has no results stored, so nothing has been measured yet.",
+                        onRetry = { reload++ },
+                    )
+                }
+                is DipRadarState.Ready -> {
+                    item { DipSummary(s) }
+                    items(s.dips) { d -> DipRow(d, onClick = { open(d.symbol) }) }
+                    item {
+                        DipRejectSection(
+                            state = s,
+                            open = rejectsOpen,
+                            onToggle = { rejectsOpen = !rejectsOpen },
+                            onOpenSymbol = open,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** An error/absence panel: what happened, and (when retrying could help) a way to try again. */
+@Composable
+private fun DipNotice(title: String, body: String, onRetry: (() -> Unit)?) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(
+                Icons.Filled.Warning,
+                contentDescription = null,
+                tint = Color(0xFFD29922),
+                modifier = Modifier.size(18.dp),
+            )
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        }
+        Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (onRetry != null) {
+            TextButton(onClick = onRetry) { Text("Try again") }
+        }
+    }
+}
+
+/**
+ * The header over a scan that RAN: how many qualified out of how many looked at, and — even when
+ * there are dips listed below — how many names could not be measured, because that is what makes the
+ * list below incomplete rather than complete-and-short.
+ */
+@Composable
+private fun DipSummary(s: DipRadarState.Ready) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (s.dips.isEmpty()) {
+            Text(
+                "No dips right now — nothing you track is notably off its highs.",
+                color = neutral,
+            )
+        }
+        // The counters are what make the sentence above checkable; each is dropped, never zeroed,
+        // when the stored scan didn't report it.
+        listOfNotNull(DipRadar.coverage(s.counts), DipRadar.breakdown(s.counts))
+            .takeIf { it.isNotEmpty() }
+            ?.let {
+                Text(
+                    it.joinToString(" · "),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = neutral,
+                )
+            }
+        DipRadar.incompleteNote(s.counts)?.let {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(
+                    Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = Color(0xFFD29922),
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(it, style = MaterialTheme.typography.labelMedium, color = Color(0xFFD29922))
+            }
+        }
+    }
+}
+
+/**
+ * The audit affordance (SWT-5): what the radar turned down and why. Deliberately SECONDARY — it is
+ * collapsed by default and sits under the qualifying list, because the dips are the content and this
+ * is the way to check them. Near-misses come first; they are the only rejects with anything at stake.
+ */
+@Composable
+private fun DipRejectSection(
+    state: DipRadarState.Ready,
+    open: Boolean,
+    onToggle: () -> Unit,
+    onOpenSymbol: (String) -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val stale = DipRadar.staleNote(state.rejectsAvailable)
+    val total = state.nearMiss.size + state.nowhereNear.size + state.unmeasured.size
+    if (stale == null && total == 0) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable(enabled = stale == null) { onToggle() },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("What didn't qualify", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            if (stale == null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("$total", style = MaterialTheme.typography.labelMedium, color = neutral)
+                    Icon(
+                        if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (open) "Collapse rejects" else "Expand rejects",
+                        tint = neutral,
                     )
                 }
             }
-            items(dips) { d ->
-                DipRow(d, onClick = {
-                    onOpenDetail(bySym[d.symbol.uppercase()] ?: Asset(d.symbol, AssetType.STOCK, d.symbol))
-                })
-            }
         }
+        if (stale != null) {
+            Text(stale, style = MaterialTheme.typography.bodySmall, color = neutral)
+            return@Column
+        }
+        if (!open) return@Column
+        DipRejectGroup("Near misses", state.nearMiss, Color(0xFFD29922), onOpenSymbol)
+        // The flat middle is long and dull by nature — capped, with the remainder counted so the cap
+        // never reads as the whole list.
+        DipRejectGroup("Nowhere near a dip", state.nowhereNear, neutral, onOpenSymbol, cap = 12)
+        // Last and in its own group on purpose: these were NOT judged to be dip-free, they were never
+        // measured. Merging them into the group above is the lie this feature exists to stop.
+        DipRejectGroup("Couldn't be measured", state.unmeasured, Color(0xFFC64040), onOpenSymbol)
+    }
+}
+
+@Composable
+private fun DipRejectGroup(
+    title: String,
+    rows: List<DipReject>,
+    accent: Color,
+    onOpenSymbol: (String) -> Unit,
+    cap: Int = Int.MAX_VALUE,
+) {
+    if (rows.isEmpty()) return
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        "${title.uppercase(Locale.US)} · ${rows.size}",
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = accent,
+    )
+    rows.take(cap).forEach { r ->
+        val sym = r.symbol.removeSuffix("-USD")
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpenSymbol(sym) }
+                .padding(vertical = 2.dp),
+        ) {
+            Text(sym, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            // The server's own sentence, always grounded in this symbol's numbers. Rendered as-is —
+            // rewriting it here would just be a second place for the wording to drift.
+            Text(r.reason, style = MaterialTheme.typography.labelSmall, color = neutral)
+        }
+    }
+    if (rows.size > cap) {
+        Text(
+            "+ ${rows.size - cap} more",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
     }
 }
 

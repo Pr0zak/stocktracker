@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -53,6 +54,13 @@ data class MarketScanUiState(
     val tooShort: Int? = null,
     val universeStale: Boolean? = null,
     val totalMatching: Int? = null,
+    /**
+     * SWT-4 — how many names the rows' percentiles were ranked against: the WHOLE night, never the
+     * slice on screen. Null when the server did not say, and [rankFooter] then says so in words
+     * rather than reaching for [totalMatching] or `rows.size`, either of which would label a rank
+     * with a population it was not computed over.
+     */
+    val percentilesOver: Int? = null,
     val note: String = "",
     val cachedAgeSeconds: Long? = null,
 
@@ -63,6 +71,27 @@ data class MarketScanUiState(
 ) {
     /** True once a load has produced rows — so "nothing found" and "nothing asked" can differ. */
     val loaded: Boolean get() = asOf != null || rows.isNotEmpty()
+
+    /**
+     * The one line that keeps a column of percentiles from reading as a column of grades.
+     *
+     * Every rank on the screen is a position in ONE night's cross-section, so the night and the size
+     * of that cross-section are said once, plainly, instead of being repeated on every row. Degrades
+     * through what is actually known — a missing count becomes "that night's scan", never a number
+     * borrowed from somewhere else — and never claims a rank means anything about what happens next.
+     */
+    val rankFooter: String
+        get() {
+            val night = MarketScanProvenance.asOfLabel(asOf)
+            val over = percentilesOver?.takeIf { it > 0 }?.let { String.format(Locale.US, "%,d", it) }
+            val where = when {
+                night != null && over != null -> "the $night scan of $over names"
+                night != null -> "the $night scan"
+                over != null -> "that night's scan of $over names"
+                else -> "that night's scan"
+            }
+            return "Percentiles are ranks within $where — not scores, and not a buy signal."
+        }
 
     /** "Nightly scan · 2026-08-21 · 3h ago · 3,113 of 3,147 scanned · …" — never blank. */
     fun provenance(nowMs: Long = System.currentTimeMillis()): String =
@@ -124,7 +153,7 @@ class MarketScanViewModel : ViewModel() {
                                 appliedSort = null, asOf = null, generatedAt = null,
                                 universeSize = null, scanned = null, fetchFailed = null,
                                 tooShort = null, universeStale = null, totalMatching = null,
-                                note = "", cachedAgeSeconds = null,
+                                percentilesOver = null, note = "", cachedAgeSeconds = null,
                             )
                         }
                     }
@@ -199,6 +228,9 @@ class MarketScanViewModel : ViewModel() {
                     tooShort = if (r != null) r.tooShort else st.tooShort,
                     universeStale = if (r != null) r.universeStale else st.universeStale,
                     totalMatching = if (r != null) r.totalMatching else st.totalMatching,
+                    // Kept in step with the rows it describes: on a FAILED reload the previous rows
+                    // stay, and so must the population their ranks were computed over.
+                    percentilesOver = if (r != null) r.percentilesOver else st.percentilesOver,
                     note = r?.note ?: st.note,
                     // On a FAILED reload the previous rows stay; wiping their age would make stale
                     // data look freshly loaded.

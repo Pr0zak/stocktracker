@@ -5,6 +5,7 @@ import com.stocktracker.app.data.remote.MarketBreadth
 import com.stocktracker.app.data.remote.MarketScanResponse
 import com.stocktracker.app.data.remote.MarketScanRow
 import com.stocktracker.app.data.remote.MarketScanRunResponse
+import com.stocktracker.app.data.remote.MarketScanSymbolResponse
 import kotlinx.serialization.decodeFromString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -213,6 +214,138 @@ class MarketScanDecodeTest {
         assertEquals(34, r.tooShort)
         assertEquals(0, r.suspectSeries)
         assertEquals(49.9, r.durationSeconds!!, 1e-9)
+    }
+
+    // ------------------------------------------------- SWT-4: the ranks that ride on those rows
+
+    @Test
+    fun `a ranked row carries every percentile beside the number it ranks`() {
+        val r = Http.json.decodeFromString<MarketScanResponse>(
+            """{"as_of":"20260821","percentiles_over":3101,"total_matching":812,"results":[
+                 {"symbol":"NVDA","rel_volume":0.78,"rsi14":63.2,"dollar_volume_20d":2.7e10,
+                  "rel_strength_3mo_pctile":86.0,"rel_volume_pctile":59.3,"adr20_pct_pctile":71.2,
+                  "adx14_pctile":88.8,"mom_20d_pctile":90.1,"mom_60d_pctile":93.4,
+                  "rsi14_pctile":77.7,"pct_off_52w_high_pctile":99.1,
+                  "ema20_slope_pct_pctile":81.0,"dollar_volume_20d_pctile":100.0}]}""",
+        )
+        // The denominator is the WHOLE night, not the filtered slice — 3,101, not 812.
+        assertEquals(3101, r.percentilesOver)
+        val nvda = r.results.first()
+        assertEquals(59.3, nvda.relVolumePctile!!, 1e-9)
+        assertEquals(86.0, nvda.relStrength3moPctile!!, 1e-9)
+        assertEquals(71.2, nvda.adr20PctPctile!!, 1e-9)
+        assertEquals(88.8, nvda.adx14Pctile!!, 1e-9)
+        assertEquals(90.1, nvda.mom20dPctile!!, 1e-9)
+        assertEquals(93.4, nvda.mom60dPctile!!, 1e-9)
+        assertEquals(77.7, nvda.rsi14Pctile!!, 1e-9)
+        assertEquals(99.1, nvda.pctOff52wHighPctile!!, 1e-9)
+        assertEquals(81.0, nvda.ema20SlopePctPctile!!, 1e-9)
+        assertEquals(100.0, nvda.dollarVolume20dPctile!!, 1e-9)
+        // The raw measurement survives alongside its rank: the rank is a rank OF something, and one
+        // without the other is half a reading.
+        assertEquals(0.78, nvda.relVolume!!, 1e-9)
+    }
+
+    @Test
+    fun `an unranked night stays null instead of putting every name at the bottom of the market`() {
+        // A night stored before the ranking pass existed, or one whose backfill has not run. Both
+        // send no percentile at all, and 0.0 would say "worst in the market" about all 3,101 names.
+        val omitted = Http.json.decodeFromString<MarketScanRow>(
+            """{"symbol":"NVDA","rel_volume":0.78,"rsi14":63.2}""",
+        )
+        assertNull(omitted.relVolumePctile)
+        assertNull(omitted.rsi14Pctile)
+        assertNull(omitted.dollarVolume20dPctile)
+        // An explicit null must survive exactly as an omission does — `coerceInputValues = true`
+        // would swallow both into a zero if any of these fields were non-nullable.
+        val explicit = Http.json.decodeFromString<MarketScanRow>(
+            """{"symbol":"NVDA","rel_volume":0.78,"rel_volume_pctile":null,"rsi14_pctile":null,
+                "adx14_pctile":null,"mom_20d_pctile":null,"mom_60d_pctile":null,
+                "rel_strength_3mo_pctile":null,"adr20_pct_pctile":null,
+                "pct_off_52w_high_pctile":null,"ema20_slope_pct_pctile":null,
+                "dollar_volume_20d_pctile":null}""",
+        )
+        assertNull(explicit.relVolumePctile)
+        assertNull(explicit.rsi14Pctile)
+        assertNull(explicit.adx14Pctile)
+        assertNull(explicit.mom20dPctile)
+        assertNull(explicit.mom60dPctile)
+        assertNull(explicit.relStrength3moPctile)
+        assertNull(explicit.adr20PctPctile)
+        assertNull(explicit.pctOff52wHighPctile)
+        assertNull(explicit.ema20SlopePctPctile)
+        assertNull(explicit.dollarVolume20dPctile)
+        assertEquals(0.78, explicit.relVolume!!, 1e-9)
+        // A row measured on a metric the whole night was too sparse to rank: the number is there,
+        // the rank is not, and they must not be confused for each other.
+        assertNotNull(explicit.relVolume)
+    }
+
+    @Test
+    fun `a measured rank of zero is kept, because it is a reading`() {
+        // 0.0 = the lowest measured value in the night's cross-section. Only the ABSENT case is
+        // null; dropping a real zero would hide a reading as surely as inventing one fabricates it.
+        val row = Http.json.decodeFromString<MarketScanRow>(
+            """{"symbol":"DEAD","rel_volume":0.01,"rel_volume_pctile":0.0}""",
+        )
+        assertEquals(0.0, row.relVolumePctile!!, 1e-9)
+    }
+
+    @Test
+    fun `an unreported population is null rather than a count borrowed from the slice`() {
+        val r = Http.json.decodeFromString<MarketScanResponse>(
+            """{"total_matching":812,"limit":50,"results":[],"percentiles_over":null}""",
+        )
+        assertNull(r.percentilesOver)
+        assertEquals(812, r.totalMatching)
+    }
+
+    @Test
+    fun `the symbol route is an envelope, and decoding it as a row loses every measurement`() {
+        val json = """
+            {"symbol":"NVDA","as_of":"20260819","latest_scan_date":"20260821","is_latest_night":false,
+             "percentiles_over":3098,"generated_at":1755800000.0,
+             "row":{"symbol":"NVDA","price":184.2,"rsi14":63.2,"rel_volume":0.78,
+                    "rsi14_pctile":77.7,"rel_volume_pctile":59.3},
+             "percentiles":{"rsi14":77.7,"rel_volume":59.3,"adx14":null},
+             "note":"a rank, not a score"}
+        """.trimIndent()
+        val r = Http.json.decodeFromString<MarketScanSymbolResponse>(json)
+
+        assertEquals("NVDA", r.symbol)
+        // The row is from an older night than the latest scan — the ranks belong to THAT night's
+        // cross-section, so both dates have to survive the decode.
+        assertEquals("20260819", r.asOf)
+        assertEquals("20260821", r.latestScanDate)
+        assertEquals(false, r.isLatestNight)
+        assertEquals(3098, r.percentilesOver)
+        assertEquals(63.2, r.row!!.rsi14!!, 1e-9)
+        assertEquals(77.7, r.row!!.rsi14Pctile!!, 1e-9)
+        assertEquals(77.7, r.percentile("rsi14")!!, 1e-9)
+        // A metric the night could not rank: present as a key, null as a value. Never a zero, and
+        // never absent in a way that a caller could read as "the key was there and it was low".
+        assertTrue(r.percentiles!!.containsKey("adx14"))
+        assertNull(r.percentile("adx14"))
+        assertNull(r.percentile("mom_20d"))
+
+        // Why the envelope has its own type: the flat decode this client used to do matches only the
+        // top-level "symbol" and reports a name the scan measured nothing about.
+        val flat = Http.json.decodeFromString<MarketScanRow>(json)
+        assertEquals("NVDA", flat.symbol)
+        assertNull("the flat decode silently drops every measurement", flat.rsi14)
+        assertNull(flat.rsi14Pctile)
+    }
+
+    @Test
+    fun `a symbol envelope with no percentiles at all reports absence, not an empty ranking`() {
+        val r = Http.json.decodeFromString<MarketScanSymbolResponse>(
+            """{"symbol":"NVDA","row":{"symbol":"NVDA","rsi14":63.2}}""",
+        )
+        assertNull("null percentiles must not collapse into an empty map", r.percentiles)
+        assertNull(r.percentile("rsi14"))
+        assertNull(r.percentilesOver)
+        assertNull(r.isLatestNight)
+        assertEquals(63.2, r.row!!.rsi14!!, 1e-9)
     }
 
     @Test

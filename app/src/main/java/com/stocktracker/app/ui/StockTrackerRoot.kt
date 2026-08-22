@@ -3,6 +3,7 @@ package com.stocktracker.app.ui
 import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Settings
@@ -48,6 +49,9 @@ private sealed class TopDest(val route: String, val label: String, val icon: Ima
     data object Ideas : TopDest("ideas", "Ideas", Icons.Filled.Lightbulb)
     // A route, not a sixth bottom tab — six tabs wrap the longer labels onto two lines.
     data object Heatmap : TopDest("heatmap", "Heat map", Icons.Filled.GridView)
+    // Same reasoning: the whole-market screens are reached from the watchlist's app bar, not from a
+    // tab bar that is already at the width its labels can take.
+    data object MarketScan : TopDest("market_scan", "Market scan", Icons.Filled.Leaderboard)
     data object Sandbox : TopDest("sandbox", "Sandbox", Icons.Filled.SmartToy)
     data object Widgets : TopDest("widgets", "Widgets", Icons.Filled.Widgets)
     data object Settings : TopDest("settings", "Settings", Icons.Filled.Settings)
@@ -115,6 +119,7 @@ fun StockTrackerRoot() {
                     onOpenCalendar = { nav.navigate("calendar") },
                     onOpenDips = { nav.navigate("dips") },
                     onOpenHeatmap = { nav.navigate(TopDest.Heatmap.route) },
+                    onOpenMarketScan = { nav.navigate(TopDest.MarketScan.route) },
                 )
             }
             composable("vix") { VixDetailScreen(onBack = { nav.popBackStack() }) }
@@ -147,6 +152,9 @@ fun StockTrackerRoot() {
                     onOpenDetail = { nav.navigate(detailRoute(it)) },
                     onBack = { nav.popBackStack() },
                 )
+            }
+            composable(TopDest.MarketScan.route) {
+                com.stocktracker.app.ui.marketscan.MarketScanScreen(onBack = { nav.popBackStack() })
             }
             composable(TopDest.Ideas.route) {
                 IdeasScreen(

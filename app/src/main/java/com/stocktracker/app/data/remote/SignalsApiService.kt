@@ -624,15 +624,23 @@ class SignalsApiService {
     }
 
     /**
-     * One symbol's row from the scan. Null on 404 — the name was not in the scan (never in the
-     * universe, or halted/delisted/failed on every night we hold), which is an absence, not an error.
-     * The returned row's [MarketScanRow.d] says which night it is actually from: the server answers
-     * with the symbol's latest observation, which may be older than the latest scan.
+     * One symbol's row from the scan, PLUS where each of its metrics sat in that night's whole
+     * cross-section. Null on 404 — the name was not in the scan (never in the universe, or
+     * halted/delisted/failed on every night we hold), which is an absence, not an error.
+     *
+     * The route answers with an ENVELOPE ({symbol, as_of, row, percentiles, …}), so this decodes
+     * [MarketScanSymbolResponse]. It previously decoded [MarketScanRow] directly, which matched only
+     * the top-level `symbol` and quietly produced a row whose every metric was null — the scan
+     * looking as though it had measured nothing about a name it measured twenty things about.
+     *
+     * [MarketScanSymbolResponse.asOf] says which night the row is actually from: the server answers
+     * with the symbol's latest observation, which may be older than the latest scan, and the ranks
+     * are ranks within THAT night.
      */
-    suspend fun marketScanSymbol(baseUrl: String, symbol: String): MarketScanRow? {
+    suspend fun marketScanSymbol(baseUrl: String, symbol: String): MarketScanSymbolResponse? {
         if (baseUrl.isBlank()) return null
         return try {
-            Http.json.decodeFromString<MarketScanRow>(
+            Http.json.decodeFromString<MarketScanSymbolResponse>(
                 sGet("${baseUrl.trimEnd('/')}/market_scan/${symbol.uppercase().urlEncode()}", slow = true),
             )
         } catch (e: HttpStatusException) {
@@ -2160,6 +2168,13 @@ data class MarketScanResponse(
     val limit: Int? = null,
     /** Rows matching before [limit] was applied — so "top 50" can say what it is the top 50 of. */
     @SerialName("total_matching") val totalMatching: Int? = null,
+    /**
+     * SWT-4 — how many names the `*_pctile` columns on each row were ranked against: the WHOLE
+     * night, not the slice being served. Null when the server did not say, and a screen must then
+     * say "of the night's scan" rather than reach for [totalMatching], which a filter can narrow —
+     * "98th percentile of 50 shown" describes a population the rank was never computed over.
+     */
+    @SerialName("percentiles_over") val percentilesOver: Int? = null,
     val results: List<MarketScanRow> = emptyList(),
     /** The server's own framing. Rendered verbatim: this is a screen, not a buy list. */
     val note: String = "",
@@ -2205,6 +2220,39 @@ data class MarketScanRow(
     @SerialName("ma_stacked") val maStacked: Boolean? = null,
     /** Daily bars behind the row — the sample size for everything above it. */
     val bars: Int? = null,
+
+    // ------------------------------------------------------ SWT-4: where this name sat that night
+    //
+    // A RANK, NOT A SCORE. `rsi14Pctile = 96.0` says 96% of the names measured that night had a
+    // lower RSI. It does not say the stock is good, strong or cheap — high RSI is not "better" than
+    // low, a name at the 99th percentile of [adr20Pct] is the most volatile in the market rather
+    // than the best in it, and which end a reader wants is their judgement, not the server's. Ten
+    // metrics are ranked; the rest of the row deliberately is not (per-share dollar levels rank
+    // share price, and a boolean has two states rather than a distribution).
+    //
+    // DO NOT AVERAGE THEM. The mean of a momentum rank and a volatility rank is not a quality: a
+    // calm leader and a wild laggard land on the same number.
+    //
+    // NULL IS THE WHOLE POINT, and it is why every one of these is `Double?` with no default. Null
+    // means the ranking pass has not run for that night, or too little of the market could be
+    // measured on that metric, or this row had no value to rank. It NEVER means zero: 0.0 is a real
+    // and confident reading — "the lowest measured value in the market that night" — and rendering
+    // it for a name we could not rank is the exact defect these nullable types exist to prevent.
+    // `?: 0.0` at a render site turns "we don't know" into "worst in the market".
+    //
+    // The denominator lives on the response, not the row: [MarketScanResponse.percentilesOver] /
+    // [MarketScanSymbolResponse.percentilesOver] say how many names the rank is out of, so a screen
+    // can say "96th percentile of 3,101 scanned" instead of a bare "96", which reads as a grade.
+    @SerialName("rel_strength_3mo_pctile") val relStrength3moPctile: Double? = null,
+    @SerialName("rel_volume_pctile") val relVolumePctile: Double? = null,
+    @SerialName("adr20_pct_pctile") val adr20PctPctile: Double? = null,
+    @SerialName("adx14_pctile") val adx14Pctile: Double? = null,
+    @SerialName("mom_20d_pctile") val mom20dPctile: Double? = null,
+    @SerialName("mom_60d_pctile") val mom60dPctile: Double? = null,
+    @SerialName("rsi14_pctile") val rsi14Pctile: Double? = null,
+    @SerialName("pct_off_52w_high_pctile") val pctOff52wHighPctile: Double? = null,
+    @SerialName("ema20_slope_pct_pctile") val ema20SlopePctPctile: Double? = null,
+    @SerialName("dollar_volume_20d_pctile") val dollarVolume20dPctile: Double? = null,
     /**
      * Metric names that came back null for this row. NULLABLE, and null is NOT the empty list: []
      * means the producer checked and everything was measurable, null means no producer ever said.
@@ -2217,6 +2265,47 @@ data class MarketScanRow(
     /** Epoch seconds the row was produced. */
     val ts: Double? = null,
 )
+
+/**
+ * GET /market_scan/{symbol} — one name's row, and where each of its metrics sat that night.
+ *
+ * An ENVELOPE, not a row: the measurements live under [row] and the ranks under [percentiles], and
+ * decoding this shape straight into a [MarketScanRow] (as this client did before SWT-4) yields a
+ * row with a symbol and every metric null — a name the scan appears to have measured nothing about.
+ *
+ * [asOf] is the night THIS ROW is from, which is not necessarily the latest scan: a name that was
+ * halted or failed to fetch last night still has an older observation. [isLatestNight] says which,
+ * and the ranks belong to [asOf]'s cross-section — a three-day-old row's percentile is a position
+ * in a three-day-old market.
+ */
+@Serializable
+data class MarketScanSymbolResponse(
+    val symbol: String = "",
+    /** The night [row] was measured on ("20260821"), NOT necessarily the latest scan. */
+    @SerialName("as_of") val asOf: String? = null,
+    /** The most recent night stored at all, for comparison against [asOf]. */
+    @SerialName("latest_scan_date") val latestScanDate: String? = null,
+    @SerialName("is_latest_night") val isLatestNight: Boolean? = null,
+    /** Null when the envelope arrived without one — which is not a row of zeroes. */
+    val row: MarketScanRow? = null,
+    /**
+     * {metric name → percentile, or null}. NULLABLE, and null is NOT the empty map: absent means the
+     * server never sent the key, empty would mean it sent one and ranked nothing. Both render the
+     * same way (no rank beside the number), but only one of them is a statement.
+     *
+     * A RANK, NOT A SCORE — see the block on [MarketScanRow]. A null value here means "not ranked",
+     * never the 0th percentile.
+     */
+    val percentiles: Map<String, Double?>? = null,
+    /** Names the ranks were computed over — the denominator "96th percentile of 3,101" needs. */
+    @SerialName("percentiles_over") val percentilesOver: Int? = null,
+    @SerialName("generated_at") val generatedAt: Double? = null,
+    /** The server's own framing. Rendered verbatim. */
+    val note: String = "",
+) {
+    /** This metric's rank, or null for "not ranked". Never substitutes a zero for an absence. */
+    fun percentile(metric: String): Double? = percentiles?.get(metric)
+}
 
 /**
  * GET /market_scan/breadth — how much of the market is participating.

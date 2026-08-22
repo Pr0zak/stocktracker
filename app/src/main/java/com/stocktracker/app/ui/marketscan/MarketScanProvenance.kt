@@ -96,6 +96,33 @@ object MarketScanProvenance {
         return if (parts.size == 1) "Nightly scan · coverage unknown" else parts.joinToString(" · ")
     }
 
+    /**
+     * "58.4% above the 50-day · 67.6% above the 200-day · 3,113 names" — or NULL.
+     *
+     * Null in three cases, all of which must render as nothing at all rather than as a reading:
+     * no breadth payload, a payload whose `available` is false (no scan stored), and a payload with
+     * nothing measured on it. `pct_above_sma50: 0` is the most bearish breadth reading that exists,
+     * and it must never be manufactured out of an empty table — so each half is printed only if the
+     * server actually sent it, and a row count with no percentages beside it is not a reading.
+     */
+    fun breadthLine(
+        available: Boolean?,
+        pctAboveSma50: Double?,
+        pctAboveSma200: Double?,
+        rows: Int?,
+    ): String? {
+        if (available != true) return null
+        val parts = buildList {
+            pctAboveSma50?.takeIf { it.isFinite() }?.let { add(pct(it) + " above the 50-day") }
+            pctAboveSma200?.takeIf { it.isFinite() }?.let { add(pct(it) + " above the 200-day") }
+        }
+        if (parts.isEmpty()) return null
+        val counted = rows?.takeIf { it > 0 }?.let { parts + "${n(it)} names" } ?: parts
+        return counted.joinToString(" · ")
+    }
+
+    private fun pct(v: Double): String = String.format(Locale.US, "%.1f%%", v)
+
     private fun n(v: Int): String = String.format(Locale.US, "%,d", v)
 }
 

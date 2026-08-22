@@ -109,4 +109,27 @@ class MarketScanProvenanceTest {
         val s = MarketScanProvenance.summary(null, null, null, null, null, null, null, now)
         assertEquals("Nightly scan · coverage unknown", s)
     }
+
+    @Test
+    fun `breadth with no scan behind it renders nothing at all`() {
+        // available=false is "no scan stored", not "0% of the market is above its 50-day" — which
+        // is the most bearish reading that exists and would here be invented out of an empty table.
+        assertNull(MarketScanProvenance.breadthLine(false, null, null, 0))
+        assertNull(MarketScanProvenance.breadthLine(null, 58.4, 67.6, 3113))
+        // A payload that is available but measured nothing is still not a reading.
+        assertNull(MarketScanProvenance.breadthLine(true, null, null, 3113))
+        assertNull(MarketScanProvenance.breadthLine(true, Double.NaN, null, 3113))
+    }
+
+    @Test
+    fun `a real breadth reading names both halves and what it counted`() {
+        assertEquals(
+            "58.4% above the 50-day · 67.6% above the 200-day · 3,113 names",
+            MarketScanProvenance.breadthLine(true, 58.4, 67.6, 3113),
+        )
+        // Half a reading is printed as half a reading, never padded out with a zero.
+        assertEquals("58.4% above the 50-day", MarketScanProvenance.breadthLine(true, 58.4, null, null))
+        // A measured 0% IS a reading and is printed — only an absent number is dropped.
+        assertEquals("0.0% above the 200-day", MarketScanProvenance.breadthLine(true, null, 0.0, 0))
+    }
 }

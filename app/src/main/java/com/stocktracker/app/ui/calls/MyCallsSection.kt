@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.CallOutcome
 import com.stocktracker.app.data.model.ClosedCallPosition
+import com.stocktracker.app.data.model.ExitTaxonomy
 import com.stocktracker.app.data.model.RealizedPnl
 import com.stocktracker.app.data.model.RiskMultiple
 import com.stocktracker.app.ui.ideas.usd
@@ -460,6 +461,7 @@ private fun ClosedCallsDialog(closed: List<ClosedCallPosition>, onDismiss: () ->
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val summary = remember(closed) { RealizedPnl.summarize(closed) }
     val rStats = remember(closed) { RiskMultiple.aggregate(closed) }
+    val exits = remember(closed) { ExitTaxonomy.summarize(closed) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -469,7 +471,7 @@ private fun ClosedCallsDialog(closed: List<ClosedCallPosition>, onDismiss: () ->
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                ClosedSummaryCard(summary, rStats)
+                ClosedSummaryCard(summary, rStats, exits)
                 if (closed.isEmpty()) {
                     Text("No closed calls yet.", style = MaterialTheme.typography.bodySmall, color = neutral)
                 } else {
@@ -490,7 +492,7 @@ private fun ClosedCallsDialog(closed: List<ClosedCallPosition>, onDismiss: () ->
 
 /** The realized-P&L summary: total, win rate, count — the app's card style, plus the R track record. */
 @Composable
-private fun ClosedSummaryCard(s: RealizedPnl.Summary, r: RiskMultiple.Aggregate) {
+private fun ClosedSummaryCard(s: RealizedPnl.Summary, r: RiskMultiple.Aggregate, x: ExitTaxonomy.Record) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val up = s.totalRealized >= 0
     Column(
@@ -507,13 +509,107 @@ private fun ClosedSummaryCard(s: RealizedPnl.Summary, r: RiskMultiple.Aggregate)
             color = if (up) GainGreen else LossRed,
         )
         Text("Total realized P&L", style = MaterialTheme.typography.labelSmall, color = neutral)
+        // Deliberately a COUNT, not the percentage this line used to lead with (SWT-7). Its population
+        // is "every close with an option P/L" — which includes trades that had no plan to be measured
+        // against — so as a percentage it sat above the qualified pair below looking like the headline
+        // win rate while answering a different question. The rates on this card now all arrive with
+        // their denominator and their opposite number.
         Text(
-            "${s.closedCount} closed · win rate ${"%.0f".format(s.winRatePct)}% (${s.wins}/${s.counted})",
+            "${s.closedCount} closed · ${s.wins} of ${s.counted} finished green",
             style = MaterialTheme.typography.bodySmall,
             color = neutral,
             modifier = Modifier.padding(top = 4.dp),
         )
         RTrackRecord(r)
+        ExitBreakdown(x)
+    }
+}
+
+/**
+ * How the closed trades ENDED, and the two win rates that describe it (SWT-7).
+ *
+ * THE RULE THIS COMPOSABLE ENFORCES: the hard win rate (reached the planned target) and the profitable
+ * exit rate (finished green by any route) are rendered on ONE line, over ONE visible denominator, and
+ * neither is ever drawn without the other. They can differ enormously — the reference this came from
+ * published 12.5% and 65.3% for the same trades — and the flattering one is the one a reader quotes.
+ *
+ * Under [ExitTaxonomy.MIN_CLASSIFIED_FOR_RATES] classified closes the percentages are NOT drawn at all.
+ * "1 of 2 reached target" is the honest sentence there; "50%" is a confident-sounding claim about two
+ * trades. Nulls render as nothing — no dashes standing in for a rate, no 0.0R for a bucket that could
+ * not be scored.
+ */
+@Composable
+private fun ExitBreakdown(x: ExitTaxonomy.Record) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    if (x.closedCount == 0) return
+
+    Text(
+        "How they ended",
+        style = MaterialTheme.typography.labelSmall,
+        color = neutral,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.padding(top = 10.dp),
+    )
+
+    val hard = x.hardWinRatePct
+    val profitable = x.profitableExitRatePct
+    if (hard == null || profitable == null) {
+        // Nothing measurable against a plan. Saying so beats printing 0%, which would read as "every
+        // trade was checked and none won" over a history that never made that claim.
+        Text(
+            "No win rate yet — none of these ${x.closedCount} closes could be measured against the plan it " +
+                "was opened with.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
+    } else {
+        if (x.smallSample) {
+            Text(
+                "${x.targetHits} of ${x.classified} reached target · ${x.greenExits} of ${x.classified} finished green",
+                style = MaterialTheme.typography.bodySmall,
+                color = neutral,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                "Too few closes to call either a rate — under ${ExitTaxonomy.MIN_CLASSIFIED_FOR_RATES} " +
+                    "these are counts, not a win rate.",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        } else {
+            Text(
+                "Hit target ${"%.1f".format(hard)}% · finished green ${"%.1f".format(profitable)}% " +
+                    "(of ${x.classified} classified)",
+                style = MaterialTheme.typography.bodySmall,
+                color = neutral,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                "Two rates, one denominator. The second counts every green exit, including the ones that " +
+                    "never reached the target — it is always the kinder number.",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+            )
+        }
+    }
+
+    x.occupiedBuckets.forEach { b ->
+        // Average R prints only where it exists. A bucket of unscoreable closes shows its count alone.
+        val rSuffix = b.avgR?.let { " · ${RiskMultiple.format(it)} avg" } ?: ""
+        Text(
+            "${ExitTaxonomy.label(b.kind)} ${b.count}$rSuffix",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
+    }
+
+    if (x.bucket(ExitTaxonomy.ExitKind.EXPIRY).count > 0) {
+        Text(
+            "Expired is kept apart from stopped on purpose: a stop is the plan working, an expiry at \$0 is " +
+                "the plan abandoned — and it usually costs about twice the risk the stop defined.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
     }
 }
 

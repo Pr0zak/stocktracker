@@ -30,6 +30,7 @@ class SettingsStore(private val context: Context) {
     private val marketStatusKey = booleanPreferencesKey("show_market_status")
     private val showVolumeKey = booleanPreferencesKey("show_volume")
     private val showVixKey = booleanPreferencesKey("show_vix")
+    private val showGateKey = booleanPreferencesKey("show_gate")
     private val chartIndicatorsKey = stringPreferencesKey("chart_indicators")
     private val watchlistGroupsKey = stringPreferencesKey("watchlist_groups")
     private val signalsApiUrlKey = stringPreferencesKey("signals_api_url")
@@ -168,6 +169,13 @@ class SettingsStore(private val context: Context) {
     /** When true, the dashboard shows the VIX "market fear" gauge. */
     val showVix: Flow<Boolean> = context.dataStore.data.map { it[showVixKey] ?: true }
 
+    /**
+     * When true, the dashboard shows the five-leg market gate (SWT-13). Defaults ON: it is free
+     * arithmetic over prices the app already pulls — no model call, no key — and it is the only
+     * card that answers the market question with numbers you can check.
+     */
+    val showGate: Flow<Boolean> = context.dataStore.data.map { it[showGateKey] ?: true }
+
     /** User-defined watchlist names (in display order). Empty = only the built-in All/Stocks/Crypto. */
     val watchlistGroups: Flow<List<String>> = context.dataStore.data.map { prefs ->
         prefs[watchlistGroupsKey]?.let { runCatching { Http.json.decodeFromString<List<String>>(it) }.getOrNull() }
@@ -213,6 +221,7 @@ class SettingsStore(private val context: Context) {
         it[chartIndicatorsKey] = Http.json.encodeToString(keys.toList())
     }
     suspend fun setShowVix(enabled: Boolean) = context.dataStore.edit { it[showVixKey] = enabled }
+    suspend fun setShowGate(enabled: Boolean) = context.dataStore.edit { it[showGateKey] = enabled }
     suspend fun setWatchlistGroups(groups: List<String>) = context.dataStore.edit {
         it[watchlistGroupsKey] = Http.json.encodeToString(groups)
     }

@@ -1,6 +1,27 @@
 package com.stocktracker.app.ui.detail
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.PlanResponse
+import com.stocktracker.app.ui.ideas.usd
 import java.util.Locale
 
 /**
@@ -58,6 +79,24 @@ data class ChaseState(
             if (resp == null) return null
             if (resp.chaseStatus == null && resp.chasePct == null && resp.chaseWarning == null) return null
             return ChaseState(resp.chaseStatus, resp.chasePct, resp.chasePrice, resp.chaseWarning)
+        }
+
+        /**
+         * SWT-15 — the same read off one of the Ideas screen's picks.
+         *
+         * A separate NAME rather than an overload of [from]: `from(null)` would otherwise be
+         * ambiguous, and the compiler resolving that for you is not a thing to leave lying around
+         * in the file whose entire job is keeping absence distinguishable.
+         *
+         * The backend does not annotate `/recommendations` with these yet, so today this returns null
+         * for every pick and the Ideas card shows no chase line at all. That is the correct inert
+         * state, not a gap: the alternative — defaulting the absent percent to 0 — would print "0.0%
+         * above the entry zone" beside a buy suggestion for a name that might be 20% past it.
+         */
+        fun fromPick(plan: EntryPlan?): ChaseState? {
+            if (plan == null) return null
+            if (plan.chaseStatus == null && plan.chasePct == null && plan.chaseWarning == null) return null
+            return ChaseState(plan.chaseStatus, plan.chasePct, plan.chasePrice, plan.chaseWarning)
         }
     }
 }
@@ -120,4 +159,69 @@ object ChaseRead {
 
     private fun vsTop(pct: Double): String =
         if (pct > 0.0) "${above(pct)} above the entry zone" else underTop(pct)
+}
+
+/**
+ * The chase read (SWT-3/SWT-15): where the live price sits against this plan's entry zone.
+ *
+ * THE ONLY renderer for this fact, deliberately. It lives beside the mapping above rather than
+ * inside a screen because two screens now show it — the detail screen's entry-plan card and the
+ * Ideas screen's picks — and two copies would eventually disagree on screen about whether the same
+ * name is being chased.
+ *
+ * Renders NOTHING when the read is absent — no zone from the analyst, or no quote for the server to
+ * measure against. A "0%" or an "ok" invented out of a missing value on a card people act on with
+ * money is the defect this whole feature exists to remove, and it would be worse than saying nothing.
+ *
+ * Only [ChaseTone.ALARM] gets the filled treatment. The other tones are one quiet line: a card that
+ * shouts when the plan is working teaches the reader to ignore it when it isn't.
+ */
+@Composable
+internal fun ChaseLine(chase: ChaseState?) {
+    val banner = chase?.let {
+        ChaseRead.banner(it.status, it.pct, it.price?.takeIf { p -> p > 0.0 }?.let { p -> usd(p) }, it.warning)
+    } ?: return
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val color = when (banner.tone) {
+        ChaseTone.ALARM -> Color(0xFFC64040)
+        ChaseTone.CAUTION -> Color(0xFFD29922)
+        ChaseTone.CALM -> Color(0xFF2E9E57)
+        ChaseTone.NEUTRAL -> neutral
+    }
+    val loud = banner.tone == ChaseTone.ALARM
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (loud) {
+                    Modifier
+                        .background(color.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                } else {
+                    Modifier
+                },
+            ),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (loud) {
+            Icon(
+                Icons.Filled.Warning,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                banner.headline,
+                style = if (loud) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium,
+                fontWeight = if (loud) FontWeight.Bold else FontWeight.Medium,
+                color = color,
+            )
+            banner.detail?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+        }
+    }
 }

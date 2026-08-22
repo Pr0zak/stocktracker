@@ -75,6 +75,7 @@ import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.VixQuote
 import com.stocktracker.app.data.remote.DipReject
+import com.stocktracker.app.data.remote.GateLeg
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.first
@@ -117,6 +118,7 @@ fun WatchlistScreen(
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
     val showMarketStatus by ServiceLocator.settingsStore.showMarketStatus.collectAsState(initial = true)
     val showVix by ServiceLocator.settingsStore.showVix.collectAsState(initial = true)
+    val showGate by ServiceLocator.settingsStore.showGate.collectAsState(initial = true)
     val groups by ServiceLocator.settingsStore.watchlistGroups.collectAsState(initial = emptyList())
     val groupBySector by ServiceLocator.settingsStore.watchlistGroupBySector.collectAsState(initial = true)
     val scope = rememberCoroutineScope()
@@ -333,7 +335,17 @@ fun WatchlistScreen(
                 // regime, VIX level and dip count. Expanded state is remembered.
                 val reg = state.regime
                 val hasRegime = reg.result?.regime?.label?.isNotBlank() == true || reg.loading || reg.error != null
-                val anyContext = state.dips.isNotEmpty() || showMarketStatus || hasRegime || (showVix && vix != null)
+                val gateSummary = GateRead.summary(state.gate.result)
+                // The gate card appears whenever it holds a reading, is fetching one, or failed to
+                // get one — and never on a device with no Signals URL, where GateUi is left empty.
+                val hasGate = showGate && (gateSummary != null || state.gate.loading || state.gate.error != null)
+                // SWT-14: the strip now has something to say in every state, so it no longer needs a
+                // non-empty dip list to justify the context row. The ONE exception is a radar nobody
+                // configured — "set the Signals URL" shouldn't conjure a market-context section onto
+                // the dashboard of a user who never asked for one. (It still renders inside the
+                // section when something else opened it, which is where that state is worth knowing.)
+                val hasDips = state.dipRadar !is DipRadarState.NotConfigured
+                val anyContext = hasDips || showMarketStatus || hasRegime || hasGate || (showVix && vix != null)
                 if (anyContext) {
                     item(key = "hdr:context") {
                         MarketContext(
@@ -342,21 +354,35 @@ fun WatchlistScreen(
                             marketState = marketState,
                             regime = reg,
                             vix = vix,
-                            dipCount = state.dips.size,
+                            // The strip's own summary word, from the shared state machine — so the
+                            // collapsed line cannot claim "no dips" while the card behind it says the
+                            // scan service is unreachable.
+                            dipChip = DipRadar.chip(state.dipRadar),
+                            gate = gateSummary.takeIf { showGate },
                             showMarketStatus = showMarketStatus,
                             showVix = showVix,
                             hasRegime = hasRegime,
                         )
                     }
                     if (contextOpen) {
-                        if (state.dips.isNotEmpty()) {
-                            item(key = "hdr:dips") { GoodTimeToAddSection(state.dips, onOpenDips) }
+                        item(key = "hdr:dips") {
+                            DipStripSection(
+                                stale = state.dipStale,
+                                state = state.dipRadar,
+                                onOpenAll = onOpenDips,
+                                onRetry = { vm.reloadDips() },
+                            )
                         }
                         if (showMarketStatus) {
                             item(key = "hdr:timeline") { SessionTimelineBar(marketState) }
                         }
                         if (hasRegime) {
                             item(key = "hdr:regime") { RegimeCard(reg, onRefresh = { vm.loadRegime(force = true) }) }
+                        }
+                        // Directly under the regime banner: same question, checkable half. The banner
+                        // narrates the backdrop; this one shows the five conditions and their numbers.
+                        if (hasGate) {
+                            item(key = "hdr:gate") { GateCard(state.gate, onRefresh = { vm.loadGate(force = true) }) }
                         }
                         if (showVix) {
                             vix?.let { v -> item(key = "hdr:vix") { FearGauge(v, onClick = onOpenVix) } }
@@ -622,7 +648,10 @@ private fun MarketContext(
     marketState: com.stocktracker.app.util.MarketState,
     regime: RegimeUi,
     vix: VixQuote?,
-    dipCount: Int,
+    /** The dip fact in two words, or null when there is nothing honest to compress. */
+    dipChip: String?,
+    /** SWT-13 — the gate verdict, already resolved. Null = no reading, and no claim. */
+    gate: GateSummary?,
     showMarketStatus: Boolean,
     showVix: Boolean,
     hasRegime: Boolean,
@@ -636,8 +665,18 @@ private fun MarketContext(
                 add(lbl to if (trend == "up") GainGreen else if (trend == "down") LossRed else neutral)
             }
         }
+        // Unmeasured gets the amber, never the red: a gate that couldn't read a leg has not
+        // observed a bearish market, and one glance at this line is all most readings get.
+        gate?.let { g ->
+            add(g.chip to when (g.verdict) {
+                GateVerdict.OPEN -> GainGreen
+                GateVerdict.SHUT -> LossRed
+                GateVerdict.UNMEASURED -> Color(0xFFB0872B)
+                GateVerdict.UNAVAILABLE -> neutral
+            })
+        }
         if (showVix) vix?.let { add("VIX ${String.format(Locale.US, "%.1f", it.value)}" to neutral) }
-        if (dipCount > 0) add("$dipCount dip" + (if (dipCount == 1) "" else "s") to neutral)
+        dipChip?.let { add(it to neutral) }
     }
     Row(
         modifier = Modifier
@@ -673,13 +712,35 @@ private fun MarketContext(
 }
 
 /**
- * "Dip radar" strip atop the watchlist — the dips from the latest scan, most-severe first, in plain
- * language. A cue to add EXTRA on weakness, deliberately NOT a "buy now" signal. Collapsed by default
- * (it can take a lot of vertical space); tap the header to expand.
+ * SWT-14 — the "dip radar" strip atop the watchlist, in every state the radar can be in.
+ *
+ * A cue to add EXTRA on weakness, deliberately NOT a "buy now" signal. Collapsed by default (the list
+ * can take a lot of vertical space); tap the header to expand.
+ *
+ * The strip used to render ONE state — a list of dips — and simply not appear for the other three. A
+ * user who never opens the full radar screen therefore could not tell an unreachable scan service, an
+ * unconfigured one, or a server holding no scan from a market with nothing on sale. The absence read
+ * as the all-clear. So the non-Ready states each get a compact notice here: the source's own words,
+ * and a retry where retrying could help.
+ *
+ * "No dips right now" is emitted by [DipRadar.calm] and reachable from [DipRadarState.Ready] alone.
  */
 @Composable
-private fun GoodTimeToAddSection(dips: List<DipEntry>, onOpenAll: () -> Unit) {
-    var open by remember { mutableStateOf(false) }   // collapsed by default
+private fun DipStripSection(
+    state: DipRadarState,
+    stale: String?,
+    onOpenAll: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    var open by rememberSaveable { mutableStateOf(false) }   // collapsed by default
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val amber = Color(0xFFD29922)
+    val note = DipRadar.strip(state)
+    val dips = (state as? DipRadarState.Ready)?.dips.orEmpty()
+    // `stale` is set when a refresh FAILED and these dips are the previous read. The list is real —
+    // it just is not current — so it stays on screen and says so, rather than being replaced by an
+    // error that would throw away what we already hold.
+    val expandable = dips.isNotEmpty()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -688,24 +749,92 @@ private fun GoodTimeToAddSection(dips: List<DipEntry>, onOpenAll: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().clickable { open = !open },
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (expandable) Modifier.clickable { open = !open } else Modifier),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Dip radar", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    "${dips.size} name${if (dips.size == 1) "" else "s"}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (expandable) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "${dips.size} name${if (dips.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = neutral,
+                    )
+                    Icon(
+                        if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (open) "Collapse dip radar" else "Expand dip radar",
+                        tint = neutral,
+                    )
+                }
+            } else if (note?.tone == DipStripTone.WORKING) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+            }
+        }
+
+        // A held scan whose refresh failed: the dips below are real but not current. Said here, in
+        // the same amber a hard failure uses, so a stale list is never mistaken for a fresh one.
+        if (stale != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(
-                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = if (open) "Collapse dip radar" else "Expand dip radar",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = amber,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    "Couldn't refresh \u2014 showing the last scan.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = amber,
                 )
             }
         }
+
+        if (note != null) {
+            // We hold NO scan in any of these states. Nothing below may mention dips one way or the
+            // other — the whole point is that this is not a report about the market.
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (note.tone == DipStripTone.WARN) {
+                    Icon(
+                        Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = amber,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        note.title,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = if (note.tone == DipStripTone.WARN) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (note.tone == DipStripTone.WARN) amber else neutral,
+                    )
+                    note.detail?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+                    }
+                }
+            }
+            if (note.retryable) {
+                Text(
+                    "Try again",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { onRetry() },
+                )
+            }
+            return@Column
+        }
+
+        // Ready, and nothing qualified. The ONE calming sentence in this feature, and it is only
+        // reachable from here — see DipRadar.calm.
+        DipRadar.calm(state)?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = neutral)
+            return@Column
+        }
+
         if (open) {
             dips.take(6).forEach { DipRow(it) }
             Text(
@@ -1021,12 +1150,9 @@ private fun DipNotice(title: String, body: String, onRetry: (() -> Unit)?) {
 private fun DipSummary(s: DipRadarState.Ready) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (s.dips.isEmpty()) {
-            Text(
-                "No dips right now — nothing you track is notably off its highs.",
-                color = neutral,
-            )
-        }
+        // The same sentence the strip can print, from the same function — two copies would be two
+        // places for the calming half of this feature to drift.
+        DipRadar.calm(s)?.let { Text(it, color = neutral) }
         // The counters are what make the sentence above checkable; each is dropped, never zeroed,
         // when the stored scan didn't report it.
         listOfNotNull(DipRadar.coverage(s.counts), DipRadar.breakdown(s.counts))
@@ -1263,6 +1389,189 @@ private fun RegimeCard(ui: RegimeUi, onRefresh: () -> Unit) {
             }
         } else if (!hasContent && ui.loading) {
             Text("Reading the tape…", style = MaterialTheme.typography.bodySmall, color = neutral)
+        }
+    }
+}
+
+/**
+ * SWT-13 — the five-leg market gate, beside the regime banner.
+ *
+ * The banner next to this one is the NARRATIVE read: an analyst's sentence about the backdrop. This
+ * is the checkable half of the same question — five stated conditions, the number behind each, and
+ * the threshold it had to clear — so the verdict can be argued with instead of believed.
+ *
+ * FOUR outcomes, and the third is the reason this card is written carefully:
+ *   - open   → green
+ *   - shut   → red, and the failing legs are NAMED, because "shut" without "which" is a mood
+ *   - could not be measured (`passed == null`) → AMBER, never the shut red. A leg that couldn't be
+ *     read is not a bearish market; colouring it red asserts one out of a failed fetch.
+ *   - nothing measurable at all (`available == false`) → grey, and it says so plainly.
+ *
+ * A failed REFRESH keeps the last reading and prints the error beside it (the [GateUi] shape), so a
+ * blip never blanks a card that is still holding a real answer. Refresh is reachable in every state.
+ */
+@Composable
+private fun GateCard(ui: GateUi, onRefresh: () -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val green = Color(0xFF2E9E57)
+    val red = Color(0xFFC64040)
+    val amber = Color(0xFFB0872B)
+    val summary = GateRead.summary(ui.result)
+    val verdictColor = when (summary?.verdict) {
+        GateVerdict.OPEN -> green
+        GateVerdict.SHUT -> red
+        // Unmeasured and unavailable are ABSENCES of a verdict. They must never share the shut
+        // colour, or a failed fetch reads as a market call.
+        GateVerdict.UNMEASURED -> amber
+        GateVerdict.UNAVAILABLE -> neutral
+        null -> neutral
+    }
+    val score = GateRead.scoreText(ui.result)
+    // rememberSaveable so the legs stay open across the LazyColumn recycling this item on scroll.
+    var open by rememberSaveable { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .then(if (summary != null) Modifier.clickable { open = !open } else Modifier)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (summary != null) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .background(verdictColor.copy(alpha = 0.16f), RoundedCornerShape(50))
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            summary.headline, style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold, color = verdictColor,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    // The score is null whenever a leg went unmeasured — the server refuses to
+                    // average over a hole, so this prints a dash rather than a confident middle.
+                    Text(
+                        "Score ${score ?: "—"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = neutral,
+                        maxLines = 1,
+                    )
+                }
+            } else {
+                Text(
+                    "Market gate", style = MaterialTheme.typography.labelLarge, color = neutral,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (ui.loading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onRefresh, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Filled.Refresh, contentDescription = "Refresh the market gate",
+                            tint = if (ui.error != null) red else neutral, modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    if (summary != null) {
+                        Icon(
+                            if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (open) "Collapse the market gate" else "Expand the market gate",
+                            tint = neutral,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Which legs, and in which direction. Shown collapsed too: "shut" that doesn't say what shut
+        // it is a colour, not a reason, and the unmeasured case NEEDS its sentence to not read as a fail.
+        summary?.detail?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (summary.verdict == GateVerdict.OPEN) neutral else verdictColor,
+            )
+        }
+
+        if (ui.error != null && !ui.loading) {
+            Text(
+                if (summary != null) "Couldn't refresh — showing the last read." else ui.error,
+                style = MaterialTheme.typography.labelSmall, color = red,
+            )
+        }
+
+        if (summary != null && open) {
+            val legs = ui.result?.legs.orEmpty()
+            // The gate's own sentence, verbatim — it is the one that says WHY.
+            ui.result?.note?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall)
+            }
+            if (legs.isEmpty()) {
+                Text(
+                    "This reading came with no legs, so there's nothing to check it against.",
+                    style = MaterialTheme.typography.labelSmall, color = neutral,
+                )
+            } else {
+                legs.forEach { GateLegRow(it) }
+            }
+            GateRead.cachedNote(ui.result)?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+        } else if (summary == null && ui.loading) {
+            Text("Checking the gate…", style = MaterialTheme.typography.bodySmall, color = neutral)
+        }
+    }
+}
+
+/**
+ * One leg: its mark, its name, the server's sentence, and the number vs the threshold.
+ *
+ * `ok == null` renders as a DASH. A cross would say we checked SPY and it is under its 50-EMA — a
+ * trend claim nobody made — when the truth is the leg could not be read at all.
+ */
+@Composable
+private fun GateLegRow(leg: GateLeg) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val (glyph, tint) = when (GateRead.mark(leg.ok)) {
+        LegMark.PASS -> "✓" to Color(0xFF2E9E57)
+        LegMark.FAIL -> "✗" to Color(0xFFC64040)
+        LegMark.UNKNOWN -> "—" to neutral
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            glyph,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = tint,
+            modifier = Modifier.width(14.dp),
+        )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(GateRead.legLabel(leg), style = MaterialTheme.typography.bodySmall)
+            leg.note.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+        }
+        // Dropped entirely when neither number arrived — never a "0 vs 0".
+        GateRead.legValue(leg)?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
         }
     }
 }

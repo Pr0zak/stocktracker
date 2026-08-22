@@ -6,6 +6,7 @@ import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.remote.GateResponse
 import com.stocktracker.app.data.remote.MarketNowResponse
 import com.stocktracker.app.data.remote.RegimeResponse
 import com.stocktracker.app.data.remote.SignalsApiService
@@ -55,14 +56,53 @@ data class RegimeUi(
     val error: String? = null,
 )
 
+/**
+ * SWT-13 — state for the five-leg regime gate card.
+ *
+ * [result] and [error] are BOTH meaningful at once: a failed refresh keeps the last reading and sets
+ * the error beside it, the same shape [com.stocktracker.app.ui.heatmap.HeatmapViewModel] uses, so a
+ * transient network blip does not blank a card that is still holding a real answer. The card then
+ * says "showing the last read" rather than pretending the gate is unknown.
+ *
+ * Nothing here flattens [GateResponse.passed]. It stays true / false / null all the way to the
+ * composable, because null is "a leg could not be measured", which is not a closed gate.
+ */
+data class GateUi(
+    val loading: Boolean = false,
+    val result: GateResponse? = null,
+    val error: String? = null,
+)
+
 data class WatchlistUiState(
     val items: List<WatchlistItemUi> = emptyList(),
     val loading: Boolean = true,
     val stocksEnabled: Boolean = true,
-    /** "Good time to add" dips from the latest scan, most-severe first — the buy-signal strip. */
-    val dips: List<DipEntry> = emptyList(),
+    /**
+     * SWT-14 — what the dip strip is ALLOWED TO SAY, as the same four-state machine the full radar
+     * screen runs on ([DipRadar.state]). The strip used to have one state: a list of dips, absent
+     * whenever anything went wrong. A user who never opens the radar screen therefore had no way to
+     * learn that the scan service was down — the strip's absence is indistinguishable from a market
+     * with no dips in it, which is the reassuring reading and the one that stops them looking.
+     *
+     * There is exactly ONE state machine for this, shared with [DipListScreen], because two would
+     * drift and the screens would disagree about whether the market is calm.
+     */
+    val dipRadar: DipRadarState = DipRadarState.Loading,
+    /**
+     * Set when a refresh FAILED and [dipRadar] is therefore the previous, still-displayed scan.
+     *
+     * Without this the strip had no way to keep a good reading through a blip: a fetch that failed
+     * after a successful one replaced Ready with Unreachable, so a working dip list vanished and was
+     * replaced by an error — losing information the app already held, to a transient network
+     * failure. Every other card here (gate, regime, heatmap) keeps its last reading and sets an
+     * error beside it, and the strip now does the same: the dips stay on screen and say they are the
+     * last read rather than the current one.
+     */
+    val dipStale: String? = null,
     val marketNow: MarketNowUi = MarketNowUi(),
     val regime: RegimeUi = RegimeUi(),
+    /** SWT-13 — the five-leg gate. Free (no LLM), so it loads regardless of the AI master switch. */
+    val gate: GateUi = GateUi(),
     /**
      * Symbol -> sector, for the vertical sections.
      *
@@ -82,7 +122,15 @@ data class WatchlistUiState(
      * which is a lot to ask of a line of small grey text. Say it.
      */
     val refreshError: String? = null,
-)
+) {
+    /**
+     * The dips we are actually holding — DERIVED from [dipRadar] rather than stored beside it, so
+     * there is no second copy to go stale. Empty here means "we hold a scan and none qualified" only
+     * when [dipRadar] is [DipRadarState.Ready]; in every other state it means we hold no scan at
+     * all, and the strip must render that state rather than this list.
+     */
+    val dips: List<DipEntry> get() = (dipRadar as? DipRadarState.Ready)?.dips.orEmpty()
+}
 
 class WatchlistViewModel : ViewModel() {
 
@@ -112,6 +160,7 @@ class WatchlistViewModel : ViewModel() {
     init {
         viewModelScope.launch { loadBelowLineFlags() }
         loadRegime()
+        loadGate()
         viewModelScope.launch {
             // Reload when the watchlist OR the Finnhub key changes (adding a key should immediately
             // start fetching stocks). distinctUntilChanged avoids reacting to unrelated settings.
@@ -195,6 +244,39 @@ class WatchlistViewModel : ViewModel() {
         }
     }
 
+    /**
+     * SWT-13 — load the five-leg regime gate.
+     *
+     * Deliberately NOT gated on `aiAnalystEnabled`, unlike [loadRegime] directly above it. That one
+     * spends a model call to write a sentence; this one is pure arithmetic over index prices and the
+     * nightly scan's breadth, costs nothing, and is the checkable half of the same question. Hiding
+     * it behind the AI switch would mean turning off the narrative also turned off the measurement.
+     *
+     * A failed refresh KEEPS the previous verdict and sets the error beside it, matching
+     * HeatmapViewModel: a blip must not blank a card that still holds a real answer. Nothing here
+     * flattens `passed` — it stays true / false / null the whole way to the composable, because null
+     * means a leg could not be measured and that is not a closed gate.
+     */
+    fun loadGate(force: Boolean = false) {
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) {
+                _state.update { it.copy(gate = GateUi()) }
+                return@launch
+            }
+            if (!force && (_state.value.gate.result != null || _state.value.gate.loading)) return@launch
+            _state.update { it.copy(gate = it.gate.copy(loading = true, error = null)) }
+            val res = runCatching { signalsApi.gate(base, refresh = force) }
+            _state.update { st ->
+                st.copy(gate = st.gate.copy(
+                    loading = false,
+                    result = res.getOrNull() ?: st.gate.result,
+                    error = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the gate." },
+                ))
+            }
+        }
+    }
+
     fun openMarketNow() {
         _state.update { it.copy(marketNow = it.marketNow.copy(open = true)) }
         loadMarketNow(force = false)
@@ -233,24 +315,65 @@ class WatchlistViewModel : ViewModel() {
         }
     }
 
+    /**
+     * SWT-14 — the dip strip's own "try again", for the states that a retry could plausibly fix.
+     *
+     * Deliberately NOT [refresh]: the strip failing says nothing about the price feed, and making the
+     * user re-pull every quote to re-ask the scan service would be a slower, noisier fix for a
+     * narrower problem.
+     *
+     * It does not flip the state to Loading first. A retry that fails would then have thrown away a
+     * scan we are still holding and showing, and the strip would blank instead of keeping its last
+     * read.
+     */
+    fun reloadDips() {
+        viewModelScope.launch { loadBelowLineFlags() }
+    }
+
     /** Pull the latest nightly scan once to learn which watchlist names sit below their 200-week
      *  line, and stamp the flag onto the current rows. Best-effort; no-op without a Signals URL. */
     private suspend fun loadBelowLineFlags() {
-        val base = settings.signalsApiUrl.first()
-        if (base.isBlank()) return
-        val scan = runCatching { signalsApi.latestScan(base) }.getOrNull() ?: return
-        // No scan on the server (or an unreadable one) means we learned NOTHING — leave the previous
-        // flags and dip strip exactly as they were rather than overwriting them with an emptiness
-        // that would read as "checked, all clear". The full radar screen is where that distinction
-        // gets explained; here the honest move is to not speak.
-        val rows = scan.results?.takeIf { scan.hasScan } ?: return
-        belowLineMap = rows.mapNotNull { r -> r.below200wma?.let { r.symbol.uppercase() to it } }.toMap()
-        // "Good time to add" dips, most-severe first, for the strip atop the watchlist.
-        val dips = DipRadar.entries(rows)
+        val configured = settings.signalsApiUrl.first().isNotBlank()
+        // SWT-14. This used to `return` on every unhappy path, which was an improvement on the older
+        // behaviour (overwriting the strip with an emptiness that read as "checked, all clear") but
+        // still left the strip with exactly one thing it could say. A user who never opens the full
+        // radar screen had no way to learn the scan service was down: the strip's silence looks the
+        // same as a market with no dips in it, and that is the reassuring reading.
+        //
+        // So resolve the SAME four-state machine the radar screen runs on and hand it to the UI.
+        // One state machine, shared — two would drift and the two screens would eventually disagree
+        // about whether the market is calm.
+        val scan = if (configured) {
+            runCatching { signalsApi.latestScan(settings.signalsApiUrl.first()) }
+        } else {
+            Result.success(null)
+        }
+        val radar = DipRadar.state(
+            scan = scan.getOrNull(),
+            error = scan.exceptionOrNull(),
+            configured = configured,
+        )
+
+        // The below-200w flags are a SEPARATE fact from the strip's state and keep the old rule:
+        // only overwrite them when a real scan actually arrived. A failed fetch must not clear a
+        // flag we already hold and are still showing on the row.
+        val rows = (scan.getOrNull())?.results?.takeIf { it.isNotEmpty() && scan.getOrNull()?.hasScan == true }
+        if (rows != null) {
+            belowLineMap = rows.mapNotNull { r -> r.below200wma?.let { r.symbol.uppercase() to it } }.toMap()
+        }
         _state.update { st ->
+            // Keep a good scan through a blip — the rule lives in DipRadar.holdThroughBlip so it
+            // is testable, and so the reasons NotConfigured and NoScan are excluded from it are
+            // written down next to the rule rather than here.
+            val upd = DipRadar.holdThroughBlip(st.dipRadar, radar)
             st.copy(
-                items = st.items.map { it.copy(below200wma = belowLineMap[scanKey(it.asset)]) },
-                dips = dips,
+                items = if (rows != null) {
+                    st.items.map { it.copy(below200wma = belowLineMap[scanKey(it.asset)]) }
+                } else {
+                    st.items
+                },
+                dipRadar = upd.state,
+                dipStale = upd.stale,
             )
         }
     }

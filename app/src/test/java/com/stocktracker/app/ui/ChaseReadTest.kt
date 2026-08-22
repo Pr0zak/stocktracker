@@ -3,6 +3,7 @@ package com.stocktracker.app.ui
 import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.Http
 import com.stocktracker.app.data.remote.PlanResponse
+import com.stocktracker.app.data.remote.RecommendationsResponse
 import com.stocktracker.app.ui.detail.ChaseRead
 import com.stocktracker.app.ui.detail.ChaseState
 import com.stocktracker.app.ui.detail.ChaseTone
@@ -145,5 +146,54 @@ class ChaseReadTest {
             """{"symbol":"AAPL","plan":{"symbol":"AAPL","action":"buy_now"}}""",
         )
         assertNull(ChaseState.from(resp))
+    }
+
+    // ---------------------------------------------------------------- SWT-15: the Ideas screen
+
+    @Test
+    fun `an Ideas pick with no chase fields renders neither a line nor a zero`() {
+        // This is the state TODAY: /recommendations is not annotated with the chase read yet, so
+        // every pick arrives with all four fields absent. The card must show NOTHING — a "0.0%
+        // above the entry zone" beside a suggested share count is worse than silence.
+        val pick = EntryPlan(symbol = "PYPL", action = "buy_now", conviction = 72, entryHigh = 70.73)
+        assertNull(ChaseState.fromPick(pick))
+        assertNull(ChaseState.fromPick(null))
+        // And nothing downstream manufactures one from the absence either.
+        assertNull(ChaseRead.banner(pick.chaseStatus, pick.chasePct, "$74.02", pick.chaseWarning))
+    }
+
+    @Test
+    fun `todays recommendations payload decodes with the chase fields null`() {
+        val resp = Http.json.decodeFromString<RecommendationsResponse>(
+            """{"model":"x","picks":[{"symbol":"PYPL","action":"buy_now","conviction":72}]}""",
+        )
+        val pick = resp.picks.single()
+        assertNull("an absent chase percent became a confident 0.0", pick.chasePct)
+        assertNull(pick.chaseStatus)
+        assertNull(ChaseState.fromPick(pick))
+    }
+
+    @Test
+    fun `an annotated pick renders through the same reader as the detail card`() {
+        // When the backend half lands, the Ideas card lights up with no further app change — and it
+        // says exactly what the detail screen says, because it is the same mapping.
+        val resp = Http.json.decodeFromString<RecommendationsResponse>(
+            """{"model":"x","picks":[{"symbol":"PYPL","action":"buy_now","conviction":72,
+                "chase_pct":4.65,"chase_status":"chase_too_deep","chase_price":74.02}]}""",
+        )
+        val state = ChaseState.fromPick(resp.picks.single())!!
+        assertEquals("chase_too_deep", state.status)
+        assertEquals(4.65, state.pct!!, 1e-9)
+        val fromPick = ChaseRead.banner(state.status, state.pct, "$74.02", state.warning)!!
+        val fromPlan = ChaseRead.banner("chase_too_deep", 4.65, "$74.02", null)!!
+        assertEquals("the two screens disagreed about the same fact", fromPlan, fromPick)
+        assertEquals(ChaseTone.ALARM, fromPick.tone)
+    }
+
+    @Test
+    fun `a null status with a null percent is silent on a pick too`() {
+        val pick = EntryPlan(symbol = "PYPL", action = "buy_now", chasePrice = 74.02)
+        // A quote alone is not a read: the server can price the check without being able to make it.
+        assertNull(ChaseState.fromPick(pick))
     }
 }

@@ -80,6 +80,7 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}) {
     val showExtendedHours by settings.showExtendedHours.collectAsState(initial = false)
     val showMarketStatus by settings.showMarketStatus.collectAsState(initial = true)
     val showVix by settings.showVix.collectAsState(initial = true)
+    val showGate by settings.showGate.collectAsState(initial = true)
     val showVolume by settings.showVolume.collectAsState(initial = false)
     val savedSignalsUrl by settings.signalsApiUrl.collectAsState(initial = "")
     val aiOn by settings.aiAnalystEnabled.collectAsState(initial = true)
@@ -159,6 +160,11 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}) {
                 SwitchRow("VIX fear gauge", null, showVix) {
                     scope.launch { settings.setShowVix(it) }
                 }
+                SwitchRow(
+                    "Market gate",
+                    "The five checkable conditions behind the regime read",
+                    showGate,
+                ) { scope.launch { settings.setShowGate(it) } }
             }
 
             SettingsSection("Notifications") {

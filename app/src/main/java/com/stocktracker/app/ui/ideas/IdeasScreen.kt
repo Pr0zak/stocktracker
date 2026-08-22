@@ -42,6 +42,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.remote.EntryPlan
+import com.stocktracker.app.ui.detail.ChaseLine
+import com.stocktracker.app.ui.detail.ChaseState
 import com.stocktracker.app.di.ServiceLocator
 
 /**
@@ -329,6 +331,11 @@ private fun PickCard(pick: EntryPlan, isNew: Boolean = false, onClick: () -> Uni
             ).joinToString(" · ").ifBlank { "No levels given" },
             style = MaterialTheme.typography.bodySmall,
         )
+        // SWT-15 — where the price sits against THIS pick's own entry zone, rendered by the same
+        // ChaseLine the detail screen uses. Silent today: /recommendations doesn't carry the chase
+        // fields yet, so ChaseState.from returns null and nothing is drawn. It must stay silent
+        // rather than default to zero — this card sits directly above a suggested share count.
+        ChaseLine(ChaseState.fromPick(pick))
         if (pick.timing.isNotBlank()) {
             Text("When: ${pick.timing}", style = MaterialTheme.typography.bodySmall, color = neutral)
         }

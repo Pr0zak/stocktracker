@@ -662,6 +662,40 @@ class SignalsApiService {
     }
 
     /**
+     * SWT-2 — the five-leg market gate, evaluated now. FREE: no LLM, no analyst, no tokens.
+     *
+     * Three quote fetches (SPY, QQQ, ^VIX) plus one local read, so `slow = true`: a quote-endpoint
+     * timeout would abandon a request that was working, and the flag is also what stops a long call
+     * in flight from tripping the offline banner.
+     *
+     * The caller must read [GateResponse.available] first and then treat [GateResponse.passed] as
+     * THREE-VALUED — see the contract block on [GateResponse]. This wrapper deliberately does not
+     * normalise a null into a false for the caller's convenience; that convenience is the defect.
+     *
+     * @param refresh forces a re-evaluation past the server's ~60s cache.
+     */
+    suspend fun gate(baseUrl: String, refresh: Boolean = false): GateResponse? {
+        if (baseUrl.isBlank()) return null
+        val q = if (refresh) "?refresh=true" else ""
+        return Http.json.decodeFromString<GateResponse>(
+            sGet("${baseUrl.trimEnd('/')}/gate$q", slow = true),
+        )
+    }
+
+    /**
+     * SWT-2 — what the gate reported, day by day, newest first. FREE: one SQLite read, no fetches.
+     *
+     * An empty history is "nothing was ever filed", not a run of closed days, and each row's
+     * `passed` stays three-valued all the way from the database — see [GateDay].
+     */
+    suspend fun gateHistory(baseUrl: String, limit: Int = 30): GateHistoryResponse? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<GateHistoryResponse>(
+            sGet("${baseUrl.trimEnd('/')}/gate/history?limit=$limit"),
+        )
+    }
+
+    /**
      * SWT-8 — replay ONE recorded plan against the daily bars that actually followed it. Free, no LLM.
      *
      * The mechanical half of the verdict journal: the caller supplies the plan exactly as it was
@@ -1605,6 +1639,15 @@ data class EntryPlan(
     val target: Double? = null,
     val timing: String = "",
     val thesis: String = "",
+    // SWT-15 — the chase read for THIS pick, when the backend annotates /recommendations with it.
+    // Nullable and absent-by-default: an older backend (and, today, the current one) sends none of
+    // these, and the Ideas card must then render NOTHING rather than a 0% or an "ok" invented out of
+    // a missing key. Same four fields, same names and same meanings as [PlanResponse], because the
+    // detail screen and the Ideas screen render them with the SAME code — see ui.detail.ChaseRead.
+    @SerialName("chase_pct") val chasePct: Double? = null,
+    @SerialName("chase_status") val chaseStatus: String? = null,
+    @SerialName("chase_warning") val chaseWarning: String? = null,
+    @SerialName("chase_price") val chasePrice: Double? = null,
 )
 
 /**
@@ -2433,4 +2476,112 @@ data class MarketScanRunResponse(
     @SerialName("suspect_series") val suspectSeries: Int? = null,
     @SerialName("rows_written") val rowsWritten: Int? = null,
     @SerialName("duration_s") val durationSeconds: Double? = null,
+)
+
+// -------------------------------------------------------------- SWT-2 / SWT-13: the five-leg gate
+//
+// The checkable half of the market read. `/regime` pays an analyst to narrate the backdrop in prose;
+// this answers the narrower, mechanical question "do five stated conditions hold right now" — SPY
+// and QQQ over their 50-EMAs, breadth above 55%, VIX under 20, SPY's 20-day momentum positive.
+//
+// `passed` IS THREE-VALUED AND THAT IS THE ENTIRE CONTRACT. true = all five legs explicitly passed;
+// false = at least one explicitly failed and [GateResponse.failing] names it; NULL = a leg could not
+// be measured and nothing failed. Null is NOT "shut". A gate that could not read last night's scan
+// has not observed a bearish market, and a UI that colours that red asserts one out of a failed
+// fetch. Per-leg [GateLeg.ok] carries the same three states for the same reason.
+//
+// Hence `Boolean?` with a null default everywhere a verdict lives. `Http.json` sets
+// `coerceInputValues = true`, so a `Boolean = false` here would swallow the server's explicit null
+// into a confident "failed" — the exact collapse the backend's gate.py refuses to make and the
+// database layer takes special care to survive.
+
+/**
+ * GET /gate — the gate as of now.
+ *
+ * READ [available] FIRST. When it is false NOTHING was measured: [marketScore] is null, every leg's
+ * `ok` is null, and there is no verdict to render — only "we could not look". That state is distinct
+ * from a gate that is shut, and the two must never share a colour.
+ */
+@Serializable
+data class GateResponse(
+    /** true / false / **null**. Null means a leg was unmeasurable and none failed — not "closed". */
+    val passed: Boolean? = null,
+    /** False = the evaluation measured nothing at all. Gates every other field on this object. */
+    val available: Boolean = false,
+    /** The day this gate describes, as the store's night key ("20260821"). */
+    @SerialName("as_of") val asOf: String? = null,
+    /** Epoch seconds the evaluation ran. */
+    @SerialName("evaluated_at") val evaluatedAt: Double? = null,
+    /**
+     * 0-100, a plotting aid over the same legs — NOT a probability, a forecast or a position size.
+     * Null whenever any leg is null, so it never averages a hole into a confident middling number.
+     */
+    @SerialName("market_score") val marketScore: Double? = null,
+    /** All five, in contract order, always present — even in the unavailable shape, where each is
+     *  null so a checklist renders five dashes rather than an empty panel. */
+    val legs: List<GateLeg> = emptyList(),
+    /**
+     * Leg names that explicitly FAILED, and separately those that could not be MEASURED. Nullable,
+     * and null is not the empty list: [] means the gate ran and nothing was failing, null means no
+     * writer ever said (a `/gate/history` row from before the column existed). Flattening the two
+     * would report an unknown day as a clean one.
+     */
+    val failing: List<String>? = null,
+    val unmeasured: List<String>? = null,
+    /** The gate's own one-line summary. Rendered verbatim — it is the sentence that says WHY. */
+    val note: String = "",
+    val cached: Boolean = false,
+    @SerialName("cached_age_seconds") val cachedAgeSeconds: Long? = null,
+)
+
+/**
+ * One leg of the gate, with the number behind it. [value] and [threshold] are what make the verdict
+ * checkable against any chart package — "breadth 54.1% vs 55%" can be argued with; a red cross
+ * cannot.
+ *
+ * [ok] is true / false / null, and null ONLY ever means "could not measure". Render it as a dash.
+ * A cross would say we checked SPY and it is under its 50-EMA, which is a trend claim nobody made.
+ */
+@Serializable
+data class GateLeg(
+    /** Human label, e.g. "SPY > 50-EMA". */
+    val name: String = "",
+    /** Stable id, e.g. "spy_above_ema50" — the string that appears in `failing`/`unmeasured`. */
+    val key: String = "",
+    val ok: Boolean? = null,
+    val value: Double? = null,
+    val threshold: Double? = null,
+    /** The leg's own sentence, e.g. "SPY 645.12 is +2.31% vs its 50-EMA". */
+    val note: String = "",
+)
+
+/**
+ * GET /gate/history — one row per day, NEWEST FIRST.
+ *
+ * [count] is rows RETURNED and is bounded by the limit — it is not a count of days on record. An
+ * empty [history] means no evaluation has ever been filed, which is not a run of failing days.
+ */
+@Serializable
+data class GateHistoryResponse(
+    val limit: Int? = null,
+    val count: Int? = null,
+    val history: List<GateDay> = emptyList(),
+)
+
+/**
+ * One filed day. [passed] survives the database still three-valued: a null here means the gate ran
+ * and could not decide, and a day simply MISSING from the list means nothing was ever filed for it.
+ * Neither is a false.
+ */
+@Serializable
+data class GateDay(
+    /** The night key, "20260821". */
+    val d: String = "",
+    val ts: Double? = null,
+    val passed: Boolean? = null,
+    @SerialName("market_score") val marketScore: Double? = null,
+    val failing: List<String>? = null,
+    val unmeasured: List<String>? = null,
+    /** Null when the row stored no leg blob — which is not five passing legs. */
+    val legs: List<GateLeg>? = null,
 )

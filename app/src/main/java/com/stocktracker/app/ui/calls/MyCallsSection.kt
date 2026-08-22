@@ -36,6 +36,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.CallOutcome
 import com.stocktracker.app.data.model.ClosedCallPosition
 import com.stocktracker.app.data.model.RealizedPnl
+import com.stocktracker.app.data.model.RiskMultiple
 import com.stocktracker.app.ui.ideas.usd
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
@@ -458,6 +459,7 @@ private fun ConfirmCloseDialog(
 private fun ClosedCallsDialog(closed: List<ClosedCallPosition>, onDismiss: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val summary = remember(closed) { RealizedPnl.summarize(closed) }
+    val rStats = remember(closed) { RiskMultiple.aggregate(closed) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -467,7 +469,7 @@ private fun ClosedCallsDialog(closed: List<ClosedCallPosition>, onDismiss: () ->
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                ClosedSummaryCard(summary)
+                ClosedSummaryCard(summary, rStats)
                 if (closed.isEmpty()) {
                     Text("No closed calls yet.", style = MaterialTheme.typography.bodySmall, color = neutral)
                 } else {
@@ -486,9 +488,9 @@ private fun ClosedCallsDialog(closed: List<ClosedCallPosition>, onDismiss: () ->
     )
 }
 
-/** The realized-P&L summary: total, win rate, count — the app's card style. */
+/** The realized-P&L summary: total, win rate, count — the app's card style, plus the R track record. */
 @Composable
-private fun ClosedSummaryCard(s: RealizedPnl.Summary) {
+private fun ClosedSummaryCard(s: RealizedPnl.Summary, r: RiskMultiple.Aggregate) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val up = s.totalRealized >= 0
     Column(
@@ -510,6 +512,54 @@ private fun ClosedSummaryCard(s: RealizedPnl.Summary) {
             style = MaterialTheme.typography.bodySmall,
             color = neutral,
             modifier = Modifier.padding(top = 4.dp),
+        )
+        RTrackRecord(r)
+    }
+}
+
+/**
+ * Expectancy in R, with the coverage that qualifies it. The scored/unscoreable split is printed on the
+ * same line as the average on purpose: "+0.4R avg" over 4 of 30 closes is not this account's
+ * expectancy, and the caveat has to travel with the number rather than sit somewhere it can be missed.
+ * Nothing is printed as an R when nothing could be scored — no "0.0R" stand-in.
+ */
+@Composable
+private fun RTrackRecord(r: RiskMultiple.Aggregate) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    if (r.scored == 0) {
+        if (r.closedCount > 0) {
+            Text(
+                "No expectancy in R — none of these ${r.closedCount} closes could be scored. R needs the stop " +
+                    "the position was opened with, and that can't be recovered after the close.",
+                style = MaterialTheme.typography.labelSmall,
+                color = neutral,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        return
+    }
+    val avg = r.avgR ?: return
+    Text(
+        "${RiskMultiple.format(avg)} avg · scored ${r.scored} of ${r.closedCount}",
+        style = MaterialTheme.typography.bodySmall,
+        color = if (avg >= 0) GainGreen else LossRed,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+    if (r.smallSample) {
+        Text(
+            "Small sample — under ${RiskMultiple.MIN_SCORED_FOR_EXPECTANCY} scored closes this is noise, not an edge.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
+        )
+    }
+    if (r.unscoreable > 0) {
+        // Name BOTH reasons a close goes unscored. Labelling the bucket "no stop recorded" would be a
+        // small lie about the exercised ones, which did record a stop but have no option-leg exit.
+        Text(
+            "${r.unscoreable} not scored — closed without the stop it was opened with, or exercised.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
         )
     }
 }
@@ -545,8 +595,13 @@ private fun ClosedRow(c: ClosedCallPosition) {
                     color = if (up) GainGreen else LossRed,
                 )
                 c.realizedPnlPct?.let { pct ->
+                    // R prints only when the close carried the stop it was opened with. A position with
+                    // no stop recorded shows the percentage alone — never "0.0R", which would claim it
+                    // finished exactly at its risk.
+                    val r = RiskMultiple.rFor(c)
+                    val rSuffix = r?.let { " · ${RiskMultiple.format(it)}" } ?: ""
                     Text(
-                        "${if (pct >= 0) "▲" else "▼"} ${"%.1f".format(abs(pct))}%",
+                        "${if (pct >= 0) "▲" else "▼"} ${"%.1f".format(abs(pct))}%$rSuffix",
                         style = MaterialTheme.typography.labelSmall,
                         color = if (up) GainGreen else LossRed,
                     )

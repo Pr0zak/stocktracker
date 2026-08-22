@@ -27,8 +27,19 @@ enum class CallOutcome {
  *  - [realizedPnl] / [realizedPnlPct] — the realized result on the OPTION leg. Null for EXERCISED,
  *    because the option's value is now baked into the share cost basis (strike + premium paid), so
  *    fabricating an option P/L would double-count it.
+ *  - [stopPct] / [takeProfitPct] — the exit plan the position was OPENED with, carried across the
+ *    close (SWT-6).
  *
  * The realized numbers are always produced by [RealizedPnl] so the math lives in one pure, tested place.
+ *
+ * WHY THE STOP IS COPIED HERE. R — (exit − entry) / (entry − stop) — is the only unit that measures the
+ * decision rather than the position size, and its denominator is the risk defined AT ENTRY. That number
+ * exists on the open [CallPosition] and nowhere else: it cannot be recovered from the price history,
+ * the P/L or the notes once the position is gone. Before SWT-6 the close threw it away, so EVERY
+ * POSITION CLOSED BEFORE THIS FIELD EXISTED IS PERMANENTLY UNSCOREABLE IN R — not zero-risk, not
+ * break-even, unknowable. Those records decode with [stopPct] = null (the key is simply absent from
+ * the stored JSON), and [RiskMultiple] counts them as `unscoreable` instead of dropping them or
+ * reading them as 0R.
  */
 @Serializable
 data class ClosedCallPosition(
@@ -44,6 +55,9 @@ data class ClosedCallPosition(
     val fillPrice: Double, // premium PAID per share when opened
     val openDateIso: String,
     val notes: String? = null,
+    // --- the exit plan this position was OPENED with; null on records closed before SWT-6 ---
+    val takeProfitPct: Double? = null, // e.g. 80.0 → the plan was to close at +80%
+    val stopPct: Double? = null,       // e.g. 50.0 → the risk taken was 50% of the premium. R's denominator.
     // --- close details ---
     val outcome: CallOutcome,
     val closeDateIso: String,
@@ -100,7 +114,13 @@ fun CallPosition.asExercised(closeDateIso: String): ClosedCallPosition {
     )
 }
 
-/** Copy the identity fields across; the caller fills in the outcome-specific bits via [copy]. */
+/**
+ * Copy the identity fields across; the caller fills in the outcome-specific bits via [copy].
+ *
+ * Every close funnels through here on purpose. A risk field threaded through three of four close paths
+ * would be worse than no field at all — the gap would be invisible, and the trades that fell through it
+ * would look like ordinary risk-unknown history rather than a bug.
+ */
 private fun CallPosition.closedBase(closeDateIso: String) = ClosedCallPosition(
     symbol = symbol,
     contractSymbol = contractSymbol,
@@ -112,6 +132,8 @@ private fun CallPosition.closedBase(closeDateIso: String) = ClosedCallPosition(
     fillPrice = fillPrice,
     openDateIso = openDateIso,
     notes = notes,
+    takeProfitPct = takeProfitPct,
+    stopPct = stopPct, // the risk defined at entry — without this the trade can never be scored in R
     outcome = CallOutcome.SOLD, // placeholder — overwritten by the caller's copy()
     closeDateIso = closeDateIso,
 )

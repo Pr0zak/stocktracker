@@ -150,15 +150,33 @@ object RiskMultiple {
      * a drawdown is a statement about a sequence in time. The sort is stable, so same-day closes keep
      * the order they were recorded in.
      */
-    fun aggregate(positions: List<ClosedCallPosition>): Aggregate {
-        val inCloseOrder = positions.sortedBy { it.closeDateIso }
-        val rs = inCloseOrder.mapNotNull { rFor(it) }
+    fun aggregate(positions: List<ClosedCallPosition>): Aggregate =
+        aggregateR(positions.sortedBy { it.closeDateIso }.map { rFor(it) })
+
+    /**
+     * The same aggregation over R values that have ALREADY BEEN PUT IN CLOSE ORDER, one per closed
+     * trade, null where the trade could not be scored.
+     *
+     * Split out of [aggregate] so the equity journal (SWT-8) computes its expectancy, profit factor,
+     * streak and drawdown through this exact code rather than a second copy of it. A journal entry is
+     * not a [ClosedCallPosition] — it has shares, a price stop and no expiry — but its R is the same
+     * unit, and an expectancy that drifted between the options history and the journal would make the
+     * two track records incomparable, which is the only thing they are for.
+     *
+     * THE NULLS MUST BE PASSED IN, NOT FILTERED OUT BY THE CALLER. They are what [Aggregate.scored]
+     * and [Aggregate.unscoreable] are counted from; a caller that dropped them would report an
+     * expectancy over 4 trades as though it were over 30, with nothing left to say otherwise. The
+     * ORDER is the caller's responsibility for the same reason it matters in [aggregate]: drawdown
+     * and losing streak are statements about a sequence in time.
+     */
+    fun aggregateR(rsInCloseOrder: List<Double?>): Aggregate {
+        val rs = rsInCloseOrder.filterNotNull()
         val scored = rs.size
-        val unscoreable = positions.size - scored
+        val unscoreable = rsInCloseOrder.size - scored
 
         if (scored == 0) {
             return Aggregate(
-                closedCount = positions.size,
+                closedCount = rsInCloseOrder.size,
                 scored = 0,
                 unscoreable = unscoreable,
                 totalR = null,
@@ -195,7 +213,7 @@ object RiskMultiple {
         }
 
         return Aggregate(
-            closedCount = positions.size,
+            closedCount = rsInCloseOrder.size,
             scored = scored,
             unscoreable = unscoreable,
             totalR = total,

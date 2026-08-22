@@ -5,6 +5,7 @@ import android.net.Uri
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.CallPosition
 import com.stocktracker.app.data.model.ClosedCallPosition
+import com.stocktracker.app.data.model.VerdictJournalEntry
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -33,6 +34,8 @@ data class BackupData(
     val calls: List<CallPosition> = emptyList(),
     val closedCalls: List<ClosedCallPosition> = emptyList(),
     val investableCash: Double = 0.0,
+    /** The verdict journal (SWT-8). Defaulted, so a backup written before it existed still imports. */
+    val journal: List<VerdictJournalEntry> = emptyList(),
 )
 
 /** Exports/imports everything the user hand-entered: watchlist (shares, cost, alerts, groups),
@@ -85,6 +88,7 @@ object BackupManager {
                 calls = ServiceLocator.callPositionStore.snapshot(),
                 closedCalls = ServiceLocator.closedCallPositionStore.snapshot(),
                 investableCash = ServiceLocator.settingsStore.investableCash.first(),
+                journal = ServiceLocator.verdictJournalStore.snapshot(),
             ),
         )
         // "wt", not the default "w". Plain "w" is MODE_WRITE_ONLY|MODE_CREATE with NO truncation, so
@@ -105,6 +109,7 @@ object BackupManager {
         ServiceLocator.callPositionStore.setAll(data.calls)
         ServiceLocator.closedCallPositionStore.setAll(data.closedCalls)
         ServiceLocator.settingsStore.setInvestableCash(data.investableCash)
+        ServiceLocator.verdictJournalStore.setAll(data.journal)
         data.assets.size
     }
 }

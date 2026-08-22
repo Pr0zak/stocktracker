@@ -8,6 +8,7 @@ import com.stocktracker.app.data.prefs.ClosedCallPositionStore
 import com.stocktracker.app.data.prefs.PriceCache
 import com.stocktracker.app.data.prefs.SectorCache
 import com.stocktracker.app.data.prefs.SettingsStore
+import com.stocktracker.app.data.prefs.VerdictJournalStore
 import com.stocktracker.app.data.prefs.WatchlistStore
 import com.stocktracker.app.data.remote.CoinGeckoService
 import com.stocktracker.app.data.remote.FinnhubService
@@ -35,6 +36,8 @@ object ServiceLocator {
         private set
     lateinit var closedCallPositionStore: ClosedCallPositionStore
         private set
+    lateinit var verdictJournalStore: VerdictJournalStore
+        private set
 
     /** User-entered Finnhub key from Settings; blank means use the build-time key. */
     @Volatile
@@ -58,6 +61,7 @@ object ServiceLocator {
         sectorCache = SectorCache(app)
         callPositionStore = CallPositionStore(app)
         closedCallPositionStore = ClosedCallPositionStore(app)
+        verdictJournalStore = VerdictJournalStore(app)
         // Poll the self-hosted backend so the UI can show one clear "unreachable" banner rather than
         // every AI feature failing silently when the phone is off the home network.
         com.stocktracker.app.data.remote.SignalsHealth.start()

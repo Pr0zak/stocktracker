@@ -93,11 +93,20 @@ object ExitTaxonomy {
      * Order of the checks, and why:
      *  1. EXERCISED first — there is no option-leg exit price at all, so no comparison to any level is
      *     possible. [RiskMultiple] already treats it as unscoreable for the same reason.
-     *  2. EXPIRED next, AHEAD of the missing-levels check. "Expired worthless" is a complete answer to
-     *     "how did this end" and needs no plan to be known, so an old record that expired is reported
-     *     as an expiry rather than being swept into UNPLANNED — that would throw away a fact we have.
-     *  3. Then the levels. With neither level usable — or a SOLD close with no exit price to compare
-     *     against them — the plan cannot be checked at all: UNPLANNED.
+     *  2. THE LEVELS NEXT, AHEAD OF THE EXPIRY CHECK. With neither level usable — or a SOLD close
+     *     with no exit price to compare against them — the plan cannot be checked at all: UNPLANNED,
+     *     however the position ended.
+     *
+     *     This ordering was once the other way round, and the asymmetry it created was actively
+     *     misleading. "Expired worthless" is a complete answer to "how did this end", so returning
+     *     EXPIRY without looking for levels seemed like keeping a fact rather than discarding one.
+     *     But EXPIRY counts inside the rate denominator and UNPLANNED does not — so across a history
+     *     recorded before the plan survived the close, every expiry was scored as a loss while every
+     *     sale, profitable or not, fell to UNPLANNED and was dropped. Nine winning sales beside one
+     *     expiry reported 0% finished green: a history that made money reading as one that never
+     *     worked. Both rates are plan-relative and share one denominator by construction, so the
+     *     rule has to be symmetric.
+     *  3. EXPIRED then, for a position that DID carry levels. Only the plan-less case moved.
      *  4. At or above the target → TARGET. At or below the stop → STOP. Boundaries are inclusive on
      *     both sides: an exit exactly AT the level is that level being reached, not a near miss.
      *     (The levels cannot overlap: a valid stop price is below the entry and a valid target above.)
@@ -112,28 +121,49 @@ object ExitTaxonomy {
         val target = targetPriceFromPct(position.fillPrice, position.takeProfitPct)
         val stop = RiskMultiple.stopPriceFromPct(position.fillPrice, position.stopPct)
 
-        // NO PLAN RECORDED MEANS UNCLASSIFIED, HOWEVER THE POSITION ENDED. This test has to come
-        // before the expiry branch, and the asymmetry it replaces was actively misleading.
+        // NO PLAN RECORDED MEANS UNCLASSIFIED, HOWEVER THE POSITION ENDED — and this test MUST stay
+        // ahead of the expiry branch below. Having it after was a real defect that scored a
+        // profitable history as a losing one; the argument is in this function's doc, step 2. Do not
+        // reorder these two without reading it.
         //
-        // Expiry used to be returned unconditionally, ahead of any check for levels. EXPIRY counts
-        // inside the rate denominator and UNPLANNED does not, so across a history recorded before
-        // the exit plan was carried through the close, every expiry was scored as a loss while every
-        // sale — profitable or not — was discarded. Nine winning sales and one expiry reported 0%
-        // finished green: a history that made money reading as one that never worked.
-        //
-        // Both rates are plan-relative and share a single denominator by construction, so the rule
-        // must be symmetric. With no levels recorded there is nothing to assess the close against,
-        // and "expired worthless" is an outcome rather than a verdict on a plan that was never
-        // written down. ONE level is enough — a stop with no target still states the plan on the
-        // side an expiry landed on.
+        // ONE level is enough: a stop with no target still states the plan on the side an expiry
+        // landed on, so only a total absence of levels makes a close unassessable.
         if (target == null && stop == null) return ExitKind.UNPLANNED
 
         if (position.outcome == CallOutcome.EXPIRED) return ExitKind.EXPIRY
 
-        val exit = position.exitPricePerShare
-        if (exit == null || !exit.isFinite()) return ExitKind.UNPLANNED
-        if (target != null && exit >= target) return ExitKind.TARGET
-        if (stop != null && exit <= stop) return ExitKind.STOP
+        return classifyAgainstLevels(position.exitPricePerShare, stopPrice = stop, targetPrice = target)
+    }
+
+    /**
+     * Classify an exit against PLAN LEVELS EXPRESSED AS PRICES — the rule from step 3 onward of
+     * [classify], with no options vocabulary in it.
+     *
+     * The options side reaches this through [classify], which converts its percent-of-premium levels
+     * to prices first. The equity journal ([VerdictJournalEntry.exitKind]) reaches it directly,
+     * because an analyst's stop and target already ARE prices. One rule, one implementation: a second
+     * copy would let "hit target" mean something different on shares than on contracts, and the two
+     * bucket breakdowns are meant to be read side by side.
+     *
+     * There is no EXPIRY or EXERCISED here — both are facts about a contract, and neither can happen
+     * to a share. Those buckets simply stay empty on the equity side rather than being repurposed.
+     *
+     * Returns UNPLANNED when neither level is usable (nothing to assess the close against) or when
+     * there is no finite exit price to compare. Non-finite levels count as absent: a NaN stop is not
+     * a stop, and comparing to it would silently answer false and report DISCRETIONARY.
+     *
+     * TARGET is tested before STOP. On the options side the two cannot overlap by construction. On
+     * the equity side a plan could in principle arrive with a stop above its target — nonsense the
+     * analyst should never emit — and this resolves it in favour of the level that was reached going
+     * up, rather than returning something order-dependent.
+     */
+    fun classifyAgainstLevels(exitPrice: Double?, stopPrice: Double?, targetPrice: Double?): ExitKind {
+        val target = targetPrice?.takeIf { it.isFinite() }
+        val stop = stopPrice?.takeIf { it.isFinite() }
+        if (target == null && stop == null) return ExitKind.UNPLANNED
+        if (exitPrice == null || !exitPrice.isFinite()) return ExitKind.UNPLANNED
+        if (target != null && exitPrice >= target) return ExitKind.TARGET
+        if (stop != null && exitPrice <= stop) return ExitKind.STOP
         return ExitKind.DISCRETIONARY
     }
 

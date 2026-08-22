@@ -1,7 +1,30 @@
 # Breadth, Gate & Journal Roadmap (SWT-1…10)
 
-**Status:** proposed, nothing built. Companion to `ai-enhancement-roadmap.md`,
-`ai-signals-roadmap.md` and `options-roadmap.md`.
+**Status: SWT-1…7 shipped 2026-08-21/22.** Signals `0.18.0`, app `0.96.0`. SWT-8 in progress; SWT-9
+and SWT-10 remain. Companion to `ai-enhancement-roadmap.md`, `ai-signals-roadmap.md` and
+`options-roadmap.md`.
+
+| | What landed | Where |
+|---|---|---|
+| SWT-1 | Full-market mechanical scan — 3,101 of 3,147 symbols in ~48s on the container, zero throttles | `market_scan_job.py`, `swing.py`, `scan_store.py` |
+| SWT-2 | Five-leg regime gate, three-valued, + a `gated` sandbox arm cloned from `main` | `gate.py` |
+| SWT-3 | Chase status on the entry plan | `chase.py` |
+| SWT-4 | Percentile rank for ten metrics against the night's cross-section | `percentiles.py` |
+| SWT-5 | Dip-radar reject reasons, and four honest states where there was one | `scan_job.py`, `DipRadar.kt` |
+| SWT-6 | R multiples, and the risk capture that makes them possible at all | `RiskMultiple.kt` |
+| SWT-7 | Exit taxonomy; hard win rate never shown without profitable exit rate | `ExitTaxonomy.kt` |
+
+**Four defects surfaced by running this against live data, none of which the tests would have
+caught.** Yahoo serves some reverse-split names as interleaved pre- and post-split bars with no
+adjustment applied (BYND oscillating 0.59/17.85/0.56/16.98; WETO reporting 25,652% 20-day momentum),
+so a 10× single-bar guard rejects about twelve names a night. An upsert store had no way to express
+"stopped being measurable", so the first twelve corrupt rows survived a forced re-scan. A 52-week-high
+count compared a close against an intraday high and would have printed 0 every night forever. And an
+exit taxonomy scored plan-less expiries as losses while discarding plan-less sales, so a history of
+nine winning trades and one expiry reported 0% finished green.
+
+The recurring shape: **a number that is technically true and reads as a stronger claim than it
+supports.** Every item below is now written to prefer null over a confident zero.
 
 **Origin:** a research pass over [swingterminal.com](https://swingterminal.com/) on 2026-08-21.
 Swing Terminal is a rules-based swing-trade signal service — it scans the US equity market nightly,

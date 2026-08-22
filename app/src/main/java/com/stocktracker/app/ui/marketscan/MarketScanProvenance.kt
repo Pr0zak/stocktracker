@@ -126,23 +126,28 @@ object MarketScanProvenance {
     private fun n(v: Int): String = String.format(Locale.US, "%,d", v)
 }
 
-/** A sortable metric, named exactly as the scan store spells it. "-" prefix sorts ascending. */
+/** A sortable metric, named exactly as the scan store spells it. */
 data class MarketScanSort(val key: String, val label: String)
 
 /**
  * The sorts worth offering. Keys are column names in the server's scan table — an unrecognised one
  * is refused there rather than silently ignored, so these are spelled to match, not invented.
+ *
+ * BARE KEYS, with no "-" baked in: the direction is a separate control now (see [scanSortParam]),
+ * and a chip that hardcoded one end would be a second, contradictory source of truth for it. The
+ * labels are the metric's plain name for the same reason — "Calmest (low ATR%)" is a claim about
+ * which end of the ordering you are looking at, and it becomes false the moment the toggle flips.
  */
 val MARKET_SCAN_SORTS: List<MarketScanSort> = listOf(
-    MarketScanSort("rel_strength_3mo", "Relative strength (3mo)"),
+    MarketScanSort("rel_strength_3mo", "Rel. strength (3mo)"),
     MarketScanSort("mom_20d", "Momentum (20d)"),
     MarketScanSort("mom_60d", "Momentum (60d)"),
     MarketScanSort("adx14", "Trend strength (ADX)"),
-    MarketScanSort("adr20_pct", "Average daily range"),
-    MarketScanSort("-atr14_pct", "Calmest (low ATR%)"),
-    MarketScanSort("rel_volume", "Relative volume"),
-    MarketScanSort("dollar_volume_20d", "Dollar volume"),
     MarketScanSort("rsi14", "RSI (14)"),
-    MarketScanSort("pct_off_52w_high", "Closest to 52w high"),
+    MarketScanSort("adr20_pct", "Avg daily range"),
+    MarketScanSort("atr14_pct", "ATR (14) %"),
+    MarketScanSort("rel_volume", "Relative volume"),
+    MarketScanSort("dollar_volume_20d", "Dollar volume (20d)"),
+    MarketScanSort("pct_off_52w_high", "Off 52-week high"),
     MarketScanSort("ema20_slope_pct", "20-EMA slope"),
 )

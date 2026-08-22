@@ -36,12 +36,22 @@ data class MarketScanUiState(
     val error: String? = null,
     val breadthError: String? = null,
     val runError: String? = null,
-    /** What we asked the server to sort by; null means "server's choice". */
-    val sort: String? = null,
+    /**
+     * What we asked the server to sort by, "-" prefix and all. Never null in practice — the screen
+     * always names its own ordering rather than inheriting the route's default, so that the
+     * direction toggle has something true to render before the first response lands.
+     */
+    val sort: String? = DEFAULT_SCAN_SORT,
     /** What the server says it actually sorted by. Shown instead of [sort]: the two can differ, and
      *  the ranking on screen belongs to this one. */
     val appliedSort: String? = null,
+    /**
+     * Capped at what the route will actually return. See [MARKET_SCAN_LIMIT_MAX] — the server is
+     * authoritative on this and the picker must not offer a depth no response can satisfy.
+     */
     val limit: Int = 50,
+    /** The filter set the rows on screen were fetched under. Empty = the whole night. */
+    val filters: MarketScanFilters = MarketScanFilters(),
     val rows: List<MarketScanRow> = emptyList(),
 
     // ---- provenance. Every one of these is nullable: absent is a state the UI must render. ----
@@ -126,9 +136,15 @@ class MarketScanViewModel : ViewModel() {
     private val seq = AtomicInteger(0)
     private var applied = 0
 
-    /** Set when the sort changes mid-flight, so the completing load re-issues for the new one. */
-    private var pendingSort: String? = null
-    private var pendingSortSet = false
+    /**
+     * Set when the QUERY changes mid-flight, so the completing load re-issues for the new one.
+     *
+     * A single flag rather than one per control: two individually-correct guards can otherwise lose
+     * a request between them — [load] returns early while a fetch is in flight, and that fetch's
+     * result is then discarded for describing the wrong query — and every control on this screen
+     * (metric, direction, filters, limit) can trip it.
+     */
+    private var pendingReload = false
 
     init {
         // Reactive: this ViewModel outlives tab switches, so a URL entered in Settings after the
@@ -161,12 +177,48 @@ class MarketScanViewModel : ViewModel() {
         }
     }
 
+    /**
+     * How deep a slice to ask for.
+     *
+     * Clamped to [MARKET_SCAN_LIMIT_MAX], NOT to some larger client-side number. The route runs
+     * `limit = max(1, min(200, limit))` and echoes the clamped value back, so asking for 500 gets
+     * 200 rows while the control still says 500 — the screen claiming a depth of list the reader is
+     * demonstrably not looking at. The server's cap is the authoritative one; this mirrors it so the
+     * only numbers offered are numbers that arrive.
+     */
     fun setLimit(limit: Int) {
-        val clamped = limit.coerceIn(1, 500)
+        val clamped = clampScanLimit(limit)
         if (clamped == _state.value.limit) return
-        _state.update { it.copy(limit = clamped) }
-        load()
+        // A shorter list is a prefix of a longer one, so the rows already up are not WRONG under the
+        // new limit — but they are the wrong LENGTH, and "top 25" over 50 visible rows is as false a
+        // label as any. Cleared for the same reason a sort change clears them.
+        _state.update { it.copy(limit = clamped, rows = emptyList(), totalMatching = null, error = null) }
+        reload()
     }
+
+    /** Change the metric, keeping the direction the user chose. */
+    fun setSortMetric(metric: String) {
+        val base = metric.trim().takeIf { it.isNotEmpty() } ?: return
+        setSort(scanSortParam(base, scanSortAscending(activeSortString())))
+    }
+
+    /**
+     * Flip the ordering. Without this the bottom of every metric is unreachable — the most oversold
+     * name, the one furthest off its 52-week high, the quietest chart — because a descending-only
+     * leaderboard can only ever show one end of a distribution.
+     */
+    fun toggleSortDirection() {
+        val cur = activeSortString()
+        val base = scanSortBase(cur) ?: return
+        setSort(scanSortParam(base, !scanSortAscending(cur)))
+    }
+
+    /**
+     * The ordering the SCREEN is showing: what the server said it did, falling back to what we asked
+     * while a response is outstanding. The controls have to agree with the list, and the list belongs
+     * to [MarketScanUiState.appliedSort].
+     */
+    private fun activeSortString(): String? = _state.value.let { it.appliedSort ?: it.sort }
 
     fun setSort(sort: String?) {
         val want = sort?.trim()?.takeIf { it.isNotEmpty() }
@@ -175,16 +227,26 @@ class MarketScanViewModel : ViewModel() {
         // present an arbitrary list as "the top 50 by <new metric>", which is a claim we would be
         // making up. Clear them and say we are loading.
         _state.update { it.copy(sort = want, rows = emptyList(), appliedSort = null, error = null) }
-        if (_state.value.loading) {
-            // Two individually-correct guards can otherwise lose the request between them: load()
-            // returns early while a fetch is in flight, and that fetch's result is then discarded
-            // for being the wrong sequence. Remember the intent and re-issue on completion.
-            pendingSort = want
-            pendingSortSet = true
-        } else {
-            load()
-        }
+        reload()
     }
+
+    /**
+     * Replace the filter set.
+     *
+     * Rows AND [MarketScanUiState.totalMatching] go together: "812 matching" describes the previous
+     * question, and leaving it beside the new chips would answer a question nobody asked. Both come
+     * back from the response that actually ran under these filters, or neither does.
+     */
+    fun setFilters(filters: MarketScanFilters) {
+        if (filters == _state.value.filters) return
+        _state.update {
+            it.copy(filters = filters, rows = emptyList(), totalMatching = null, error = null)
+        }
+        reload()
+    }
+
+    /** One action, as required: back to the whole night. */
+    fun clearFilters() = setFilters(MarketScanFilters())
 
     fun load() {
         // Claim the slot BEFORE suspending, or two taps both pass the check and both fan out.
@@ -202,14 +264,23 @@ class MarketScanViewModel : ViewModel() {
                 reissueIfPending()
                 return@launch
             }
-            val requested = _state.value.sort
-            val res = runCatching { api.marketScan(base, limit = _state.value.limit, sort = requested) }
+            // The whole query, captured before the call so the response can be checked against it.
+            val requested = _state.value.let { ScanRequest(it.sort, it.filters, it.limit) }
+            val res = runCatching {
+                api.marketScan(
+                    base,
+                    limit = requested.limit,
+                    sort = requested.sort,
+                    filters = requested.filters.queryParams(),
+                )
+            }
             val r = res.getOrNull()
             // Decided BEFORE the update block, which a MutableStateFlow may re-run under contention:
             // a side effect in there can happen twice. Two reasons to drop a payload — it is older
-            // than one already shown, or the user changed sort while it was in flight and these rows
-            // are the previous ranking, which would be presented under the new metric's label.
-            val stale = r != null && (mySeq < applied || requested != _state.value.sort)
+            // than one already shown, or the query moved on while it was in flight, in which case
+            // these rows answer a question the controls no longer ask.
+            val current = _state.value.let { ScanRequest(it.sort, it.filters, it.limit) }
+            val stale = r != null && scanResponseIsStale(mySeq, applied, requested, current)
             if (r != null && !stale) applied = mySeq
             _state.update { st ->
                 if (stale) return@update st.copy(loading = false)
@@ -314,11 +385,14 @@ class MarketScanViewModel : ViewModel() {
         }
     }
 
+    /** Ask now, or ask the moment the fetch in flight finishes. */
+    private fun reload() {
+        if (_state.value.loading) pendingReload = true else load()
+    }
+
     private fun reissueIfPending() {
-        if (!pendingSortSet) return
-        val want = pendingSort
-        pendingSortSet = false
-        pendingSort = null
-        if (want == _state.value.sort) load()
+        if (!pendingReload) return
+        pendingReload = false
+        load()
     }
 }

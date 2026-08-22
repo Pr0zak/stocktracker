@@ -603,13 +603,23 @@ class SignalsApiService {
      *
      * @param sort a metric name, descending; prefix "-" for ascending (e.g. "-atr14_pct" for the
      *             calmest names). Null leaves the choice to the server.
+     * @param filters `min_<metric>` / `max_<metric>` pairs and the bare booleans, exactly as
+     *                `scan_store.FILTER_NAMES` spells them. Passed through UNVALIDATED on purpose:
+     *                the route answers a 422 whose `detail` NAMES the offending parameter, and that
+     *                sentence is worth far more on screen than a filter this client quietly dropped.
+     *                Building the pairs is [com.stocktracker.app.ui.marketscan.MarketScanFilters]'s
+     *                job, which only ever emits names derived from the metrics it can render.
      */
     suspend fun marketScan(
-        baseUrl: String, limit: Int = 50, sort: String? = null,
+        baseUrl: String,
+        limit: Int = 50,
+        sort: String? = null,
+        filters: List<Pair<String, String>> = emptyList(),
     ): MarketScanResponse? {
         if (baseUrl.isBlank()) return null
         val s = sort?.trim()?.takeIf { it.isNotEmpty() }?.let { "&sort=${it.urlEncode()}" } ?: ""
-        val body = sGet("${baseUrl.trimEnd('/')}/market_scan?limit=$limit$s", slow = true)
+        val f = filters.joinToString("") { (k, v) -> "&${k.urlEncode()}=${v.urlEncode()}" }
+        val body = sGet("${baseUrl.trimEnd('/')}/market_scan?limit=$limit$s$f", slow = true)
         return Http.json.decodeFromString<MarketScanResponse>(body)
     }
 

@@ -163,7 +163,12 @@ fun StockTrackerRoot() {
                 )
             }
             composable(TopDest.MarketScan.route) {
-                com.stocktracker.app.ui.marketscan.MarketScanScreen(onBack = { nav.popBackStack() })
+                // The scan is equities-only and its rows are not necessarily on the watchlist — the
+                // detail route builds its Asset from the URL, so it opens either way.
+                com.stocktracker.app.ui.marketscan.MarketScanScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { nav.navigate(detailRoute(it)) },
+                )
             }
             composable(TopDest.Ideas.route) {
                 IdeasScreen(

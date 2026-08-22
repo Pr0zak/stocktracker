@@ -78,6 +78,9 @@ val RANKED_SCAN_METRICS: List<ScanMetric> = listOf(
  * something else would attach the wrong label to a real number.
  */
 fun scanMetricFor(sort: String?): ScanMetric? {
-    val key = sort?.trim()?.removePrefix("-")?.takeIf { it.isNotEmpty() } ?: return null
+    // Through [scanSortBase], which also resolves the route's `rel_strength` alias onto the column
+    // it actually orders by. Matching the raw string missed exactly the DEFAULT sort, so the most
+    // common list on the screen was the one rendering with no headline metric at all.
+    val key = scanSortBase(sort) ?: return null
     return RANKED_SCAN_METRICS.firstOrNull { it.key == key }
 }

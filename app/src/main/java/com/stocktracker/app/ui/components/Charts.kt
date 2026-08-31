@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,11 +46,14 @@ import com.stocktracker.app.util.barHigh
 import com.stocktracker.app.util.barLow
 import com.stocktracker.app.util.highIndexIn
 import com.stocktracker.app.util.lowIndexIn
+import com.stocktracker.app.util.volumeProfile
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.roundToInt
 
 /** An extra line drawn over the price chart (e.g. a moving average), aligned to the point indices. */
@@ -82,6 +86,31 @@ data class ChartSubPane(
     val guides: List<Double> = emptyList(),
     val fixedRange: ClosedFloatingPointRange<Double>? = null,
 )
+
+/** How the price series is drawn. */
+enum class ChartStyle {
+    /** The close-to-close line with its gradient fill — every caller's default. */
+    AREA,
+
+    /**
+     * Open/high/low/close candles.
+     *
+     * Offered rather than imposed because it is only legible at low bar counts, and because most of
+     * this app's chart surfaces plot a synthetic series with no bars behind it at all — a portfolio
+     * equity curve and a sandbox NAV have a value per day and no session to open, high or low.
+     */
+    CANDLE,
+}
+
+/**
+ * Below this many device-independent pixels per bar a candle body is thinner than its own outline
+ * and the plot reads as a smear rather than as sessions.
+ *
+ * 3dp is chosen, not derived: it is roughly the narrowest body that still resolves as a rectangle on
+ * a phone. What matters is not the exact figure but that falling back is VISIBLE — a chart that
+ * quietly turns back into a line has answered a different question than the one asked.
+ */
+private const val MIN_CANDLE_STEP_DP = 3f
 
 /** The [start, end] point indices currently visible given the zoom window (full range when not zoomed). */
 private fun visibleRange(n: Int, winStart: Float, winSize: Float, zoomable: Boolean): IntRange {
@@ -174,6 +203,32 @@ fun PriceChart(
      *  all-time high. Turns drawdown from a number the reader has to hold in their head into the
      *  shape of the curve. Only meaningful for a cumulative series (equity), never for a price. */
     shadeDrawdown: Boolean = false,
+    /**
+     * Defaults to [ChartStyle.AREA] deliberately. Four of this composable's five callers pass a
+     * synthetic close-only series — a portfolio equity curve, two sandbox NAV curves and the VIX
+     * history — where a candle would have to invent three of its four numbers.
+     */
+    style: ChartStyle = ChartStyle.AREA,
+    /**
+     * Map price logarithmically, so equal vertical distances are equal PERCENTAGE moves.
+     *
+     * On a linear axis a 40% drawdown at \$30 draws shorter than a 10% one at \$300, which is what
+     * makes ALL and 3Y misread — and the %/\$ toggle does not substitute for it, because
+     * `asPercentChange()` is an affine transform and this function autoscales, so percent mode is
+     * pixel-identical to dollar mode with the numbers relabelled.
+     *
+     * Honoured only when the composed bounds are strictly positive; see the LOG note in the plot.
+     */
+    logScale: Boolean = false,
+    /**
+     * Draw a volume-at-price histogram in the right-hand third of the plot, with the point of
+     * control and the value-area bounds as levels.
+     *
+     * Answers what the volume band along the bottom cannot: not WHEN volume happened, but at what
+     * price. Absent whenever the visible window cannot support one — see [volumeProfile], which
+     * refuses rather than degenerating.
+     */
+    showVolumeProfile: Boolean = false,
     onScrubChange: (PricePoint?) -> Unit = {},
     valueFormatter: (Double) -> String = { it.toString() },
     timeFormatter: (Long) -> String = { "" },
@@ -220,6 +275,17 @@ fun PriceChart(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                // A separate detector from the slop-tuned gesture loop below, deliberately: that loop
+                // arbitrates scrub against pinch on five call sites and is the last place to add a
+                // third mode. detectTapGestures only claims a tap.
+                .pointerInput(zoomable) {
+                    if (!zoomable) return@pointerInput
+                    detectTapGestures(onDoubleTap = {
+                        winStart.floatValue = 0f
+                        winSize.floatValue = 1f
+                        selected = null
+                    })
+                }
                 .pointerInput(points, zoomable) {
                     if (points.size < 2) return@pointerInput
 
@@ -300,8 +366,10 @@ fun PriceChart(
                 if (p < dataMin) dataMin = p
                 if (p > dataMax) dataMax = p
                 // Bar extremes count toward the scale ONLY when they will be drawn, or the plot
-                // reserves headroom for a wick that never appears.
-                if (showHighLow) {
+                // reserves headroom for a wick that never appears. Candles always draw them, and the
+                // volume profile is binned across low..high, so both join the condition: without it
+                // the top and bottom buckets clip flat against the plot edge.
+                if (showHighLow || style == ChartStyle.CANDLE || showVolumeProfile) {
                     if (points[k].barLow() < dataMin) dataMin = points[k].barLow()
                     if (points[k].barHigh() > dataMax) dataMax = points[k].barHigh()
                 }
@@ -319,7 +387,27 @@ fun PriceChart(
             val range = (max - min).takeIf { it > 0.0 } ?: 1.0
             val stepX = size.width / (visN - 1)
             fun xg(i: Int) = (i - startIdx) * stepX
-            fun y(v: Double) = (1f - ((v - min) / range).toFloat()) * plotBottom
+
+            // The positivity test is on the COMPOSED bounds, not on the price series. `min` above
+            // already folds in the cost line, the 200-week line and every overlay — and Bollinger's
+            // lower band (mid - 2*sd) goes at or below zero on a volatile sub-$5 ticker, while the
+            // AI-analyst levels are arbitrary numbers from a backend. Testing the prices alone would
+            // pass and then take ln of a negative.
+            //
+            // Re-evaluated here rather than hoisted, because `min` recomputes on every zoom: a
+            // window that excludes the band's negative stretch is legitimately log-able and the next
+            // pinch may not be.
+            // Everything that has to TELL the reader something is collected here and stacked at the
+            // bottom-left at the end. Three of them can co-occur — a zoomed 3Y chart in candle mode
+            // with a Bollinger band below zero — and each drawing itself into the same corner would
+            // overprint the others into an unreadable pile.
+            val plotNotes = ArrayList<String>(3)
+            val logOk = logScaleUsable(min, max, logScale)
+            val lnMin = if (logOk) ln(min) else 0.0
+            val lnSpan = if (logOk) (ln(max) - lnMin).takeIf { it > 0.0 } ?: 1.0 else 1.0
+            fun y(v: Double) =
+                if (logOk && v > 0.0) (1f - ((ln(v) - lnMin) / lnSpan).toFloat()) * plotBottom
+                else (1f - ((v - min) / range).toFloat()) * plotBottom
 
             // Volume bars along the bottom of the plot.
             if (showVolume) {
@@ -386,7 +474,108 @@ fun PriceChart(
                 }
             }
 
-            // Gradient fill under the line.
+            // Volume at price, in the right-hand third of the plot. Drawn UNDER the price line and
+            // the candles: it is context for them, not a series in its own right.
+            if (showVolumeProfile) {
+                val vp = volumeProfile(points, startIdx, endIdx)
+                if (vp == null) {
+                    plotNotes += "no volume profile — these bars carry no range or no volume"
+                } else {
+                    val maxRow = vp.rows.maxOf { it.total }
+                    val gutter = size.width * 0.30f
+                    if (maxRow > 0.0) {
+                        vp.rows.forEach { r ->
+                            val yTop = y(r.hi)
+                            val yBot = y(r.lo)
+                            val h = (yBot - yTop).coerceAtLeast(1f)
+                            val w = (r.total / maxRow).toFloat() * gutter
+                            if (w <= 0f) return@forEach
+                            val inVa = r.mid in vp.valueAreaLow..vp.valueAreaHigh
+                            // Inside the value area reads solid; outside it fades. The split is the
+                            // information — a shelf is where the band is wide AND dark.
+                            val up = GainGreen.copy(alpha = if (inVa) 0.34f else 0.14f)
+                            val dn = LossRed.copy(alpha = if (inVa) 0.34f else 0.14f)
+                            val upW = if (r.total > 0.0) w * (r.up / r.total).toFloat() else 0f
+                            drawRect(up, topLeft = Offset(size.width - upW, yTop), size = Size(upW, h))
+                            drawRect(
+                                dn,
+                                topLeft = Offset(size.width - w, yTop),
+                                size = Size((w - upW).coerceAtLeast(0f), h),
+                            )
+                        }
+                    }
+                    // The three levels, drawn across the full plot so they can be read against price.
+                    val pocY = y(vp.poc)
+                    drawLine(
+                        muted.copy(alpha = 0.75f), Offset(0f, pocY), Offset(size.width, pocY),
+                        strokeWidth = 1.5.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f)),
+                    )
+                    val pocLbl = textMeasurer.measure(
+                        "POC " + valueFormatter(vp.poc),
+                        TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = muted),
+                    )
+                    drawText(pocLbl, topLeft = Offset(2f, (pocY - pocLbl.size.height - 1f).coerceAtLeast(0f)))
+                    listOf(vp.valueAreaHigh, vp.valueAreaLow).forEach { lvl ->
+                        val ly = y(lvl)
+                        drawLine(
+                            muted.copy(alpha = 0.28f), Offset(0f, ly), Offset(size.width, ly),
+                            strokeWidth = 1f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 5f)),
+                        )
+                    }
+                    // The method is disclosed, not buried: these numbers do not reconcile with a
+                    // TradingView chart, which profiles from lower-timeframe intrabar data.
+                    plotNotes += "volume profile · ${vp.method}"
+                }
+            }
+
+            // Candles, when asked for AND when the bars are wide enough to read as bodies. The
+            // fallback is announced in the plot rather than taken silently: a chart that quietly
+            // turns back into a line has answered a different question than the one asked, which is
+            // the same reason the dip radar names why it found nothing instead of showing an empty
+            // list.
+            val candleStepPx = MIN_CANDLE_STEP_DP.dp.toPx()
+            val drawCandles = style == ChartStyle.CANDLE && stepX >= candleStepPx
+            if (style == ChartStyle.CANDLE && !drawCandles) {
+                plotNotes += "$visN bars — too many to draw as candles; showing the close line"
+            }
+            if (drawCandles) {
+                val bodyW = (stepX * 0.7f).coerceIn(1f, 10.dp.toPx())
+                val wickW = 1.dp.toPx()
+                for (k in startIdx..endIdx) {
+                    val pt = points[k]
+                    val o = pt.open
+                    val h = pt.high
+                    val l = pt.low
+                    // A bar missing any of O/H/L is SKIPPED, not filled from its close. Substituting
+                    // the close would draw a doji — a session that opened and closed at the same
+                    // price after fighting to a standstill — which is a specific and confident claim
+                    // about a bar whose source told us nothing. history() drops a bar only on a null
+                    // CLOSE, so a rendered bar really can carry a null open.
+                    if (o == null || h == null || l == null) continue
+                    val c = pt.price
+                    val cx = xg(k)
+                    val rising = c >= o
+                    val bodyColor = if (rising) GainGreen else LossRed
+                    drawLine(
+                        bodyColor, Offset(cx, y(h)), Offset(cx, y(l)),
+                        strokeWidth = wickW, cap = StrokeCap.Butt,
+                    )
+                    val top = minOf(y(o), y(c))
+                    val bot = maxOf(y(o), y(c))
+                    drawRect(
+                        bodyColor,
+                        topLeft = Offset(cx - bodyW / 2f, top),
+                        // A true doji has zero body height and would otherwise vanish entirely.
+                        size = Size(bodyW, (bot - top).coerceAtLeast(wickW)),
+                    )
+                }
+            }
+
+            // Gradient fill under the line. Suppressed under candles: it is a close-line construct,
+            // and shading the area under a series of discrete sessions asserts a path between them
+            // that the bars exist precisely to deny.
             val fill = Path().apply {
                 moveTo(xg(startIdx), y(points[startIdx].price))
                 for (k in (startIdx + 1)..endIdx) lineTo(xg(k), y(points[k].price))
@@ -394,11 +583,16 @@ fun PriceChart(
                 lineTo(0f, plotBottom)
                 close()
             }
-            drawPath(fill, Brush.verticalGradient(listOf(color.copy(alpha = 0.30f), Color.Transparent), 0f, plotBottom))
+            if (!drawCandles) {
+                drawPath(fill, Brush.verticalGradient(listOf(color.copy(alpha = 0.30f), Color.Transparent), 0f, plotBottom))
+            }
 
-            // Price line: solid, extended segments dashed + dimmed.
+            // Price line: solid, extended segments dashed + dimmed. Also a close-line construct, and
+            // the dashed extended-hours segments have no candle equivalent — a pre-market bar is a
+            // bar like any other, and its session is carried by `extended` in the scrub readout.
             val dash = PathEffect.dashPathEffect(floatArrayOf(9f, 9f))
             for (k in (startIdx + 1)..endIdx) {
+                if (drawCandles) break
                 val a = points[k - 1]
                 val b = points[k]
                 val ext = a.extended || b.extended
@@ -549,6 +743,60 @@ fun PriceChart(
                 }
             }
 
+            // Price labels. Until now the plot carried NO price on its axis at all — every number on
+            // it was attached to an opt-in feature (the high/low chips, the cost chip, the 200-week
+            // chip, the AI levels in the legend), so a chart with none of those enabled could not be
+            // read for a level at any height.
+            //
+            // Drawn as inset chips rather than in a right-hand gutter: the x-axis Canvas and every
+            // sub-pane compute their own stepX from their own full width, so narrowing only the price
+            // plot would silently desync the date labels and the sub-pane crosshairs from the bars
+            // they annotate.
+            //
+            // Tick VALUES are spaced evenly through the value range (geometrically when log), which
+            // is why there is no coordinate-to-price inverse anywhere in this file and no
+            // nice-number generator: a 1-2-5x10^n generator yields at most one tick inside a
+            // $180-$220 window, and an inverse mapping is precisely the machinery the scrub path
+            // deliberately avoids by reading points[i].price straight from the data.
+            if (showAxis) {
+                val tickStyle = TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = muted)
+                val nTicks = 4
+                // Levels that already carry their own labelled chip; a tick landing on one would
+                // print the same number twice, or worse, a slightly different one.
+                val claimed = listOfNotNull(costLine, sma200wLine).map { y(it) }
+                axisTickValues(min, max, logOk, nTicks).forEach { v ->
+                    val ty = y(v)
+                    if (claimed.any { abs(it - ty) < 10.dp.toPx() }) return@forEach
+                    val lay = textMeasurer.measure(valueFormatter(v), tickStyle)
+                    val ly = (ty - lay.size.height / 2f).coerceIn(0f, plotBottom - lay.size.height)
+                    drawLine(
+                        muted.copy(alpha = 0.12f),
+                        Offset(0f, ty), Offset(size.width - lay.size.width - 6f, ty),
+                        strokeWidth = 1f,
+                    )
+                    drawText(lay, topLeft = Offset(size.width - lay.size.width - 2f, ly))
+                }
+            }
+
+            // A refused log scale says why. Silently drawing a linear axis under a control labelled
+            // LOG is the same defect as any other confident wrong answer on this screen.
+            if (logScale && !logOk) {
+                plotNotes += "log scale needs positive values — a drawn level reaches ${valueFormatter(min)}"
+            }
+            // Zoom is otherwise a one-way door: nothing on screen says how to get back out of it.
+            if (zoomable && winSize.floatValue < 1f) plotNotes += "double-tap to reset zoom"
+
+            run {
+                val noteStyle = TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = muted)
+                var ny = plotBottom - 2f
+                plotNotes.asReversed().forEach { text ->
+                    val lay = textMeasurer.measure(text, noteStyle)
+                    ny -= lay.size.height
+                    if (ny < 0f) return@forEach
+                    drawText(lay, topLeft = Offset(2f, ny))
+                }
+            }
+
             // Overlay legend (top-left) — skip unlabeled lines (e.g. Bollinger bands).
             run {
                 var lx = 2f
@@ -647,6 +895,38 @@ fun PriceChart(
                 val lbl = textMeasurer.measure(sp.label, TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = muted))
                 drawText(lbl, topLeft = Offset(2f, 1f))
 
+                // Values for the scrubbed bar, or the newest visible bar at rest.
+                //
+                // Until now this pane drew a crosshair with no number attached: with RSI and MACD
+                // enabled you could put a finger on a bar and still not learn what RSI was, because
+                // the only numeric anchors were the 30/70 guide labels — a ±5 read by eye. "What was
+                // RSI on the day I bought" was unanswerable in the app despite the pane being right
+                // there.
+                //
+                // Drawn into the Canvas rather than composed: the caller sizes this chart with fixed
+                // arithmetic over the pane count (see chartHeight in DetailScreen), and a composed
+                // Text would add height that arithmetic does not know about. Laid out after the pane
+                // label on the same line rather than at the right edge, where the guide labels live.
+                val readIdx = selected?.takeIf { it in startIdx..endIdx } ?: endIdx
+                var cursorX = 2f + lbl.size.width + 8f
+                sp.lines.forEach { ln ->
+                    if (ln.label.isBlank()) return@forEach
+                    // A warm-up bar has no value. It prints as an em dash — never 0, and never the
+                    // last non-null value carried forward, either of which would read as a
+                    // measurement taken on a bar where none exists.
+                    val v = ln.values.getOrNull(readIdx)
+                    val text = ln.label + " " + formatPaneValue(v)
+                    val layout = textMeasurer.measure(
+                        text,
+                        TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = ln.color),
+                    )
+                    // Clip rather than overlap: a narrow pane drops the trailing series instead of
+                    // painting two numbers on top of each other.
+                    if (cursorX + layout.size.width > size.width - 2f) return@forEach
+                    drawText(layout, topLeft = Offset(cursorX, 1f))
+                    cursorX += layout.size.width + 8f
+                }
+
                 selected?.let { sel ->
                     if (sel in startIdx..endIdx) {
                         drawLine(muted.copy(alpha = 0.4f), Offset(xg(sel), 0f), Offset(xg(sel), size.height), strokeWidth = 1f)
@@ -680,5 +960,58 @@ fun PriceChart(
                 }
             }
         }
+    }
+}
+
+/**
+ * Format an oscillator value for a sub-pane readout.
+ *
+ * Null is an em dash, never 0.0 and never the previous bar's value: an indicator inside its warm-up
+ * has no reading, and printing a number there would present the absence of a measurement as a
+ * measurement. Precision adapts because the panes are not on one scale — RSI and the stochastic run
+ * 0..100 where a MACD line on a $20 stock lives in hundredths.
+ */
+internal fun formatPaneValue(v: Double?): String {
+    if (v == null || v.isNaN() || v.isInfinite()) return "—"
+    val a = kotlin.math.abs(v)
+    return when {
+        a >= 100.0 -> String.format(java.util.Locale.US, "%.0f", v)
+        a >= 10.0 -> String.format(java.util.Locale.US, "%.1f", v)
+        a >= 1.0 -> String.format(java.util.Locale.US, "%.2f", v)
+        else -> String.format(java.util.Locale.US, "%.3f", v)
+    }
+}
+
+/**
+ * Whether a logarithmic price axis can be drawn over these bounds.
+ *
+ * [min] and [max] must be the COMPOSED bounds — the ones that already fold in the cost line, the
+ * 200-week line and every overlay — not the price series. Bollinger's lower band is `mid - 2*sd` and
+ * goes at or below zero on a volatile sub-$5 ticker, and the AI-analyst levels are arbitrary numbers
+ * from a backend. Testing the prices alone would pass and then take the log of a negative.
+ *
+ * Refusal is a reason to say so, never a reason to quietly draw a linear axis under a LOG control.
+ */
+internal fun logScaleUsable(min: Double, max: Double, requested: Boolean): Boolean =
+    requested && min > 0.0 && max > min
+
+/**
+ * The values to label the price axis with: [n] of them, evenly spaced through the range — and
+ * evenly spaced in the LOG of the range when [log], so that equal spacing on screen is equal
+ * spacing in the labels.
+ *
+ * Deliberately not a 1-2-5x10^n "nice number" generator. Such a generator yields at most one tick
+ * inside a $180-$220 window, which is the shape of most single-stock charts here. Deliberately not
+ * derived from an inverse of the y-mapping either: no coordinate-to-price inverse exists anywhere in
+ * this file, and the scrub path avoids needing one by reading points[i].price straight from the data.
+ */
+internal fun axisTickValues(min: Double, max: Double, log: Boolean, n: Int): List<Double> {
+    if (n < 2 || !(max > min)) return emptyList()
+    if (log && min <= 0.0) return emptyList()
+    val lnMin = if (log) ln(min) else 0.0
+    val lnSpan = if (log) ln(max) - lnMin else 0.0
+    return (0 until n).map { t ->
+        val f = t.toDouble() / (n - 1)
+        if (log) exp(lnMin + lnSpan * f) else min + (max - min) * f
     }
 }

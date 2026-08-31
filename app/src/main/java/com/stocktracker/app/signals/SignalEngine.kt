@@ -40,17 +40,27 @@ class SignalContext internal constructor(
  */
 class SignalEngine(val weights: SignalWeights = SignalWeights()) {
 
+    /**
+     * [points] rather than a bare close series: the stochastic reads bar highs and lows (Pine's
+     * `ta.stoch`), which a `List<Double>` cannot carry. On a close-only series — CoinGecko's
+     * fallback path, the signals service's Webull history — %K and %D come back all-null, the
+     * stochastic component drops out of [evaluateAt], and the remaining weights renormalise. That is
+     * the same treatment volume and relative strength already get when their input is missing, and
+     * `weights.minComponents` still guards the degenerate case; it is deliberately preferred over
+     * substituting closes for extremes, which would score a different indicator under this one's name.
+     */
     fun prepare(
-        prices: List<Double>,
-        volumes: List<Double?> = emptyList(),
+        points: List<PricePoint>,
         benchmark: List<Double?>? = null,
     ): SignalContext {
+        val prices = points.map { it.price }
+        val volumes = points.map { it.volume }
         val m = macd(prices)
-        val (k, d) = stochastic(prices, weights.stochPeriod)
+        val (k, d) = stochastic(points, weights.stochPeriod)
         val boll = bollingerBands(prices, weights.bollPeriod)
         return SignalContext(
             prices = prices,
-            volumes = if (volumes.size == prices.size) volumes else List(prices.size) { null },
+            volumes = volumes,
             benchmark = benchmark?.takeIf { it.size == prices.size },
             rsi = rsi(prices, weights.rsiPeriod),
             smaFast = simpleMovingAverage(prices, weights.maFast),
@@ -112,10 +122,8 @@ class SignalEngine(val weights: SignalWeights = SignalWeights()) {
         daysToCover: Double? = null,
     ): SignalResult? {
         if (points.size < weights.rsiPeriod + 2) return null
-        val prices = points.map { it.price }
-        val volumes = points.map { it.volume }
         val bench = benchmark?.let { alignByDay(points, it) }
-        val ctx = prepare(prices, volumes, bench)
+        val ctx = prepare(points, bench)
         return applyShortPressure(evaluateAt(ctx, points.lastIndex, vix), daysToCover)
     }
 

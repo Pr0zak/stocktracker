@@ -37,6 +37,28 @@ data class Asset(
     }
 }
 
+/**
+ * A technical condition that can be armed overnight, alongside the price thresholds.
+ *
+ * The vocabulary is deliberately short. MACD signal crosses and Bollinger-lower-band touches were
+ * considered and dropped: they are the highest-frequency and lowest-conviction triggers available,
+ * and this project's own 20,768-episode study measured buying general weakness as negative. What
+ * survives is the small set that marks a change of state rather than a wiggle.
+ *
+ * [minBars] is what the condition needs to be answerable at all. It is a count of DAILY bars, which
+ * is why the evaluator chooses its own range rather than reusing whatever the chart last showed —
+ * ChartRange.ALL is weekly, so an SMA(200) computed there is a 200-WEEK average wearing a 200-day
+ * label.
+ */
+@Serializable
+enum class AlertCondition(val key: String, val label: String, val minBars: Int) {
+    CLOSE_ABOVE_SMA50("above_sma50", "Closes above its 50-day average", 50),
+    CLOSE_BELOW_SMA50("below_sma50", "Closes below its 50-day average", 50),
+    CLOSE_ABOVE_SMA200("above_sma200", "Closes above its 200-day average", 200),
+    CLOSE_BELOW_SMA200("below_sma200", "Closes below its 200-day average", 200),
+    CLOSE_AT_52W_HIGH("at_52w_high", "Closes at a 52-week high", 252),
+}
+
 /** Per-asset notification thresholds. Any field set to null is inactive. */
 @Serializable
 data class AssetAlerts(
@@ -44,9 +66,24 @@ data class AssetAlerts(
     val priceBelow: Double? = null,   // notify when price <= this
     val percentUp: Double? = null,    // notify when day change % >= this
     val percentDown: Double? = null,  // notify when day change % <= -this
+    /** Armed technical conditions. Defaulted so older backups and stored watchlists decode. */
+    val conditions: Set<AlertCondition> = emptySet(),
 ) {
+    /**
+     * True when nothing is armed at all.
+     *
+     * `conditions` is part of this test, and that is load-bearing rather than tidy: AlertChecker
+     * filters the watchlist on `!isEmpty` before evaluating anything, so an asset carrying only a
+     * technical condition would have been skipped entirely — armed in the UI, never run, and no
+     * error anywhere to say so.
+     */
     val isEmpty: Boolean
-        get() = priceAbove == null && priceBelow == null && percentUp == null && percentDown == null
+        get() = priceAbove == null && priceBelow == null && percentUp == null &&
+            percentDown == null && conditions.isEmpty()
+
+    /** How many alerts are armed, for the badge. Same reasoning as [isEmpty]. */
+    val activeCount: Int
+        get() = listOfNotNull(priceAbove, priceBelow, percentUp, percentDown).size + conditions.size
 }
 
 /** A point-in-time price snapshot. */
@@ -119,6 +156,15 @@ data class PricePoint(
      */
     val high: Double? = null,
     val low: Double? = null,
+    /**
+     * The bar's OPEN. Yahoo has always returned it and this app has always discarded it.
+     *
+     * Null carries the same meaning as [high]/[low]: the source did not report one. It is NOT
+     * defaulted to [price] — a bar whose open equals its close is a doji, a specific and confident
+     * reading about a session that fought to a standstill, and inventing one is exactly the class of
+     * claim this file is careful not to make.
+     */
+    val open: Double? = null,
 )
 
 /** Chart time ranges shown on the detail screen. */

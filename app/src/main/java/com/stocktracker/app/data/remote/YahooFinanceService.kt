@@ -52,6 +52,7 @@ class YahooFinanceService {
         // see PricePoint.high. Yahoo has always returned these; they were simply dropped here.
         val highs = quote0.high
         val lows = quote0.low
+        val opens = quote0.open
 
         // Classify each point by its time-of-day in the exchange timezone. Regular session =
         // 09:30–16:00; anything else within the returned data is pre/post-market. Using a real
@@ -73,6 +74,7 @@ class YahooFinanceService {
             out.add(PricePoint(
                 tsSec * 1000L, close, extended, volumes?.getOrNull(i)?.toDouble(),
                 high = highs?.getOrNull(i), low = lows?.getOrNull(i),
+                open = opens?.getOrNull(i),
             ))
         }
         return out
@@ -108,12 +110,14 @@ class YahooFinanceService {
         val volumes = quote0.volume
         val highs = quote0.high
         val lows = quote0.low
+        val opens = quote0.open
         val out = ArrayList<PricePoint>(timestamps.size)
         for (i in timestamps.indices) {
             val close = closes.getOrNull(i) ?: continue // Yahoo pads gaps with null
             out.add(PricePoint(
                 timestamps[i] * 1000L, close, false, volumes?.getOrNull(i)?.toDouble(),
                 high = highs?.getOrNull(i), low = lows?.getOrNull(i),
+                open = opens?.getOrNull(i),
             ))
         }
         return out

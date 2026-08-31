@@ -61,9 +61,11 @@ class ChartMathTest {
         assertTrue("RSI in [0,100]", r in 0.0..100.0)
     }
 
+    /** Range and warm-up invariants only. The values themselves are pinned in [StochasticPineTest]. */
     @Test fun `stochastic k stays within 0 to 100`() {
-        val v = listOf(1.0, 3.0, 2.0, 5.0, 4.0, 6.0, 5.0, 8.0, 7.0, 9.0, 8.0, 11.0, 10.0, 12.0, 11.0, 14.0)
-        val (k, d) = stochastic(v, 14, 3)
+        val closes = listOf(1.0, 3.0, 2.0, 5.0, 4.0, 6.0, 5.0, 8.0, 7.0, 9.0, 8.0, 11.0, 10.0, 12.0, 11.0, 14.0)
+        val bars = closes.mapIndexed { i, c -> PricePoint(i.toLong(), c, high = c + 0.5, low = c - 0.5) }
+        val (k, d) = stochastic(bars, 14, 3)
         assertEquals(null, k[12])
         val kv = k[14]!!
         assertTrue("K in [0,100]", kv in 0.0..100.0)

@@ -32,6 +32,8 @@ class SettingsStore(private val context: Context) {
     private val showVixKey = booleanPreferencesKey("show_vix")
     private val showGateKey = booleanPreferencesKey("show_gate")
     private val chartIndicatorsKey = stringPreferencesKey("chart_indicators")
+    private val chartCandlesKey = booleanPreferencesKey("chart_candles")
+    private val chartLogScaleKey = booleanPreferencesKey("chart_log_scale")
     private val watchlistGroupsKey = stringPreferencesKey("watchlist_groups")
     private val signalsApiUrlKey = stringPreferencesKey("signals_api_url")
     private val lastScanNotifiedKey = longPreferencesKey("last_scan_notified_at")
@@ -217,6 +219,19 @@ class SettingsStore(private val context: Context) {
     suspend fun setShowExtendedHours(enabled: Boolean) = context.dataStore.edit { it[extendedHoursKey] = enabled }
     suspend fun setShowMarketStatus(enabled: Boolean) = context.dataStore.edit { it[marketStatusKey] = enabled }
     suspend fun setShowVolume(enabled: Boolean) = context.dataStore.edit { it[showVolumeKey] = enabled }
+    /** Draw the price series as candles rather than the close line. Off by default: candles are only
+     *  legible on the longer ranges, and the close line is what every other surface shows. */
+    val chartCandles: Flow<Boolean> = context.dataStore.data.map { it[chartCandlesKey] ?: false }
+
+    suspend fun setChartCandles(on: Boolean) = context.dataStore.edit { it[chartCandlesKey] = on }
+
+    /** Map price logarithmically, so equal vertical distances are equal percentage moves. Off by
+     *  default: it only changes the reading on multi-year ranges, and on most single-stock windows a
+     *  log axis is visually indistinguishable from a linear one. */
+    val chartLogScale: Flow<Boolean> = context.dataStore.data.map { it[chartLogScaleKey] ?: false }
+
+    suspend fun setChartLogScale(on: Boolean) = context.dataStore.edit { it[chartLogScaleKey] = on }
+
     suspend fun setChartIndicators(keys: Set<String>) = context.dataStore.edit {
         it[chartIndicatorsKey] = Http.json.encodeToString(keys.toList())
     }

@@ -147,8 +147,19 @@ private fun TickerContent(
         if (config.showSparkline && spark.size >= 2) {
             Spacer(GlanceModifier.height(6.dp))
             val colorArgb = (if (up) Up else Down).toArgbInt()
-            val bmp = remember(spark, up) {
-                SparklineRenderer.render(spark, widthPx = 320, heightPx = 96, colorArgb = colorArgb)
+            // prevClose is part of the memo key, not just an argument: it changes at the session
+            // rollover while the series and direction can both stay put, and a stale bitmap would
+            // draw the baseline at yesterday's level — the same class of contradiction the baseline
+            // exists to remove.
+            val prevClose = quote?.prevClose
+            val bmp = remember(spark, up, prevClose) {
+                SparklineRenderer.render(
+                    spark,
+                    widthPx = 320,
+                    heightPx = 96,
+                    colorArgb = colorArgb,
+                    previousClose = prevClose,
+                )
             }
             Image(
                 provider = ImageProvider(bmp),

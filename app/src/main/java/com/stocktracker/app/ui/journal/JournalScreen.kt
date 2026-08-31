@@ -682,6 +682,12 @@ private fun JournalEntryDialog(
             ) {
                 Text(statusLabel(entry), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
+                // The chart as it stood on the verdict date. Sits above the plan because it is the
+                // context the plan was written against: the journal's premise is that it records
+                // YOUR decision, and a decision is only legible beside what you could see when you
+                // made it.
+                AsOfChartSection(symbol = entry.symbol, verdictDateIso = entry.verdictDateIso)
+
                 Text("The plan you were given", style = MaterialTheme.typography.labelLarge, color = neutral, modifier = Modifier.padding(top = 6.dp))
                 entry.plan.action?.let { StatRow("Action", it.replace('_', ' ')) }
                 planLevels(entry)?.let { StatRow("Levels", it) }

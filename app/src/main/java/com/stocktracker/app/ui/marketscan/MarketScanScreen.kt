@@ -261,6 +261,7 @@ fun MarketScanScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit) {
                 pctAboveSma50 = ui.breadth?.pctAboveSma50,
                 pctAboveSma200 = ui.breadth?.pctAboveSma200,
                 rows = ui.breadth?.n,
+                highLowDiff = ui.breadth?.highLowDiff,
             )?.let {
                 Text(
                     "Breadth: $it",

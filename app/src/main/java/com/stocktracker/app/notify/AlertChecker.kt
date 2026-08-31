@@ -1,6 +1,7 @@
 package com.stocktracker.app.notify
 
 import android.content.Context
+import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.portfolio.STALE_QUOTE_MS
 import com.stocktracker.app.util.Formatting
@@ -57,6 +58,70 @@ object AlertChecker {
             }
             alerts.percentDown?.let {
                 evaluate("down", pct <= -it, "${asset.symbol} down ${Formatting.percent(pct)} today")
+            }
+
+            // ----- Technical conditions -----
+            //
+            // Fetched once per asset, and only when a condition is armed, because this is a year of
+            // daily bars against a 5-minute history TTL in a worker that runs every 15 minutes and is
+            // usually cold: a naive loop would refetch ~96x/symbol/day to observe at most one state
+            // change. THREE_YEAR rather than whatever the chart last showed — ChartRange.ALL is
+            // weekly, so an SMA(200) computed there is a 200-WEEK average wearing a 200-day label.
+            if (alerts.conditions.isNotEmpty()) {
+                val bars = runCatching {
+                    ServiceLocator.repository.history(asset, ChartRange.THREE_YEAR)
+                }.getOrNull()
+
+                for (cond in alerts.conditions) {
+                    val key = "${asset.id}:cond:${cond.key}"
+                    val result = if (bars.isNullOrEmpty()) {
+                        ConditionResult.CouldNotCheck("price history could not be loaded")
+                    } else {
+                        AlertConditions.evaluate(cond, bars, now)
+                    }
+                    when (result) {
+                        is ConditionResult.Triggered ->
+                            if (fired.add(key)) {
+                                AlertNotifier.notify(
+                                    context, key.hashCode(),
+                                    "${asset.symbol} ${cond.label.replaceFirstChar { it.lowercase() }}",
+                                    subtitle,
+                                )
+                                changed = true
+                            }
+                        is ConditionResult.NotTriggered ->
+                            if (fired.remove(key)) changed = true
+                        is ConditionResult.CouldNotCheck -> {
+                            // A condition that cannot be evaluated must not read as one that did not
+                            // fire. Leaving the fired key in place would also re-announce it the
+                            // moment data returns, so the state is held and the user is told once.
+                            val warnKey = "$key:unchecked"
+                            if (fired.add(warnKey)) {
+                                AlertNotifier.notify(
+                                    context, warnKey.hashCode(),
+                                    "${asset.symbol}: alert could not be checked",
+                                    "${cond.label} — ${result.reason}",
+                                )
+                                changed = true
+                            }
+                        }
+                    }
+                    if (result !is ConditionResult.CouldNotCheck) {
+                        if (fired.remove("$key:unchecked")) changed = true
+                    }
+                }
+            }
+
+            // A deleted condition leaves its fired key behind, and a key left set suppresses the
+            // first legitimate fire after the condition is re-armed. Prune anything this asset no
+            // longer arms.
+            val liveKeys = alerts.conditions.flatMap {
+                listOf("${asset.id}:cond:${it.key}", "${asset.id}:cond:${it.key}:unchecked")
+            }.toSet()
+            val stale = fired.filter { it.startsWith("${asset.id}:cond:") && it !in liveKeys }
+            if (stale.isNotEmpty()) {
+                fired.removeAll(stale.toSet())
+                changed = true
             }
 
             // Persist per ASSET, not once at the end. Notifications are posted inside this loop and

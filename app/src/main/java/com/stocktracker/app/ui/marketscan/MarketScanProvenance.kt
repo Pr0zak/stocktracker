@@ -110,11 +110,30 @@ object MarketScanProvenance {
         pctAboveSma50: Double?,
         pctAboveSma200: Double?,
         rows: Int?,
+        /**
+         * near_52w_high - near_52w_low. Null on any night the server could not measure both sides,
+         * which includes every night stored before the low side existed — those cannot be
+         * backfilled, and a 0 there would read as "highs and lows are balanced" when in fact nobody
+         * counted the lows.
+         */
+        highLowDiff: Int? = null,
     ): String? {
         if (available != true) return null
         val parts = buildList {
             pctAboveSma50?.takeIf { it.isFinite() }?.let { add(pct(it) + " above the 50-day") }
             pctAboveSma200?.takeIf { it.isFinite() }?.let { add(pct(it) + " above the 200-day") }
+            // Signed on purpose. The reading that matters is a NEGATIVE one — more names sitting
+            // near their lows than near their highs while the index holds up — and an unsigned
+            // count would bury exactly that.
+            highLowDiff?.let {
+                add(
+                    when {
+                        it > 0 -> "+$it more near highs than lows"
+                        it < 0 -> "${-it} more near lows than highs"
+                        else -> "highs and lows evenly matched"
+                    },
+                )
+            }
         }
         if (parts.isEmpty()) return null
         val counted = rows?.takeIf { it > 0 }?.let { parts + "${n(it)} names" } ?: parts

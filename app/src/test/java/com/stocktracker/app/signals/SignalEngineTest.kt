@@ -70,7 +70,7 @@ class SignalEngineTest {
     }
 
     @Test fun `too-few components before warmup returns a neutral hold`() {
-        val ctx = engine.prepare(ramp(80, 100.0, +1.0).map { it.price })
+        val ctx = engine.prepare(ramp(80, 100.0, +1.0))
         val early = engine.evaluateAt(ctx, 5) // no indicator is warmed up this early
         assertEquals(50, early.score)
         assertEquals(SignalLabel.HOLD, early.label)
@@ -97,10 +97,25 @@ class SignalEngineTest {
     @Test fun `days-to-cover never touches the backtest path`() {
         // Backtest.run drives evaluateAt directly (no DTC), so its result must be identical whether or
         // not a caller would pass DTC to evaluate() — proven by evaluateAt taking no DTC argument.
-        val ctx = engine.prepare(ramp(80, 50.0, +1.0).map { it.price })
+        val ctx = engine.prepare(ramp(80, 50.0, +1.0))
         val a = engine.evaluateAt(ctx, 79)
         val b = engine.evaluateAt(ctx, 79)
         assertEquals(a.score, b.score) // evaluateAt is pure — no DTC channel exists on it
+    }
+
+    /**
+     * A close-only series must lose the stochastic component rather than have it computed from
+     * closes under the same name. The remaining weights renormalise, exactly as they already do when
+     * volume or relative strength is unavailable.
+     */
+    @Test fun `a close-only series drops the stochastic component instead of faking it`() {
+        val withBars = engine.evaluate(ramp(80, 100.0, +1.0))!!
+        val closeOnly = engine.evaluate(rampCloseOnly(80, 100.0, +1.0))!!
+
+        assertNotNull(withBars.components.firstOrNull { it.name == "Stochastic" })
+        assertNull(closeOnly.components.firstOrNull { it.name == "Stochastic" })
+        assertTrue("the rest of the read must survive", closeOnly.components.size >= engine.weights.minComponents)
+        assertTrue("score stays in range", closeOnly.score in 0..100)
     }
 
     @Test fun `benchmark aligns by calendar day`() {
@@ -114,10 +129,24 @@ class SignalEngineTest {
 
     companion object {
         const val DAY = 86_400_000L
-        /** [n] daily bars starting at [start], each stepping by [step]. */
+
+        /**
+         * [n] daily bars starting at [start], each stepping by [step], with a symmetric intrabar
+         * range around the close.
+         *
+         * The extremes are not decoration: the stochastic reads bar highs and lows (Pine's
+         * `ta.stoch`), so a close-only fixture would silently drop that component from every
+         * assertion below and leave it untested.
+         */
         fun ramp(n: Int, start: Double, step: Double): List<PricePoint> =
+            (0 until n).map { bar(it, start + it * step) }
+        fun flat(n: Int, price: Double): List<PricePoint> = (0 until n).map { bar(it, price) }
+
+        /** The same shape as [ramp] but with no bar extremes — CoinGecko's fallback path. */
+        fun rampCloseOnly(n: Int, start: Double, step: Double): List<PricePoint> =
             (0 until n).map { PricePoint(it * DAY, start + it * step) }
-        fun flat(n: Int, price: Double): List<PricePoint> =
-            (0 until n).map { PricePoint(it * DAY, price) }
+
+        private fun bar(i: Int, close: Double, band: Double = 1.0) =
+            PricePoint(i * DAY, close, high = close + band, low = close - band)
     }
 }

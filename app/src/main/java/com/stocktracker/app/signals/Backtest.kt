@@ -54,9 +54,8 @@ object Backtest {
         if (points.size < w.maSlow + w.rsPeriod + 5) return null
 
         val prices = points.map { it.price }
-        val volumes = points.map { it.volume }
         val bench = benchmark?.let { alignByDay(points, it) }
-        val ctx = engine.prepare(prices, volumes, bench)
+        val ctx = engine.prepare(points, bench)
 
         val warmup = max(w.maSlow, w.rsiPeriod + 1)
         if (prices[warmup] <= 0.0) return null // no valid baseline for buy-and-hold

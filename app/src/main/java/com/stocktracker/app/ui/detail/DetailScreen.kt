@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
+import com.stocktracker.app.data.model.AlertCondition
 import com.stocktracker.app.data.model.AssetAlerts
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.TakenState
@@ -116,6 +117,8 @@ import com.stocktracker.app.signals.SignalLabel
 import com.stocktracker.app.signals.SignalResult
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.ChartMarker
+import androidx.compose.material3.HorizontalDivider
+import com.stocktracker.app.ui.components.ChartStyle
 import com.stocktracker.app.ui.components.ChartSubPane
 import com.stocktracker.app.ui.components.FiftyTwoWeekRangeBar
 import com.stocktracker.app.ui.components.PairedStatBlock
@@ -150,6 +153,9 @@ import com.stocktracker.app.util.formatPercentChange
 import com.stocktracker.app.util.macd
 import com.stocktracker.app.util.rsi
 import com.stocktracker.app.util.simpleMovingAverage
+import com.stocktracker.app.util.atr
+import com.stocktracker.app.util.barSpacingLabel
+import com.stocktracker.app.util.medianBarSpacingMs
 import com.stocktracker.app.util.stochastic
 import com.stocktracker.app.util.vwap
 import kotlinx.coroutines.launch
@@ -168,6 +174,8 @@ fun DetailScreen(
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
     val showVolume by ServiceLocator.settingsStore.showVolume.collectAsState(initial = false)
     val indicators by ServiceLocator.settingsStore.chartIndicators.collectAsState(initial = emptySet())
+    val candlesOn by ServiceLocator.settingsStore.chartCandles.collectAsState(initial = false)
+    val logScaleOn by ServiceLocator.settingsStore.chartLogScale.collectAsState(initial = false)
     val allGroups by ServiceLocator.settingsStore.watchlistGroups.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var showIndicatorSheet by remember { mutableStateOf(false) }
@@ -362,7 +370,28 @@ fun DetailScreen(
                     lvl("Invalidation", Color(0xFFF59E0B), lv.invalidationPrice),
                 )
             } else emptyList()
-            val allOverlays = indicatorResult.overlays + listOfNotNull(benchOverlay) + levelOverlays
+            // Armed price alerts (TV-3). The chart draws the cost line, the 200-week line and four
+            // AI-analyst levels — every level except the one the user set themselves, which until now
+            // existed only as a number typed into a sheet. Only the two PRICE thresholds are
+            // chartable: percentUp/percentDown trigger on the day's change and have no position on a
+            // price plot at all. The Alerts card stays authoritative for the full set.
+            // The band clip and the off-scale tagging both live in armedAlertLevels() — see its KDoc
+            // for why a clipped level comes back tagged rather than dropped.
+            val armedLevels = if (!percentMode && chartPoints.size >= 2) {
+                armedAlertLevels(
+                    alerts = state.alerts,
+                    chartMin = chartPoints.minOf { it.price },
+                    chartMax = chartPoints.maxOf { it.price },
+                    lastClose = chartPoints.last().price,
+                    format = ::fmtLevel,
+                )
+            } else emptyList()
+            fun alertColor(a: ArmedAlertLevel) = if (a.rising) GainGreen else LossRed
+            val alertOverlays = armedLevels.filterNot { it.isOffScale }.map { a ->
+                ChartLineOverlay(a.label, alertColor(a), List(chartPoints.size) { a.price }, dashed = true)
+            }
+            val offScaleAlerts = armedLevels.filter { it.isOffScale }
+            val allOverlays = indicatorResult.overlays + listOfNotNull(benchOverlay) + levelOverlays + alertOverlays
 
             Box(
                 modifier = Modifier
@@ -389,6 +418,11 @@ fun DetailScreen(
                         overlays = allOverlays,
                         subPanes = indicatorResult.subPanes,
                         markers = allMarkers,
+                        style = if (!percentMode && candlesOn) ChartStyle.CANDLE else ChartStyle.AREA,
+                        logScale = !percentMode && logScaleOn,
+                        // $-mode only: a profile of rebased percentages is a profile of a different
+                        // quantity, and the levels it draws would not be prices.
+                        showVolumeProfile = !percentMode && indicators.contains(Indicator.VOLUME_PROFILE.key),
                         onScrubChange = { scrubbed = it },
                         valueFormatter = chartValueFormatter,
                         timeFormatter = chartTimeFormatter,
@@ -428,6 +462,31 @@ fun DetailScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+
+            // An armed alert the chart cannot show still has to be visible. Distance is measured from
+            // the last plotted close, not the live quote, so the number agrees with the chart it sits
+            // under. On short ranges a below-alert is off-scale more often than not, so this is the
+            // common path rather than an edge case.
+            if (offScaleAlerts.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    offScaleAlerts.forEach { a ->
+                        val pct = a.offScalePct
+                        val where = when {
+                            pct == null || pct.isNaN() -> "outside this chart's range"
+                            pct >= 0.0 -> "${Formatting.percent(pct)} above — off the top of the chart"
+                            else -> "${Formatting.percent(pct)} below — off the bottom of the chart"
+                        }
+                        Text(
+                            "⚑ ${a.label} · $where",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = alertColor(a),
+                        )
+                    }
                 }
             }
 
@@ -620,6 +679,18 @@ fun DetailScreen(
                 shares = state.shares,
                 avgCost = state.avgCost,
                 alerts = state.alerts,
+                // Pre-formatted here rather than passed as a raw number, because the caller is the
+                // only place that knows what the loaded bars ARE. "1 ATR" off a 5-minute series is
+                // not the quantity a stop distance is compared against, so the hint simply does not
+                // appear unless the chart is on daily bars.
+                atrHint = remember(state.chart) {
+                    val daily = barSpacingLabel(medianBarSpacingMs(state.chart)) == "1d"
+                    val a = if (daily) atr(state.chart, 14).lastOrNull() else null
+                    val px = state.chart.lastOrNull()?.price
+                    if (a != null && px != null && px > 0.0) {
+                        "1 ATR (14d) = ${fmtLevel(a)} · 1x below ${fmtLevel(px - a)} · 2x below ${fmtLevel(px - 2 * a)}"
+                    } else null
+                },
                 onSave = { newShares, newAvgCost, newAlerts ->
                     vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
                     if (!newAlerts.isEmpty) {
@@ -732,6 +803,49 @@ fun DetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
+                // The style switch sits above the indicator list because it changes what the price
+                // series IS, not what is drawn over it. Disabled outright when the loaded series has
+                // no bars behind it - the CoinGecko fallback and the signals service's Webull
+                // history return closes only, and a candle drawn from a close is a doji, which is a
+                // confident statement about a session nobody measured.
+                val barsAvailable = state.chart.any { it.open != null && it.high != null && it.low != null }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Candles")
+                        Text(
+                            if (barsAvailable) "Open/high/low/close bars instead of the close line"
+                            else "This symbol's history has closes only - no bars to draw",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = candlesOn && barsAvailable,
+                        enabled = barsAvailable,
+                        onCheckedChange = { on -> scope.launch { ServiceLocator.settingsStore.setChartCandles(on) } },
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Log price scale")
+                        Text(
+                            "Equal heights are equal percentage moves - readable on 3Y and ALL",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = logScaleOn,
+                        onCheckedChange = { on -> scope.launch { ServiceLocator.settingsStore.setChartLogScale(on) } },
+                    )
+                }
+                HorizontalDivider(Modifier.padding(vertical = 6.dp))
                 Indicator.entries.forEach { ind ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -761,6 +875,8 @@ private enum class Indicator(val key: String, val label: String) {
     RSI("rsi", "RSI (14)"),
     MACD("macd", "MACD (12, 26, 9)"),
     STOCH("stoch", "Stochastic (14, 3)"),
+    VOLUME_PROFILE("volprof", "Volume profile (at price)"),
+    ATR("atr", "ATR (14)"),
     DIVIDENDS("div", "Ex-dividend markers"),
     FTD_SPIKES("ftd", "FTD spike markers"),
     HALVING("halv", "Halving markers (BTC)"),
@@ -795,7 +911,9 @@ private fun buildIndicators(points: List<com.stocktracker.app.data.model.PricePo
         val r = rsi(prices, 14)
         if (nonEmpty(r)) subPanes += ChartSubPane(
             label = "RSI 14",
-            lines = listOf(ChartLineOverlay("", Color(0xFF60A5FA), r)),
+            // Labelled: the pane's value readout prints "<label> <value>", and a single unlabelled
+            // number in an oscillator pane says nothing about which series it belongs to.
+            lines = listOf(ChartLineOverlay("RSI", Color(0xFF60A5FA), r)),
             guides = listOf(30.0, 70.0),
             fixedRange = 0.0..100.0,
         )
@@ -805,20 +923,38 @@ private fun buildIndicators(points: List<com.stocktracker.app.data.model.PricePo
         if (nonEmpty(m.macd)) subPanes += ChartSubPane(
             label = "MACD",
             lines = listOf(
-                ChartLineOverlay("", Color(0xFF60A5FA), m.macd),
-                ChartLineOverlay("", Color(0xFFF59E0B), m.signal),
+                ChartLineOverlay("MACD", Color(0xFF60A5FA), m.macd),
+                ChartLineOverlay("Signal", Color(0xFFF59E0B), m.signal),
             ),
             histogram = m.histogram,
             guides = listOf(0.0),
         )
     }
+    if (Indicator.ATR.key in enabled) {
+        val a = atr(points, 14)
+        if (nonEmpty(a)) {
+            // The bar size goes IN the label. "ATR 14" is fourteen days of range on a 1Y chart and
+            // fourteen minutes of it on a 1D chart, and every stop distance elsewhere in the app is
+            // denominated in days — so an unqualified number here would be compared against the
+            // wrong unit. Inferred from the plotted bars rather than the range, because the range
+            // alone does not fix the bar size (MONTH is 30m for a stock and 1d for crypto).
+            val bars = barSpacingLabel(medianBarSpacingMs(points))
+            subPanes += ChartSubPane(
+                label = if (bars != null) "ATR 14 · $bars bars" else "ATR 14",
+                lines = listOf(ChartLineOverlay("ATR", Color(0xFFEC4899), a)),
+            )
+        }
+    }
     if (Indicator.STOCH.key in enabled) {
-        val (kLine, dLine) = stochastic(prices, 14, 3)
+        // Bars, not closes: %K is Pine's ta.stoch over the window's highs and lows. A close-only
+        // series yields all-nulls, nonEmpty() is false, and the pane is omitted rather than drawn
+        // from a formula that isn't the one the label names.
+        val (kLine, dLine) = stochastic(points, 14, 3)
         if (nonEmpty(kLine)) subPanes += ChartSubPane(
             label = "Stoch 14",
             lines = listOf(
-                ChartLineOverlay("", Color(0xFF60A5FA), kLine),
-                ChartLineOverlay("", Color(0xFFF59E0B), dLine),
+                ChartLineOverlay("%K", Color(0xFF60A5FA), kLine),
+                ChartLineOverlay("%D", Color(0xFFF59E0B), dLine),
             ),
             guides = listOf(20.0, 80.0),
             fixedRange = 0.0..100.0,
@@ -953,17 +1089,44 @@ private fun ScrubStatHeader(
                     restStats.forEach { (label, value) -> StatMini(label, value) }
                 }
             } else {
-                Column {
-                    Text(
-                        valueFormatter(s.price),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        timeFormatter(s.epochMs),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                // The scrubbed BAR's own O/H/L/V, not the live quote's.
+                //
+                // This row used to be replaced wholesale by price + time the moment a drag began, so
+                // the one moment an OHLC reading is most useful — pointing at a past session — was
+                // the one moment the app removed it, and what it removed described today anyway. The
+                // bar carries its own; a bar whose source reported none shows "—" per field rather
+                // than borrowing today's, which would be a confident answer to a different question.
+                val barStats = buildList {
+                    add("O" to fmtP(s.open))
+                    add("H" to fmtP(s.high))
+                    add("L" to fmtP(s.low))
+                    s.volume?.let { v -> add("Vol" to (if (isCrypto) "$" else "") + Formatting.compact(v)) }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text(
+                            valueFormatter(s.price),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            timeFormatter(s.epochMs),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // Only when the bar actually has extremes to show. A row of four dashes beside a
+                    // price is noise, and on the close-only paths (CoinGecko's fallback, the signals
+                    // service's Webull history) that is every bar.
+                    if (s.high != null || s.low != null || s.open != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            barStats.forEach { (label, value) -> StatMini(label, value) }
+                        }
+                    }
                 }
             }
         }
@@ -2748,6 +2911,8 @@ private fun HoldingsAndAlertsSection(
     shares: Double?,
     avgCost: Double?,
     alerts: AssetAlerts,
+    /** A one-line "how far is a normal day" note for the Below-$ field, or null when unknowable. */
+    atrHint: String?,
     onSave: (Double?, Double?, AssetAlerts) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2822,7 +2987,7 @@ private fun HoldingsAndAlertsSection(
     }
 
     // ----- Alerts (toggle rows; arm/disarm live, set the numbers in the sheet) -----
-    val activeAlerts = listOfNotNull(alerts.priceAbove, alerts.priceBelow, alerts.percentUp, alerts.percentDown).size
+    val activeAlerts = alerts.activeCount
 
     @Composable
     fun AlertRow(label: String, valueText: String?, valueColor: androidx.compose.ui.graphics.Color, cleared: AssetAlerts) {
@@ -2880,19 +3045,48 @@ private fun HoldingsAndAlertsSection(
         }
         AlertRow(
             "Crosses above", alerts.priceAbove?.let { "$" + numText(it) }, GainGreen,
-            AssetAlerts(priceAbove = null, priceBelow = alerts.priceBelow, percentUp = alerts.percentUp, percentDown = alerts.percentDown),
+            alerts.copy(priceAbove = null),
         )
         AlertRow(
             "Falls below", alerts.priceBelow?.let { "$" + numText(it) }, LossRed,
-            AssetAlerts(priceAbove = alerts.priceAbove, priceBelow = null, percentUp = alerts.percentUp, percentDown = alerts.percentDown),
+            alerts.copy(priceBelow = null),
         )
         AlertRow(
             "Jumps in a day", alerts.percentUp?.let { "≥ " + numText(it) + "%" }, GainGreen,
-            AssetAlerts(priceAbove = alerts.priceAbove, priceBelow = alerts.priceBelow, percentUp = null, percentDown = alerts.percentDown),
+            alerts.copy(percentUp = null),
         )
         AlertRow(
             "Drops in a day", alerts.percentDown?.let { "≥ " + numText(it) + "%" }, LossRed,
-            AssetAlerts(priceAbove = alerts.priceAbove, priceBelow = alerts.priceBelow, percentUp = alerts.percentUp, percentDown = null),
+            alerts.copy(percentDown = null),
+        )
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+        // Conditions, not levels. Each is a change of state rather than a price being touched, so
+        // they arm with a switch and carry no number to edit.
+        AlertCondition.entries.forEach { cond ->
+            val on = cond in alerts.conditions
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    cond.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = on,
+                    onCheckedChange = { checked ->
+                        val next = if (checked) alerts.conditions + cond else alerts.conditions - cond
+                        onSave(shares, avgCost, alerts.copy(conditions = next))
+                    },
+                )
+            }
+        }
+        Text(
+            "Checked on daily closes, roughly every 15 minutes. A condition that cannot be " +
+                "evaluated says so rather than staying quiet.",
+            style = MaterialTheme.typography.labelSmall,
+            color = neutral,
         )
         Text(
             "Flip a switch to disarm; tap ✎ to set or change a level.",
@@ -2907,6 +3101,7 @@ private fun HoldingsAndAlertsSection(
             shares = shares,
             avgCost = avgCost,
             alerts = alerts,
+            atrHint = atrHint,
             onDismiss = { showSheet = false },
             onSave = { s, c, a -> onSave(s, c, a); showSheet = false },
         )
@@ -2956,6 +3151,7 @@ private fun EditPositionSheet(
     shares: Double?,
     avgCost: Double?,
     alerts: AssetAlerts,
+    atrHint: String?,
     onDismiss: () -> Unit,
     onSave: (Double?, Double?, AssetAlerts) -> Unit,
 ) {
@@ -2987,6 +3183,16 @@ private fun EditPositionSheet(
                 OutlinedTextField(above, { above = it }, label = { Text("Above $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
                 OutlinedTextField(below, { below = it }, label = { Text("Below $") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
             }
+            // The 80% of "alert me 2 ATR below" that costs nothing: show the distance and let the
+            // user type the level. A stored ATR MULTIPLE would need an anchor price and timestamp to
+            // mean anything — recomputed from the latest close it would chase price forever — and
+            // that is a serialization field, an evaluation loop and a staleness duty for a number the
+            // user can read off this line and type once.
+            atrHint?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(pctUp, { pctUp = it }, label = { Text("Up ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
                 OutlinedTextField(pctDown, { pctDown = it }, label = { Text("Down ≥ %") }, singleLine = true, keyboardOptions = decimal, modifier = Modifier.weight(1f))
@@ -3015,7 +3221,10 @@ private fun EditPositionSheet(
                     onSave(
                         NumberInput.parseOrNull(sharesText)?.takeIf { it > 0.0 },
                         NumberInput.parseOrNull(costText)?.takeIf { it > 0.0 },
-                        AssetAlerts(
+                        // copy(), not a fresh AssetAlerts: every field this sheet does not edit —
+                        // the armed conditions among them — would otherwise silently reset to its
+                        // default each time Save is tapped.
+                        alerts.copy(
                             priceAbove = NumberInput.parseOrNull(above),
                             priceBelow = NumberInput.parseOrNull(below),
                             percentUp = NumberInput.parseOrNull(pctUp),

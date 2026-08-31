@@ -20,6 +20,7 @@ fun List<PricePoint>.asPercentChange(): List<PricePoint> {
             price = (it.price / base - 1.0) * 100.0,
             high = it.high?.let { h -> (h / base - 1.0) * 100.0 },
             low = it.low?.let { l -> (l / base - 1.0) * 100.0 },
+            open = it.open?.let { o -> (o / base - 1.0) * 100.0 },
         )
     }
 }
@@ -159,25 +160,69 @@ private fun rsiFrom(avgGain: Double, avgLoss: Double): Double = when {
 /** MACD: line = EMA(fast) − EMA(slow); signal = EMA(signalP) of the line; histogram = line − signal. */
 data class MacdResult(val macd: List<Double?>, val signal: List<Double?>, val histogram: List<Double?>)
 
-/** Stochastic oscillator on close prices: %K over [period], %D = SMA([smoothD]) of %K. Both 0..100. */
-fun stochastic(values: List<Double>, period: Int = 14, smoothD: Int = 3): Pair<List<Double?>, List<Double?>> {
-    val k = MutableList<Double?>(values.size) { null }
-    for (i in values.indices) {
+/**
+ * Stochastic oscillator, per Pine Script's reference semantics:
+ *
+ *     %K = 100 * (close - lowest(low, period)) / (highest(high, period) - lowest(low, period))
+ *     %D = SMA(%K, smoothD)
+ *
+ * The window's extremes come from the BAR HIGHS AND LOWS, not from the closes. Taking them from the
+ * closes — which this did until 2026-08-30 — makes %K read exactly 0 whenever the current close is
+ * the window's lowest close and exactly 100 whenever it is the highest. Measured over 1-2 years of
+ * daily bars on AAPL, NVDA, MSFT, AMD, SPY and BTC-USD, that pinned ~30% of bars to an extreme
+ * against 0-1% for a true stochastic, and moved 9-19% of bars across the 20/80 zone call. Since
+ * [com.stocktracker.app.signals.SignalEngine] scores an extreme reading as maximum conviction, a
+ * third of its stochastic component was a binary flag wearing an oscillator's label.
+ *
+ * A value is produced only where every bar in the window reports a coherent high and low.
+ * [barHigh]/[barLow] deliberately are NOT used here: their fallback to the close is right for a
+ * high/low marker and would silently reinstate the close-basis formula under a label claiming
+ * otherwise. Close-only series — CoinGecko's fallback path, the signals service's Webull history —
+ * therefore produce no oscillator at all, and a single nulled bar suppresses only the windows that
+ * contain it rather than splicing extremes across the hole.
+ */
+fun stochastic(
+    points: List<PricePoint>,
+    period: Int = 14,
+    smoothD: Int = 3,
+): Pair<List<Double?>, List<Double?>> {
+    val k = MutableList<Double?>(points.size) { null }
+    for (i in points.indices) {
         if (i < period - 1) continue
         var lo = Double.MAX_VALUE
         var hi = -Double.MAX_VALUE
+        var complete = true
         for (j in (i - period + 1)..i) {
-            if (values[j] < lo) lo = values[j]
-            if (values[j] > hi) hi = values[j]
+            val h = points[j].high
+            val l = points[j].low
+            if (h == null || l == null || !h.isFinite() || !l.isFinite() || h < l) {
+                complete = false
+                break
+            }
+            if (l < lo) lo = l
+            if (h > hi) hi = h
         }
-        k[i] = if (hi > lo) 100.0 * (values[i] - lo) / (hi - lo) else 50.0
+        if (!complete) continue
+        val close = points[i].price
+        k[i] = if (hi > lo) 100.0 * (close - lo) / (hi - lo) else 50.0
     }
-    val firstIdx = k.indexOfFirst { it != null }
-    val d = MutableList<Double?>(values.size) { null }
-    if (firstIdx >= 0) {
-        val tail = k.subList(firstIdx, k.size).map { it ?: 0.0 }
-        val dTail = simpleMovingAverage(tail, smoothD)
-        for (i in dTail.indices) d[firstIdx + i] = dTail[i]
+
+    // %D is a plain SMA over %K, computed per-window rather than over the contiguous tail: %K can now
+    // carry interior holes, and the old `it ?: 0.0` would have folded a hole in as a reading of zero.
+    val d = MutableList<Double?>(points.size) { null }
+    for (i in points.indices) {
+        if (i < smoothD - 1) continue
+        var sum = 0.0
+        var complete = true
+        for (j in (i - smoothD + 1)..i) {
+            val v = k[j]
+            if (v == null) {
+                complete = false
+                break
+            }
+            sum += v
+        }
+        if (complete) d[i] = sum / smoothD
     }
     return k to d
 }
@@ -206,4 +251,242 @@ fun macd(values: List<Double>, fast: Int = 12, slow: Int = 26, signalP: Int = 9)
         if (m != null && g != null) hist[i] = m - g
     }
     return MacdResult(line, signal, hist)
+}
+
+/**
+ * Pine's `ta.tr(true)` — the bar's true range, `max(high - low, |high - prevClose|, |low - prevClose|)`.
+ *
+ * The first bar has no previous close, so it falls back to `high - low`; that is what the `true`
+ * argument means in Pine, and it is the form `ta.atr` is defined over. A bar missing either extreme,
+ * or reporting a high below its own low, yields null rather than a range computed off the close —
+ * the same rule [stochastic] applies, for the same reason: a close has no memory of the range traded
+ * inside its bar, so substituting it invents a quiet day that may not have happened.
+ */
+fun trueRange(points: List<PricePoint>): List<Double?> {
+    val out = MutableList<Double?>(points.size) { null }
+    for (i in points.indices) {
+        val h = points[i].high
+        val l = points[i].low
+        if (h == null || l == null || !h.isFinite() || !l.isFinite() || h < l) continue
+        val prevClose = if (i > 0) points[i - 1].price.takeIf { it.isFinite() } else null
+        out[i] = if (prevClose == null) {
+            h - l
+        } else {
+            maxOf(h - l, kotlin.math.abs(h - prevClose), kotlin.math.abs(l - prevClose))
+        }
+    }
+    return out
+}
+
+/**
+ * Pine's `ta.rma` — Wilder's smoothing: `alpha = 1 / length`, seeded with the SMA of the first full
+ * window.
+ *
+ * It is NOT [exponentialMovingAverage] with `2 * length - 1`. The recursion coefficient of the two
+ * does coincide — `2 / ((2n - 1) + 1) = 1 / n` — which is why the substitution is so often made, and
+ * TradingView's own DMI help page describes the smoothing as an "Exponential Moving Average" while
+ * the shipped Pine uses `ta.rma`. The SEED does not coincide: this module's EMA seeds on the mean of
+ * the first `2n - 1` values and so produces nothing until index `2n - 2`, where RMA seeds on the mean
+ * of the first `n` and starts at index `n - 1`. For n = 14 that is a 13-bar difference in where the
+ * series begins and a permanently different level thereafter, since neither ever forgets its seed.
+ *
+ * A null breaks the recursion rather than being skipped or treated as zero: the series restarts,
+ * re-seeding from the first full window of values after the hole. Carrying the average across a gap
+ * would smooth two non-adjacent runs into one.
+ */
+fun wilderRma(values: List<Double?>, period: Int): List<Double?> {
+    val out = MutableList<Double?>(values.size) { null }
+    if (period < 1 || values.isEmpty()) return out
+    val alpha = 1.0 / period
+
+    var prev: Double? = null
+    var runStart = -1          // index where the current unbroken non-null run began
+    for (i in values.indices) {
+        val v = values[i]
+        if (v == null || !v.isFinite()) {
+            prev = null
+            runStart = -1
+            continue
+        }
+        if (runStart < 0) runStart = i
+        if (prev != null) {
+            prev = alpha * v + (1.0 - alpha) * prev
+            out[i] = prev
+        } else if (i - runStart + 1 >= period) {
+            var sum = 0.0
+            for (j in (i - period + 1)..i) sum += values[j]!!
+            prev = sum / period
+            out[i] = prev
+        }
+    }
+    return out
+}
+
+/** Pine's `ta.atr` — [wilderRma] of [trueRange]. In price units, so it reads as a stop distance. */
+fun atr(points: List<PricePoint>, period: Int = 14): List<Double?> =
+    wilderRma(trueRange(points), period)
+
+/**
+ * The median gap between consecutive bars, in milliseconds, or null when there are too few to tell.
+ *
+ * Read off the plotted data rather than derived from the requested range, because the range does not
+ * determine the bar size on its own: `ChartRange.MONTH` is 30-minute bars for a stock
+ * (`YahooFinanceService.rangeParams`) and daily bars for crypto (`YahooFinanceService.cryptoHistory`).
+ * A label built from the range would therefore be wrong for one of the two. Median, not mean, so
+ * weekends and holidays do not stretch a daily series into something else.
+ */
+fun medianBarSpacingMs(points: List<PricePoint>): Long? {
+    if (points.size < 3) return null
+    val gaps = ArrayList<Long>(points.size - 1)
+    for (i in 1 until points.size) {
+        val d = points[i].epochMs - points[i - 1].epochMs
+        if (d > 0) gaps.add(d)
+    }
+    if (gaps.isEmpty()) return null
+    gaps.sort()
+    return gaps[gaps.size / 2]
+}
+
+/**
+ * A short human label for a bar size — "5m", "1h", "1d". Snapped to the nearest common interval
+ * rather than printed exactly, since real feeds jitter by seconds.
+ *
+ * This exists so an indicator denominated in bars cannot be misread as one denominated in days. An
+ * "ATR 14" beside a stop distance means fourteen DAYS of range on a 1Y chart and fourteen MINUTES of
+ * it on a 1D chart, and nothing on the pane would otherwise say which.
+ */
+fun barSpacingLabel(ms: Long?): String? {
+    if (ms == null || ms <= 0) return null
+    val known = listOf(
+        60_000L to "1m", 300_000L to "5m", 900_000L to "15m", 1_800_000L to "30m",
+        3_600_000L to "1h", 86_400_000L to "1d", 604_800_000L to "1wk", 2_592_000_000L to "1mo",
+    )
+    val best = known.minByOrNull { kotlin.math.abs(it.first - ms) } ?: return null
+    // Within 25% of a known interval, call it that; otherwise say nothing rather than guess.
+    return if (kotlin.math.abs(best.first - ms).toDouble() / best.first <= 0.25) best.second else null
+}
+
+/** One price bucket of a volume profile: how much traded in [lo]..[hi], split by bar direction. */
+data class VolumeRow(val lo: Double, val hi: Double, val up: Double, val down: Double) {
+    val total: Double get() = up + down
+    val mid: Double get() = (lo + hi) / 2.0
+}
+
+/**
+ * A volume profile over a window of bars: where volume transacted, rather than when.
+ *
+ * [poc] is the point of control — the price bucket that traded the most. [valueAreaLow]..[valueAreaHigh]
+ * is the contiguous band around it holding [VALUE_AREA_SHARE] of the window's volume.
+ *
+ * [method] describes how the numbers were made and is meant to be shown, not stored. This profile
+ * spreads each bar's volume UNIFORMLY across its own high-low range, which is not TradingView's
+ * method — they build profiles from lower-timeframe intrabar data, which this app does not fetch. The
+ * shapes agree; the numbers will not reconcile with a TradingView chart, and a reader comparing the
+ * two deserves to know why rather than to discover it.
+ */
+data class VolumeProfile(
+    val rows: List<VolumeRow>,
+    val poc: Double,
+    val valueAreaLow: Double,
+    val valueAreaHigh: Double,
+    val method: String,
+)
+
+/** The conventional share of volume the value area covers. */
+const val VALUE_AREA_SHARE = 0.70
+
+/**
+ * Build a volume profile over `points[from..to]`.
+ *
+ * Returns null rather than a degenerate profile whenever the window cannot support one. The gate is
+ * PER BAR, not per source, and deliberately reads `high`/`low` directly instead of [barHigh]/[barLow]:
+ * those fall back to the close, which would collapse every bar onto a single bucket and draw a
+ * confident one-row profile out of a series that reports no ranges at all. The close-only paths —
+ * CoinGecko's fallback and the signals service's Webull history — are excluded by exactly that test.
+ *
+ * The CoinGecko path is worth naming twice, because it would be wrong here for a second and
+ * independent reason: its `volume` is `total_volumes`, a ROLLING 24-HOUR figure sampled once per
+ * point, so binning it counts the same trades once per bar rather than once.
+ */
+fun volumeProfile(points: List<PricePoint>, from: Int, to: Int, rows: Int = 64): VolumeProfile? {
+    if (rows < 2 || points.isEmpty()) return null
+    val lo0 = from.coerceIn(0, points.lastIndex)
+    val hi0 = to.coerceIn(0, points.lastIndex)
+    if (hi0 <= lo0) return null
+
+    val window = points.subList(lo0, hi0 + 1)
+    // Every bar in the window must carry a coherent range AND a volume. A partial window would
+    // profile some of the sessions and present the result as all of them.
+    if (window.any { p ->
+            val h = p.high
+            val l = p.low
+            val v = p.volume
+            h == null || l == null || v == null || !h.isFinite() || !l.isFinite() || h < l || v <= 0.0
+        }
+    ) return null
+
+    val pMin = window.minOf { it.low!! }
+    val pMax = window.maxOf { it.high!! }
+    if (!(pMax > pMin)) return null
+
+    val step = (pMax - pMin) / rows
+    val up = DoubleArray(rows)
+    val down = DoubleArray(rows)
+
+    for (p in window) {
+        val l = p.low!!
+        val h = p.high!!
+        val v = p.volume!!
+        // A bar that closed at or above its open is buying volume — the convention TradingView
+        // documents. A bar with no open reported still counts toward the profile, because its volume
+        // is real, but it is split evenly rather than assigned a direction it does not have: the
+        // colouring then reads as neutral instead of as a claim about who was buying.
+        val o = p.open
+        val first = ((l - pMin) / step).toInt().coerceIn(0, rows - 1)
+        val last = ((h - pMin) / step).toInt().coerceIn(0, rows - 1)
+        val share = v / (last - first + 1)
+        for (r in first..last) {
+            when {
+                o == null -> { up[r] += share / 2.0; down[r] += share / 2.0 }
+                p.price >= o -> up[r] += share
+                else -> down[r] += share
+            }
+        }
+    }
+
+    val buckets = (0 until rows).map {
+        VolumeRow(lo = pMin + it * step, hi = pMin + (it + 1) * step, up = up[it], down = down[it])
+    }
+    val total = buckets.sumOf { it.total }
+    if (total <= 0.0) return null
+
+    val pocIdx = buckets.indices.maxByOrNull { buckets[it].total } ?: return null
+
+    // TradingView's documented value-area walk: start at the point of control, repeatedly compare
+    // the next row above against the next row below, add the larger, and advance only that side.
+    // Ties resolve toward the POC and then upward. Stop once the accumulated volume reaches the
+    // target share.
+    var lowIdx = pocIdx
+    var highIdx = pocIdx
+    var acc = buckets[pocIdx].total
+    val target = total * VALUE_AREA_SHARE
+    while (acc < target && (lowIdx > 0 || highIdx < rows - 1)) {
+        val above = if (highIdx < rows - 1) buckets[highIdx + 1].total else -1.0
+        val below = if (lowIdx > 0) buckets[lowIdx - 1].total else -1.0
+        if (above >= below) {
+            highIdx++
+            acc += above
+        } else {
+            lowIdx--
+            acc += below
+        }
+    }
+
+    return VolumeProfile(
+        rows = buckets,
+        poc = buckets[pocIdx].mid,
+        valueAreaLow = buckets[lowIdx].lo,
+        valueAreaHigh = buckets[highIdx].hi,
+        method = "volume spread evenly across each bar's range — not TradingView's intrabar method",
+    )
 }

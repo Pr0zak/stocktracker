@@ -2453,11 +2453,25 @@ data class MarketBreadth(
     @SerialName("near_52w_high") val near52wHigh: Int? = null,
     @SerialName("near_52w_high_pct") val near52wHighPct: Double? = null,
     /**
-     * Currently always null by design on the server: the store keeps 90 nights, not 52 weeks, so it
-     * cannot derive a low-side extreme. A rendered 0 would be a bullish all-clear made out of a
-     * missing column, so this must render as "not measured".
+     * Measured since the server gained `pct_off_52w_low` on 2026-08-31. Still null for every night
+     * stored before that, which cannot be backfilled — the store keeps recent nights, not 52 weeks
+     * of history per row. A rendered 0 would be a bullish all-clear made out of a missing column,
+     * so null must render as "not measured", never as a count.
      */
     @SerialName("new_52w_lows") val new52wLows: Int? = null,
+    /** The low-side mirror of [near52wHigh]: names within [near52wLowPct]% of a 52-week low. */
+    @SerialName("near_52w_low") val near52wLow: Int? = null,
+    @SerialName("near_52w_low_pct") val near52wLowPct: Double? = null,
+    /**
+     * `near_52w_high - near_52w_low`. Negative is the classic internal divergence — more names
+     * sitting near their lows than near their highs, whatever the index did.
+     *
+     * Built on the BAND counts, not the strict ones: a closing extreme measured against intraday
+     * extremes fires only when a name closes on the exact tick of its year, so both strict counts
+     * read near zero on almost every night and their difference would be noise. Null whenever
+     * either side is unmeasured — a one-sided night reports nothing rather than half a divergence.
+     */
+    @SerialName("high_low_diff") val highLowDiff: Int? = null,
     @SerialName("age_hours") val ageHours: Double? = null,
 )
 

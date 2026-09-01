@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.data.remote.CalendarEvent
+import com.stocktracker.app.data.remote.CalendarResponse
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.first
@@ -42,7 +43,7 @@ import java.time.format.DateTimeFormatter
 
 private sealed interface CalState {
     data object Loading : CalState
-    data class Ready(val events: List<CalendarEvent>) : CalState
+    data class Ready(val resp: CalendarResponse) : CalState
     data class Error(val message: String) : CalState
 }
 
@@ -63,7 +64,7 @@ fun CalendarScreen(onBack: () -> Unit, symbol: String? = null) {
             CalState.Error("Set your Signals service URL in Settings → AI analyst to see the calendar.")
         } else {
             runCatching { SignalsApiService().calendar(base, symbol) }.getOrNull()
-                ?.let { CalState.Ready(it.events) }
+                ?.let { CalState.Ready(it) }
                 ?: CalState.Error("Couldn't load the calendar from the signals service.")
         }
     }
@@ -104,10 +105,17 @@ fun CalendarScreen(onBack: () -> Unit, symbol: String? = null) {
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (s.events.isEmpty()) {
+                if (s.resp.events.isEmpty()) {
                     item { Text("No upcoming events found.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
-                items(s.events) { e -> EventRow(e) }
+                items(s.resp.events) { e -> EventRow(e) }
+                // Two ways this list can be less than the whole truth, and both used to be invisible.
+                if (s.resp.isTruncated) {
+                    item { TruncationNote(s.resp) }
+                }
+                if (s.resp.earningsUnchecked.isNotEmpty()) {
+                    item { UncheckedNote(s.resp.earningsUnchecked) }
+                }
                 item {
                     Text(
                         "SI and FTD data publish with a lag — shown for awareness, not timing. Not advice.",
@@ -119,6 +127,42 @@ fun CalendarScreen(onBack: () -> Unit, symbol: String? = null) {
         }
     }
 }
+
+/**
+ * The server caps how many rows it returns. Saying so — with the count and the date the list stops
+ * at — is the difference between "nothing else is coming up" and "we stopped showing you here".
+ */
+@Composable
+private fun TruncationNote(resp: CalendarResponse) {
+    val total = resp.eventsTotal
+    val through = resp.truncatedAfter?.let { runCatching { longDate(it) }.getOrDefault(it) }
+    Text(
+        buildString {
+            append("Showing ${resp.events.size}")
+            if (total != null) append(" of $total")
+            append(" events")
+            if (through != null) append(", through $through")
+            append(".")
+        },
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** Symbols whose earnings lookup failed. Absent from the list above is not the same as nothing due. */
+@Composable
+private fun UncheckedNote(symbols: List<String>) {
+    Text(
+        "Couldn't check earnings dates for ${symbols.joinToString(", ")} — " +
+            "they may have events not shown here.",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.error,
+    )
+}
+
+private fun longDate(iso: String): String =
+    LocalDate.parse(iso, DateTimeFormatter.ISO_LOCAL_DATE)
+        .format(DateTimeFormatter.ofPattern("d MMM yyyy"))
 
 private fun relativeDay(iso: String): String = runCatching {
     val d = LocalDate.parse(iso, DateTimeFormatter.ISO_LOCAL_DATE)

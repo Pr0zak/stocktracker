@@ -1544,8 +1544,22 @@ data class PortfolioPosition(
     val value: Double = 0.0,
 )
 
+/** GET /calendar — the catalyst timeline. [eventsTotal] is how many events existed BEFORE the
+ *  server's row cap, and [truncatedAfter] is the date the shown list stops at when it did cut (null
+ *  when nothing was dropped). Both exist because the cap used to be silent: measured 2026-09-01, the
+ *  list ended at GOOGL on 27 Oct while AAPL, XOM and Berkshire were all looked up successfully and
+ *  then sliced off, so "when does Apple report" had no answer and no reason. */
 @Serializable
-data class CalendarResponse(val events: List<CalendarEvent> = emptyList())
+data class CalendarResponse(
+    val events: List<CalendarEvent> = emptyList(),
+    @SerialName("events_total") val eventsTotal: Int? = null,
+    @SerialName("truncated_after") val truncatedAfter: String? = null,
+    // Symbols whose earnings lookup FAILED. Their events are missing, not absent (NEWS-7).
+    @SerialName("earnings_unchecked") val earningsUnchecked: List<String> = emptyList(),
+) {
+    /** True only when the server actually dropped rows — never inferred from the list's length. */
+    val isTruncated: Boolean get() = truncatedAfter != null
+}
 
 @Serializable
 data class CalendarEvent(

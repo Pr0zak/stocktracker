@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.data.model.CallPosition
+import com.stocktracker.app.data.model.RiskMultiple
 import com.stocktracker.app.data.remote.OptionCandidate
 import com.stocktracker.app.data.remote.OptionsResponse
 import com.stocktracker.app.ui.ideas.usd
@@ -99,9 +100,14 @@ fun CallEntryDialog(
     val strike = strikeText.trim().toDoubleOrNull()
     val contracts = contractsText.trim().toIntOrNull()
     val fill = fillText.trim().toDoubleOrNull()
+    // SWT-11. The stop is required, because it is R's denominator: a position logged without one can
+    // never be scored, and that is only discovered after it closes, when the number can no longer be
+    // recovered. The test is RiskMultiple's own, so a value the form accepts is a value that scores.
+    val stopPct = stopText.trim().toDoubleOrNull()
+    val stopUsable = RiskMultiple.isUsableStopPct(stopPct)
     val valid = symbol.isNotBlank() && strike != null && strike > 0 &&
         contracts != null && contracts >= 1 && fill != null && fill > 0 &&
-        expiryTs != null && expiryIso.isNotBlank()
+        expiryTs != null && expiryIso.isNotBlank() && stopUsable
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -165,23 +171,46 @@ fun CallEntryDialog(
                     )
                 }
 
+                // Required, and in the main form rather than behind "Advanced", because it decides
+                // whether this trade can ever be measured. Pre-filled with the same default the exit
+                // alerts already assume, so the common path is one glance rather than one decision.
+                OutlinedTextField(
+                    value = stopText,
+                    onValueChange = { stopText = it },
+                    label = { Text("Stop %") },
+                    suffix = { Text("%") },
+                    singleLine = true,
+                    isError = stopText.isNotBlank() && !stopUsable,
+                    supportingText = {
+                        Text(
+                            when {
+                                stopText.isBlank() ->
+                                    "Required — without it this trade can never be scored in R."
+                                !stopUsable ->
+                                    "Enter a number above 0 and up to 100. You cannot risk more than " +
+                                        "the premium you paid."
+                                fill != null && fill > 0 -> {
+                                    val price = RiskMultiple.stopPriceFromPct(fill, stopPct)
+                                    "Bail if the premium falls to ${usd(price ?: 0.0)} — risking " +
+                                        "${usd((fill - (price ?: 0.0)) * 100.0 * (contracts ?: 1))} in total."
+                                }
+                                else -> "The share of the premium you are willing to lose."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
                 TextButton(onClick = { advanced = !advanced }) {
-                    Text(if (advanced) "Hide advanced" else "Advanced · take-profit / stop / notes")
+                    Text(if (advanced) "Hide advanced" else "Advanced · take-profit / notes")
                 }
                 if (advanced) {
                     OutlinedTextField(
                         value = tpText,
                         onValueChange = { tpText = it },
                         label = { Text("Take-profit %") },
-                        suffix = { Text("%") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = stopText,
-                        onValueChange = { stopText = it },
-                        label = { Text("Stop %") },
                         suffix = { Text("%") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -211,7 +240,7 @@ fun CallEntryDialog(
                             fillPrice = fill!!,
                             openDateIso = openIso,
                             takeProfitPct = tpText.trim().toDoubleOrNull(),
-                            stopPct = stopText.trim().toDoubleOrNull(),
+                            stopPct = stopPct, // validated above; `valid` gates the button on it
                             notes = notes.trim().ifBlank { null },
                         ),
                     )

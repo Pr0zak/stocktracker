@@ -68,11 +68,25 @@ object RiskMultiple {
      * input. Exactly 100.0 is legal and means "risk the whole premium" (stop price $0).
      */
     fun stopPriceFromPct(entry: Double, stopPct: Double?): Double? {
-        if (stopPct == null || !stopPct.isFinite()) return null
+        if (!isUsableStopPct(stopPct)) return null
         if (!entry.isFinite() || entry <= 0.0) return null
-        if (stopPct <= 0.0 || stopPct > 100.0) return null
-        return entry * (1.0 - stopPct / 100.0)
+        return entry * (1.0 - stopPct!! / 100.0)
     }
+
+    /**
+     * Whether a stop percent can actually be scored in R — the same test [stopPriceFromPct] applies,
+     * named so the ENTRY form can apply it too (SWT-11).
+     *
+     * It exists because the two ends had drifted apart in the only way that matters. The entry dialog
+     * accepted whatever `toDoubleOrNull()` returned, including nothing at all if the field was
+     * cleared and including 150, and the record stored it without complaint. The scoring end then
+     * rejected exactly those values and returned null — so the position was accepted at entry,
+     * displayed like any other, and turned out to be permanently unscoreable only once it closed and
+     * someone looked for its R. A stop that will not survive this predicate is not a stop, and the
+     * cheapest place to say so is before the trade is logged, while the number can still be changed.
+     */
+    fun isUsableStopPct(stopPct: Double?): Boolean =
+        stopPct != null && stopPct.isFinite() && stopPct > 0.0 && stopPct <= 100.0
 
     /** [rMultiple] for an entry whose stop is a percent of that entry — see [stopPriceFromPct]. */
     fun rMultipleFromStopPct(entry: Double, exit: Double, stopPct: Double?): Double? =

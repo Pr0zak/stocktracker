@@ -87,22 +87,43 @@ class YahooFinanceService {
      *
      * [ticker] is the crypto ticker (e.g. "BTC"); "-USD" is appended here.
      */
+    /**
+     * The Yahoo window + interval for a crypto chart of [range], as query params.
+     *
+     * Yahoo has no "3y" range literal and its `range=max` silently truncates crypto to ~3 years, so
+     * these windows are pinned with an explicit `period1` rather than a range keyword. Pinned windows
+     * are TRAILING, which is the right shape for an asset that never closes: "1D" on a 24/7 market
+     * means the last 24 hours, not "since midnight UTC".
+     *
+     * Each window is exactly its own width, and that is the whole point of this function existing.
+     * They used to carry slack — 2 days for DAY, 8 for WEEK, 32/95/370 for the rest — copied from the
+     * reasoning the STOCK path needs, where a Monday morning must reach back over a weekend to find
+     * the last session. Crypto has no weekend to reach over, so the slack was simply extra chart:
+     * measured against live BTC-USD on 2026-09-03, the "1D" chart spanned 48.0 hours and read
+     * -0.40% while the true trailing 24 hours was +1.32%. Not merely a wrong magnitude — the
+     * opposite sign, under a label that says one day. The same series feeds the watchlist and widget
+     * sparklines, so their previous-close baseline sat mid-line instead of at the left edge.
+     */
+    internal fun cryptoChartParams(range: ChartRange, now: Long): String {
+        fun trailing(days: Long, interval: String) =
+            "period1=${now - days * 86_400}&period2=$now&interval=$interval"
+        return when (range) {
+            ChartRange.DAY -> trailing(1, "5m")
+            ChartRange.WEEK -> trailing(7, "30m")
+            ChartRange.MONTH -> trailing(30, "1d")
+            ChartRange.QUARTER -> trailing(91, "1d")     // a quarter, not 95 days
+            ChartRange.YEAR -> trailing(365, "1d")
+            ChartRange.THREE_YEAR -> trailing(3 * 365, "1d")
+            // range=max&interval=1wk silently truncates crypto to ~3y (verified), so pin to 2010 —
+            // before any of these coins traded, so it is a real "everything" rather than a window.
+            ChartRange.ALL -> "period1=1262304000&period2=$now&interval=1wk"
+        }
+    }
+
     suspend fun cryptoHistory(ticker: String, range: ChartRange): List<PricePoint> {
         val enc = yahooSymbol("$ticker-USD")
         val now = System.currentTimeMillis() / 1000
-        // Per-range Yahoo window + interval: intraday for short views, daily for medium, weekly for
-        // ALL. Yahoo has no "3y"/"2d" range literals, so pin period1 explicitly.
-        val params = when (range) {
-            ChartRange.DAY -> "period1=${now - 2L * 86_400}&period2=$now&interval=5m"
-            ChartRange.WEEK -> "period1=${now - 8L * 86_400}&period2=$now&interval=30m"
-            ChartRange.MONTH -> "period1=${now - 32L * 86_400}&period2=$now&interval=1d"
-            ChartRange.QUARTER -> "period1=${now - 95L * 86_400}&period2=$now&interval=1d"
-            ChartRange.YEAR -> "period1=${now - 370L * 86_400}&period2=$now&interval=1d"
-            ChartRange.THREE_YEAR -> "period1=${now - 3L * 365 * 86_400}&period2=$now&interval=1d"
-            // range=max&interval=1wk silently truncates crypto to ~3y (verified), so pin period1 to 2010.
-            ChartRange.ALL -> "period1=1262304000&period2=$now&interval=1wk"
-        }
-        val path = "v8/finance/chart/$enc?$params"
+        val path = "v8/finance/chart/$enc?${cryptoChartParams(range, now)}"
         val result = fetchChart(path).chart.result?.firstOrNull() ?: return emptyList()
         val timestamps = result.timestamp ?: return emptyList()
         val quote0 = result.indicators?.quote?.firstOrNull()

@@ -787,13 +787,26 @@ fun PriceChart(
             if (zoomable && winSize.floatValue < 1f) plotNotes += "double-tap to reset zoom"
 
             run {
+                // Each note gets a surface-coloured plate behind it. The notes share the bottom-left
+                // corner with the y-axis low label, the scrub readout and the dividend markers, and
+                // drawn bare they were struck through by all three — the "too many bars to draw as
+                // candles" line, which exists precisely to explain why the chart is not doing what
+                // was asked, was the least legible thing on the plot. A plate is used rather than a
+                // different corner because every corner of a price chart is occupied by something,
+                // and only this one is occupied by things a reader can afford to have covered.
                 val noteStyle = TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = muted)
-                var ny = plotBottom - 2f
+                var ny = plotBottom - 3f
                 plotNotes.asReversed().forEach { text ->
                     val lay = textMeasurer.measure(text, noteStyle)
-                    ny -= lay.size.height
+                    ny -= lay.size.height + 2f
                     if (ny < 0f) return@forEach
-                    drawText(lay, topLeft = Offset(2f, ny))
+                    drawRoundRect(
+                        color = surface.copy(alpha = 0.88f),
+                        topLeft = Offset(0f, ny - 1f),
+                        size = Size(lay.size.width + 6f, lay.size.height + 2f),
+                        cornerRadius = CornerRadius(3f, 3f),
+                    )
+                    drawText(lay, topLeft = Offset(3f, ny))
                 }
             }
 

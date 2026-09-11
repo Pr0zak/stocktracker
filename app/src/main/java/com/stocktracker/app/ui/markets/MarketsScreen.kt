@@ -32,7 +32,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.stocktracker.app.data.MarketContextStore
+import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.components.BackendStatusBanner
+import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.detail.ageAgo
+import com.stocktracker.app.ui.watchlist.DipRadarState
 
 /**
  * The Markets hub — the one structural move in this overhaul.
@@ -59,6 +67,16 @@ fun MarketsScreen(
     onOpenDips: () -> Unit = {},
     onOpenVix: () -> Unit = {},
 ) {
+    // The same reading the watchlist strip and the dip radar are looking at, from the one store
+    // that holds it. A hub whose rows only describe what is behind each door in the abstract asks
+    // the user to open all five to find out whether anything happened today.
+    val ctx = ServiceLocator.marketContext
+    val market by ctx.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        ctx.refreshScan()
+        ctx.refreshVix()
+    }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("Markets") }) },
     ) { padding ->
@@ -77,6 +95,7 @@ fun MarketsScreen(
                 title = "Market scan",
                 subtitle = "Where every name sits against the whole market, from the nightly scan. " +
                     "A rank, not a grade.",
+                status = scanStatus(market),
                 onClick = onOpenScan,
             )
             Door(
@@ -99,6 +118,7 @@ fun MarketsScreen(
                 icon = Icons.Filled.TrendingDown,
                 title = "Dip radar",
                 subtitle = "What is off its highs, and what the radar looked at and rejected.",
+                status = dipStatus(market),
                 onClick = onOpenDips,
             )
             // Likewise: the VIX gauge only existed if the strip was open, the setting was on, AND
@@ -107,6 +127,7 @@ fun MarketsScreen(
                 icon = Icons.Filled.Speed,
                 title = "Market fear · VIX",
                 subtitle = "The volatility index against its own bands, with the numbers on the scale.",
+                status = vixStatus(market),
                 onClick = onOpenVix,
             )
 
@@ -124,8 +145,66 @@ fun MarketsScreen(
     }
 }
 
+/**
+ * The live line under a row, or null where there is nothing true to put there.
+ *
+ * Three of these five rows lead to something this screen already holds a reading for, so they say
+ * it. The heat map and the catalyst calendar do not: nothing here has fetched either, and inventing
+ * a summary — or worse, a reassuring one — for a door whose contents nobody has looked at is the
+ * defect this app spends most of its comments on. Those two keep their description and no number.
+ */
+private data class DoorStatus(val text: String, val warn: Boolean = false)
+
+private fun scanStatus(m: MarketContextStore.State): DoorStatus? = when (m.dipRadar) {
+    // FRESHNESS ONLY, deliberately. The obvious thing to put here is a count, and the count this
+    // screen holds — dipCounts.scanned — is the dip radar's coverage of YOUR WATCHLIST, not the
+    // market scan's universe, which is thousands of names fetched by a different endpoint on the
+    // scan screen itself. The first cut said "14 names, scanned 7h ago" under a row called Market
+    // scan, which is a wrong number worn confidently. The age is a fact this screen actually has.
+    is DipRadarState.Ready -> m.scan?.generatedAt
+        ?.let { ageAgo(it.toString()) }
+        ?.let { DoorStatus("Scanned $it") }
+    is DipRadarState.Unreachable -> DoorStatus("Scan service unreachable", warn = true)
+    is DipRadarState.NotConfigured -> DoorStatus("No Signals service URL set", warn = true)
+    is DipRadarState.NoScan -> DoorStatus("No scan has run yet", warn = true)
+    DipRadarState.Loading -> null
+}
+
+private fun dipStatus(m: MarketContextStore.State): DoorStatus? = when (val s = m.dipRadar) {
+    // "Nothing qualified" is a claim about the market, and it is only ours to make when we are
+    // holding a scan that actually ran — see DipRadar's own note on why this is the one message
+    // that must never be emitted by default.
+    is DipRadarState.Ready -> {
+        // The denominator matters: "2 off their highs" alone leaves the reader to guess whether the
+        // radar looked at five names or five hundred. scanned is the radar's own partition total.
+        val of = s.counts.scanned?.let { " of $it" }.orEmpty()
+        when (val n = s.dips.size) {
+            0 -> DoorStatus("Nothing qualified" + (s.counts.scanned?.let { " out of $it names" } ?: " in the last scan"))
+            1 -> DoorStatus("1$of off its highs")
+            else -> DoorStatus("$n$of off their highs")
+        }
+    }
+    is DipRadarState.Unreachable -> DoorStatus("Couldn't reach the scan — not a calm market", warn = true)
+    is DipRadarState.NotConfigured -> DoorStatus("No Signals service URL set", warn = true)
+    is DipRadarState.NoScan -> DoorStatus("No scan has run yet", warn = true)
+    DipRadarState.Loading -> null
+}
+
+private fun vixStatus(m: MarketContextStore.State): DoorStatus? {
+    val v = m.vix ?: return if (m.vixFailed) DoorStatus("Couldn't load the VIX", warn = true) else null
+    val line = "${String.format("%.2f", v.value)} · ${v.zone.label.lowercase()}"
+    // A held reading whose last refresh failed says so rather than passing for the current one.
+    return if (m.vixFailed) DoorStatus("$line — last read, not current", warn = true) else DoorStatus(line)
+}
+
 @Composable
-private fun Door(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+private fun Door(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    status: DoorStatus? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -154,6 +233,13 @@ private fun Door(icon: ImageVector, title: String, subtitle: String, onClick: ()
         }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
+            status?.let {
+                Text(
+                    it.text,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (it.warn) Signal else MaterialTheme.colorScheme.onSurface,
+                )
+            }
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,

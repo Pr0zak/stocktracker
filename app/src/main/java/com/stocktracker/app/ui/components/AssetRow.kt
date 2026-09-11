@@ -38,6 +38,10 @@ import com.stocktracker.app.ui.theme.PriceMedium
 import com.stocktracker.app.ui.theme.Signal
 import com.stocktracker.app.ui.theme.NumberSmall
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 @Composable
 fun AssetRow(
@@ -50,7 +54,10 @@ fun AssetRow(
     onClick: () -> Unit,
     /** Yesterday's close — the level `changeText` is measured from. Draws the sparkline's baseline. */
     previousClose: Double? = null,
-    holdingsText: String? = null,
+    /** "41 sh" — the part that is never dropped. */
+    holdingsShares: String? = null,
+    /** "$15,397.96" — dropped whole when the row is too narrow for it. */
+    holdingsValue: String? = null,
     isCrypto: Boolean = false,
     isEtf: Boolean = false,
     belowLine: Boolean = false,
@@ -124,12 +131,23 @@ fun AssetRow(
                         modifier = Modifier.weight(1f, fill = false).padding(bottom = 1.dp),
                     )
                 }
-                if (holdingsText != null) {
+                if (holdingsShares != null) {
+                    // "41 sh · $15,397.96" was one string at maxLines = 1, so a narrow row clipped
+                    // it mid-value and left "41 sh ·" — a separator pointing at nothing, which is
+                    // the half-legible row this component's own rules forbid. The value is dropped
+                    // whole instead: measure it once, and if it does not fit, draw the shares alone.
+                    var valueFits by remember(holdingsShares, holdingsValue) { mutableStateOf(true) }
+                    val full = if (holdingsValue != null && valueFits) {
+                        "$holdingsShares · $holdingsValue"
+                    } else {
+                        holdingsShares
+                    }
                     Text(
-                        holdingsText,
+                        full,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
+                        onTextLayout = { if (it.hasVisualOverflow && valueFits) valueFits = false },
                     )
                 }
             }

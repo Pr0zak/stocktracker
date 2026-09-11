@@ -57,6 +57,12 @@ import kotlin.math.ln
 import kotlin.math.roundToInt
 import com.stocktracker.app.ui.theme.Signal
 
+// Material's small-text floor, and this app's. Chart annotations used to sit at 8sp and 9sp —
+// axis ticks, marker tags, and the plot notes that explain a degraded chart ("287 bars — too many
+// to draw as candles"). Those notes are the honesty layer of every chart: the one line that says
+// what you are looking at is not what you asked for. They were the least legible text in the app.
+private val CHART_TEXT_FLOOR = 11.sp
+
 /** An extra line drawn over the price chart (e.g. a moving average), aligned to the point indices. */
 data class ChartLineOverlay(
     val label: String,
@@ -241,7 +247,7 @@ fun PriceChart(
     val bandColor = muted.copy(alpha = 0.12f)
     val volColor = muted.copy(alpha = 0.28f)
     val textMeasurer = rememberTextMeasurer()
-    val labelStyle = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = onSurface)
+    val labelStyle = TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = onSurface)
 
     var selected by remember(points) { mutableStateOf<Int?>(null) } // global index into points
     // Report the scrubbed point up so callers (e.g. the detail header) can react.
@@ -514,7 +520,7 @@ fun PriceChart(
                     )
                     val pocLbl = textMeasurer.measure(
                         "POC " + valueFormatter(vp.poc),
-                        TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = muted),
+                        TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = muted),
                     )
                     drawText(pocLbl, topLeft = Offset(2f, (pocY - pocLbl.size.height - 1f).coerceAtLeast(0f)))
                     listOf(vp.valueAreaHigh, vp.valueAreaLow).forEach { lvl ->
@@ -642,13 +648,22 @@ fun PriceChart(
                 )
                 val costLabel = textMeasurer.measure(
                     "Cost " + valueFormatter(costLine),
-                    TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = muted),
+                    TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = muted),
                 )
                 val tw = costLabel.size.width.toFloat()
                 val th = costLabel.size.height.toFloat()
                 val lx = (size.width - tw - 3f).coerceAtLeast(0f)
                 var ly = cy - th - 3f
                 if (ly < 0f) ly = cy + 3f
+                // The plot notes own the bottom-left strip, and they are the honesty layer — the
+                // line that says this chart is not showing what you asked for. When a cost line
+                // sits near the floor the two used to print through each other, which is how
+                // "showing the close line" and "Cost $268.40" rendered as one unreadable smear.
+                // The note stays put; the reference label moves.
+                if (plotNotes.isNotEmpty()) {
+                    val noteBandTop = plotBottom - plotNotes.size * (th + 3f) - 3f
+                    if (ly + th > noteBandTop) ly = (noteBandTop - th - 3f).coerceAtLeast(0f)
+                }
                 drawRoundRect(
                     color = surface.copy(alpha = 0.78f),
                     topLeft = Offset(lx - 3f, ly - 1f),
@@ -671,7 +686,7 @@ fun PriceChart(
                 )
                 val lbl = textMeasurer.measure(
                     "200-wk " + valueFormatter(sma200wLine),
-                    TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = amber),
+                    TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = amber),
                 )
                 val tw2 = lbl.size.width.toFloat()
                 val th2 = lbl.size.height.toFloat()
@@ -734,7 +749,7 @@ fun PriceChart(
                     }
                     val cx = xg(best)
                     drawLine(mk.color.copy(alpha = 0.5f), Offset(cx, 0f), Offset(cx, plotBottom), strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f)))
-                    val tag = textMeasurer.measure(mk.label, TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = mk.color))
+                    val tag = textMeasurer.measure(mk.label, TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = mk.color))
                     val tw = tag.size.width.toFloat()
                     val th = tag.size.height.toFloat()
                     val tx = (cx - tw / 2f).coerceIn(0f, (size.width - tw).coerceAtLeast(0f))
@@ -760,7 +775,7 @@ fun PriceChart(
             // $180-$220 window, and an inverse mapping is precisely the machinery the scrub path
             // deliberately avoids by reading points[i].price straight from the data.
             if (showAxis) {
-                val tickStyle = TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = muted)
+                val tickStyle = TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = muted)
                 val nTicks = 4
                 // Levels that already carry their own labelled chip; a tick landing on one would
                 // print the same number twice, or worse, a slightly different one.
@@ -795,7 +810,7 @@ fun PriceChart(
                 // was asked, was the least legible thing on the plot. A plate is used rather than a
                 // different corner because every corner of a price chart is occupied by something,
                 // and only this one is occupied by things a reader can afford to have covered.
-                val noteStyle = TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = muted)
+                val noteStyle = TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = muted)
                 var ny = plotBottom - 3f
                 plotNotes.asReversed().forEach { text ->
                     val lay = textMeasurer.measure(text, noteStyle)
@@ -816,7 +831,7 @@ fun PriceChart(
                 var lx = 2f
                 overlays.forEach { ov ->
                     if (ov.label.isBlank()) return@forEach
-                    val layout = textMeasurer.measure(ov.label, TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = ov.color))
+                    val layout = textMeasurer.measure(ov.label, TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = ov.color))
                     val midY = 1f + layout.size.height / 2f
                     // The legend swatch carries the dash too — otherwise the key claims a solid
                     // line for something drawn dashed, which is the one place a legend must not lie.
@@ -872,7 +887,7 @@ fun PriceChart(
                 sp.guides.forEach { g ->
                     val gy = y(g)
                     drawLine(muted.copy(alpha = 0.3f), Offset(0f, gy), Offset(size.width, gy), strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f)))
-                    val gl = textMeasurer.measure(g.toInt().toString(), TextStyle(fontSize = 8.sp, color = muted))
+                    val gl = textMeasurer.measure(g.toInt().toString(), TextStyle(fontSize = CHART_TEXT_FLOOR, color = muted))
                     drawText(gl, topLeft = Offset(size.width - gl.size.width - 2f, (gy - gl.size.height / 2f).coerceIn(0f, size.height - gl.size.height)))
                 }
 
@@ -906,7 +921,7 @@ fun PriceChart(
                     }
                 }
 
-                val lbl = textMeasurer.measure(sp.label, TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = muted))
+                val lbl = textMeasurer.measure(sp.label, TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = muted))
                 drawText(lbl, topLeft = Offset(2f, 1f))
 
                 // Values for the scrubbed bar, or the newest visible bar at rest.
@@ -932,7 +947,7 @@ fun PriceChart(
                     val text = ln.label + " " + formatPaneValue(v)
                     val layout = textMeasurer.measure(
                         text,
-                        TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = ln.color),
+                        TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = ln.color),
                     )
                     // Clip rather than overlap: a narrow pane drops the trailing series instead of
                     // painting two numbers on top of each other.
@@ -961,8 +976,15 @@ fun PriceChart(
                 val vN = endIdx - startIdx + 1
                 if (vN < 2) return@Canvas
                 val stepX = size.width / (vN - 1)
-                val ticks = 4
-                val axisStyle = TextStyle(fontSize = 9.sp, color = muted)
+                val axisStyle = TextStyle(fontSize = CHART_TEXT_FLOOR, color = muted)
+                // Four ticks was a constant, and at the old 9sp four "Aug 20, 10:30 AM" labels
+                // happened to fit. At the 11sp floor they do not: the outer pairs ran into each
+                // other and rendered as "AMAug". So measure one and ask how many fit — the same
+                // rule the rest of the app uses, where a label either fits or is not drawn.
+                val sampleW = textMeasurer
+                    .measure(timeFormatter(points[endIdx].epochMs), axisStyle).size.width.toFloat()
+                val ticks = if (sampleW <= 0f) 4
+                    else (size.width / (sampleW * 1.3f)).toInt().coerceIn(2, 4)
                 for (t in 0 until ticks) {
                     val gi = startIdx + ((endIdx - startIdx) * t) / (ticks - 1)
                     val label = timeFormatter(points[gi].epochMs)

@@ -33,6 +33,7 @@ import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceMedium
 import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.theme.NumberSmall
 
 @Composable
 fun AssetRow(
@@ -145,7 +146,10 @@ fun AssetRow(
                 Text(priceText, style = PriceMedium, color = MaterialTheme.colorScheme.onSurface)
                 Text(
                     changeText,
-                    style = MaterialTheme.typography.bodySmall,
+                    // Mono and tabular, like the price it sits under. In bodySmall the two lines
+                    // disagreed about where the digits were, so the change appeared to shuffle
+                    // sideways under a price that stayed put.
+                    style = NumberSmall,
                     color = if (up) GainGreen else LossRed,
                     fontWeight = FontWeight.Medium,
                 )

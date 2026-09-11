@@ -38,6 +38,12 @@ import java.util.Locale
 import kotlin.math.abs
 import com.stocktracker.app.ui.theme.Signal
 
+// Material's small-text floor, and this app's. Chart annotations used to sit at 8sp and 9sp —
+// axis ticks, marker tags, and the plot notes that explain a degraded chart ("287 bars — too many
+// to draw as candles"). Those notes are the honesty layer of every chart: the one line that says
+// what you are looking at is not what you asked for. They were the least legible text in the app.
+private val CHART_TEXT_FLOOR = 11.sp
+
 // Green → red risk palette. Note the inversion vs a normal ticker: a HIGH reading is the "bad" end.
 private fun VixZone.color(): Color = when (this) {
     VixZone.CALM -> GainGreen
@@ -152,7 +158,7 @@ fun FearGauge(vix: VixQuote, modifier: Modifier = Modifier, onClick: (() -> Unit
                     val bx = (BOUNDS[i] / GAUGE_MAX).toFloat() * size.width
                     val lab = measurer.measure(
                         BOUNDS[i].toInt().toString(),
-                        TextStyle(fontSize = 8.sp, color = tickColor),
+                        TextStyle(fontSize = CHART_TEXT_FLOOR, color = tickColor),
                     )
                     drawText(
                         lab,

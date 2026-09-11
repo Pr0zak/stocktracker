@@ -1,0 +1,246 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;600&display=swap">
+  <style>
+    /* R2 "Ink" — the token layer, dark only. Every ratio here was computed against the
+       surface it is drawn on, and every count was re-run against the tree, not asserted. */
+    body { margin: 0; font-family: Roboto, system-ui, sans-serif; }
+    a { color: #B4A0FF; } a:hover { color: #CFC2FF; }
+    .m { font-family: "Roboto Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .h { font-size: 11px; font-weight: 700; letter-spacing: 1.6px; color: #8A94A2; }
+    .panel { background: #1C232C; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+    .sw { display: flex; align-items: center; gap: 12px; }
+    .chip { width: 40px; height: 40px; border-radius: 10px; flex: 0 0 auto; }
+    .nm { font-size: 13px; font-weight: 500; }
+    .hx { font-size: 12px; color: #A3ADBA; }
+    .ra { font-size: 12px; color: #A3ADBA; margin-left: auto; white-space: nowrap; }
+    .note { font-size: 12px; line-height: 1.6; color: #A3ADBA; }
+    .big { font-size: 15px; color: #B4A0FF; width: 44px; flex: 0 0 auto; }
+  </style>
+</helmet>
+
+<div style="width: 1120px; box-sizing: border-box; background: #0D1116; color: #E7EBF0; padding: 32px; display: flex; flex-direction: column; gap: 22px;">
+
+  <div style="display: flex; align-items: flex-end; gap: 20px; border-bottom: 1px solid #39424E; padding-bottom: 18px;">
+    <div style="flex: 1;">
+      <div class="h" style="color: #B4A0FF; margin-bottom: 8px;">RELEASE R2 · INK</div>
+      <div style="font-size: 30px; font-weight: 500; letter-spacing: -0.6px;">The token layer, dark only</div>
+      <div class="note" style="max-width: 76ch; margin-top: 8px;">A pure restyle: no screen moves, nothing is renamed, and it is reversible in one commit. It replaces every hardcoded colour literal in the tree with one source, and it is the release that actually fixes the thing the audit ranked first.</div>
+    </div>
+    <div style="text-align: right;">
+      <div class="m" style="font-size: 34px; font-weight: 600; color: #E7EBF0; letter-spacing: -1px;">1.92:1</div>
+      <div class="note" style="max-width: 24ch;">luminance between gain and loss, up from 1.59:1</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;">
+
+    <div class="panel">
+      <div class="h">SEMANTIC · DIRECTION</div>
+      <div class="sw">
+        <div class="chip" style="background: #5EDD9C;"></div>
+        <div><div class="nm">Gain</div><div class="hx m">#5EDD9C</div></div>
+        <div class="ra m">10.24:1</div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #E8663F;"></div>
+        <div><div class="nm">Loss</div><div class="hx m">#E8663F</div></div>
+        <div class="ra m">5.33:1</div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #8A94A2;"></div>
+        <div><div class="nm">Flat &amp; reference</div><div class="hx m">#8A94A2</div></div>
+        <div class="ra m">5.69:1</div>
+      </div>
+      <div class="note">Mint and coral rather than the shipping pastels: separated in lightness as well as hue, so the pair survives a monochrome render. This family carries direction — a move that happened, or a verdict about direction such as BEARISH or a shut gate. It is never spent on how confident the app is in its own data.</div>
+    </div>
+
+    <div class="panel">
+      <div class="h">SYSTEM · CONFIDENCE IN THE DATA</div>
+      <div class="sw">
+        <div class="chip" style="background: #B0872B;"></div>
+        <div><div class="nm">Signal</div><div class="hx m">#B0872B</div></div>
+        <div class="ra m">5.28:1</div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #F7A928;"></div>
+        <div><div class="nm">Crypto accent</div><div class="hx m">#F7A928</div></div>
+        <div class="ra m">8.87:1</div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #14B8A6;"></div>
+        <div><div class="nm">ETF accent</div><div class="hx m">#14B8A6</div></div>
+        <div class="ra m">7.02:1</div>
+      </div>
+      <div class="note">One amber, not four. Staleness, degraded data, a cached price, a dip tier and a blocked order all render in Signal; the class accents mark what KIND of instrument a row is, on the stripe and the ticker, so neither can be read as a good day.</div>
+    </div>
+
+    <div class="panel">
+      <div class="h">CHROME &amp; SURFACES</div>
+      <div class="sw">
+        <div class="chip" style="background: #B4A0FF;"></div>
+        <div><div class="nm">Primary</div><div class="hx m">#B4A0FF</div></div>
+        <div class="ra m">7.83:1</div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #E7EBF0;"></div>
+        <div><div class="nm">Ink</div><div class="hx m">#E7EBF0</div></div>
+        <div class="ra m">14.60:1</div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #A3ADBA;"></div>
+        <div><div class="nm">Ink · secondary</div><div class="hx m">#A3ADBA</div></div>
+        <div class="ra m">7.69:1</div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #0D1116; border: 1px solid #39424E;"></div>
+        <div><div class="nm">Background</div><div class="hx m">#0D1116</div></div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #1C232C; border: 1px solid #39424E;"></div>
+        <div><div class="nm">Card · one token</div><div class="hx m">#1C232C</div></div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #6B7787;"></div>
+        <div><div class="nm">Stateful hairline</div><div class="hx m">#6B7787</div></div>
+        <div class="ra m">3.4:1</div>
+      </div>
+      <div class="note">Asset rows and lens cards both draw on <span class="m">surfaceVariant</span> in source, so they get one hex here, not two. A boundary that carries state — an unselected chip, an off toggle — takes the brighter hairline; a purely decorative divider may stay at <span class="m">#39424E</span>.</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px;">
+
+    <div class="panel">
+      <div class="h">WHY THE PAIR CHANGES</div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="note" style="color: #8A94A2;">Shipping · #4ADE80 / #F87171</div>
+          <div style="background: #0D1116; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div class="m" style="font-size: 14px; color: #4ADE80;">+11.23 (+3.69%)</div>
+            <div class="m" style="font-size: 14px; color: #F87171;">−2.04 (−0.54%)</div>
+            <div style="display: flex; gap: 8px;">
+              <div style="flex: 1; height: 30px; border-radius: 6px; background: #4ADE80;"></div>
+              <div style="flex: 1; height: 30px; border-radius: 6px; background: #F87171;"></div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <div style="flex: 1; height: 30px; border-radius: 6px; background: #4ADE80; filter: grayscale(1);"></div>
+              <div style="flex: 1; height: 30px; border-radius: 6px; background: #F87171; filter: grayscale(1);"></div>
+            </div>
+            <div class="note" style="font-size: 11px;">Greyscaled, the two blocks are the same. 1.59:1.</div>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="note" style="color: #E7EBF0;">Proposed · #5EDD9C / #E8663F</div>
+          <div style="background: #0D1116; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div class="m" style="font-size: 14px; color: #5EDD9C;">▲ +11.23 (+3.69%)</div>
+            <div class="m" style="font-size: 14px; color: #E8663F;">▼ −2.04 (−0.54%)</div>
+            <div style="display: flex; gap: 8px;">
+              <div style="flex: 1; height: 30px; border-radius: 6px; background: #5EDD9C;"></div>
+              <div style="flex: 1; height: 30px; border-radius: 6px; background: #E8663F;"></div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <div style="flex: 1; height: 30px; border-radius: 6px; background: #5EDD9C; filter: grayscale(1);"></div>
+              <div style="flex: 1; height: 30px; border-radius: 6px; background: #E8663F; filter: grayscale(1);"></div>
+            </div>
+            <div class="note" style="font-size: 11px;">Still separable with no hue at all. 1.92:1.</div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Roughly 8% of men cannot separate the shipping pair. Text was never the weak point — every figure already carries a ▲/▼ and a sign, and keeps doing so. The failures were in charts, where an arrow has nowhere to live.</div>
+    </div>
+
+    <div class="panel">
+      <div class="h">CHART MARKS · WHERE SHAPE DOES THE WORK</div>
+      <div style="display: flex; gap: 24px; align-items: flex-start;">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div class="note" style="font-size: 11px;">Candles: hollow up, filled down</div>
+          <svg width="150" height="76" viewBox="0 0 150 76">
+            <line x1="16" y1="10" x2="16" y2="66" stroke="#5EDD9C" stroke-width="1.4"/>
+            <rect x="9" y="24" width="14" height="30" fill="none" stroke="#5EDD9C" stroke-width="2"/>
+            <line x1="46" y1="16" x2="46" y2="70" stroke="#E8663F" stroke-width="1.4"/>
+            <rect x="39" y="28" width="14" height="30" fill="#E8663F"/>
+            <line x1="76" y1="6" x2="76" y2="60" stroke="#5EDD9C" stroke-width="1.4"/>
+            <rect x="69" y="18" width="14" height="26" fill="none" stroke="#5EDD9C" stroke-width="2"/>
+            <line x1="106" y1="14" x2="106" y2="68" stroke="#E8663F" stroke-width="1.4"/>
+            <rect x="99" y="30" width="14" height="26" fill="#E8663F"/>
+            <line x1="136" y1="8" x2="136" y2="58" stroke="#5EDD9C" stroke-width="1.4"/>
+            <rect x="129" y="20" width="14" height="24" fill="none" stroke="#5EDD9C" stroke-width="2"/>
+          </svg>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div class="note" style="font-size: 11px;">Histograms: a signed baseline</div>
+          <svg width="160" height="76" viewBox="0 0 160 76">
+            <line x1="0" y1="38" x2="160" y2="38" stroke="#8A94A2" stroke-width="1.2"/>
+            <rect x="6" y="20" width="12" height="18" fill="#5EDD9C"/>
+            <rect x="26" y="26" width="12" height="12" fill="#5EDD9C"/>
+            <rect x="46" y="38" width="12" height="14" fill="#E8663F"/>
+            <rect x="66" y="38" width="12" height="22" fill="#E8663F"/>
+            <rect x="86" y="30" width="12" height="8" fill="#5EDD9C"/>
+            <rect x="106" y="38" width="12" height="10" fill="#E8663F"/>
+            <rect x="126" y="16" width="12" height="22" fill="#5EDD9C"/>
+            <text x="0" y="72" fill="#8A94A2" font-size="11" font-family="Roboto Mono, monospace">0</text>
+          </svg>
+        </div>
+      </div>
+      <div class="note"><span style="color: #E7EBF0;">Where a second channel is needed and where it is not.</span> Candles, histogram bars, seasonality bars and heat-map tiles get shape or a signed baseline, because nothing near them states the direction. A price line does not: the signed figure with its ▲/▼ sits directly above it in the same card, so a solid line in the semantic ink is honest. Reference lines — cost, previous close, the benchmark — are always neutral and dashed, because a reference is not a verdict.</div>
+      <div class="note">Chart annotations, plot notes and axis ticks come off the hardcoded 8sp to an 11sp floor and honour fontScale; the heat map's division by fontScale is deleted outright.</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;">
+
+    <div class="panel">
+      <div class="h">METRICS · LIFTED FROM SOURCE</div>
+      <div style="display: flex; flex-direction: column; gap: 9px;">
+        <div style="display: flex; gap: 12px;"><span class="note" style="width: 132px;">Asset row</span><span class="m" style="font-size: 12px;">r20 · 14×9 · stripe 4×28</span></div>
+        <div style="display: flex; gap: 12px;"><span class="note" style="width: 132px;">Lens card</span><span class="m" style="font-size: 12px;">r16 · pad 14 · gap 9</span></div>
+        <div style="display: flex; gap: 12px;"><span class="note" style="width: 132px;">Verdict pill</span><span class="m" style="font-size: 12px;">r50 · 10×2 · outlined</span></div>
+        <div style="display: flex; gap: 12px;"><span class="note" style="width: 132px;">Sparkline</span><span class="m" style="font-size: 12px;">58 × 26 · stroke 2.5</span></div>
+        <div style="display: flex; gap: 12px;"><span class="note" style="width: 132px;">Factor label column</span><span class="m" style="font-size: 12px;">100</span></div>
+        <div style="display: flex; gap: 12px;"><span class="note" style="width: 132px;">Spacing</span><span class="m" style="font-size: 12px;">2 · 4 · 6 · 8 · 10 · 12 · 14 · 16</span></div>
+        <div style="display: flex; gap: 12px;"><span class="note" style="width: 132px;">Touch target</span><span class="m" style="font-size: 12px; color: #B4A0FF;">48 minimum</span></div>
+      </div>
+      <div class="note">The spacing set is the eight values the tree already uses most, by measured frequency: 8 leads at 186 uses, then 6, 14, 2, 10, 4, 16 and 12. The other 38 collapse into them. Touch targets are the one metric that changes: the 28dp refreshes, the 36dp star and the 24dp freshness line all come up to 48, and the pill loses its tinted background so its ink clears 4.5:1 on the card.</div>
+    </div>
+
+    <div class="panel">
+      <div class="h">TYPE · THE SHIPPING RAMP, HELD</div>
+      <div class="m" style="font-size: 28px; font-weight: 600;">$375.56</div>
+      <div class="note" style="margin-top: -6px;">Price hero · PriceLarge, mono 28 / 600</div>
+      <div class="m" style="font-size: 18px; font-weight: 500;">$15,397.96</div>
+      <div class="note" style="margin-top: -6px;">Position and row price · PriceMedium, mono 18 / 500</div>
+      <div style="font-size: 14px; font-weight: 500;">Card title and verdict pill · 14</div>
+      <div style="font-size: 13px; color: #A3ADBA;">Body · 13</div>
+      <div style="font-size: 12px; color: #A3ADBA;">Row meta, caveats, factor rows · 12</div>
+      <div style="font-size: 11px; color: #A3ADBA;">Strip labels, plot notes, axis ticks · 11 floor</div>
+      <div class="note">No new sizes: the two price styles are the ones <span class="m">Type.kt</span> already defines, unchanged. What changes is reach — every money and percent figure becomes monospace with tabular numerals, so digits stop jumping on refresh, and nothing anywhere renders below 11.</div>
+    </div>
+
+    <div class="panel">
+      <div class="h">WHAT R2 RETIRES</div>
+      <div style="display: flex; flex-direction: column; gap: 9px;">
+        <div style="display: flex; gap: 10px; align-items: baseline;"><span class="m big">144</span><span class="note">hardcoded <span class="m">Color(0x…)</span> occurrences outside <span class="m">ui/theme</span>, in <span class="m">36</span> distinct hexes — 129 of them under <span class="m">ui/</span>, the rest in the widgets and notifiers</span></div>
+        <div style="display: flex; gap: 10px; align-items: baseline;"><span class="m big">4</span><span class="note">ambers doing one job, plus five reds and four greens</span></div>
+        <div style="display: flex; gap: 10px; align-items: baseline;"><span class="m big">1</span><span class="note">light colour scheme, deleted — the theme picker loses its Light and System options</span></div>
+        <div style="display: flex; gap: 10px; align-items: baseline;"><span class="m big">4</span><span class="note">Glance widget files that each restate the palette; they draw from the same token source afterwards</span></div>
+      </div>
+      <div class="note">Counted <span class="m">11 Sep 2026</span> over <span class="m">app/src/main/java/com/stocktracker/app</span>, excluding <span class="m">ui/theme</span>. A CI lint gate on <span class="m">Color(0x</span> outside the theme is what stops the anarchy growing back; without it this release is undone by the next feature.</div>
+    </div>
+  </div>
+
+  <div style="border-top: 1px solid #39424E; padding-top: 16px; display: flex; gap: 28px;">
+    <div class="note" style="flex: 1;"><span style="color: #E7EBF0; font-weight: 500;">Dark only.</span> Dropping the light scheme closes the audit's top finding outright rather than repainting it: the pastel gain at 1.66:1 on the light surface stops existing. It also removes the status-bar bug, since <span class="m">enableEdgeToEdge</span> no longer has an in-app theme to disagree with.</div>
+    <div class="note" style="flex: 1;"><span style="color: #E7EBF0; font-weight: 500;">Every ratio here is computed</span> against the surface it is drawn on. The design sheets' own light inks were checked too — <span class="m">#2E9E57</span> is 3.10:1 on <span class="m">#F2F4F7</span> and the pair separates by only 1.47 — which is one more reason the light scheme goes rather than ships half-fixed.</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

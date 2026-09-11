@@ -1,0 +1,165 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;600&display=swap">
+  <style>
+    /* The one structural move: the Widgets gallery gives up its tab and Markets takes it.
+       Five features that were each reachable through a single unlabelled glyph get a
+       labelled front door carrying a live summary, so the row is worth reading. */
+    body { margin: 0; font-family: Roboto, system-ui, sans-serif; }
+    a { color: #B4A0FF; } a:hover { color: #CFC2FF; }
+    .m { font-family: "Roboto Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .door { background: #1C232C; border-radius: 14px; padding: 14px; display: flex; align-items: center; gap: 14px; min-height: 72px; }
+    .dt { font-size: 15px; font-weight: 500; }
+    .ds { font-size: 12px; color: #A3ADBA; line-height: 1.45; margin-top: 3px; }
+    .ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: 0 0 auto;
+           background: rgba(180,160,255,0.16); }
+    .kv { font-size: 11px; letter-spacing: 0.8px; color: #8A94A2; }
+    .pill { font-size: 14px; font-weight: 700; border-radius: 50px; padding: 2px 10px;
+            border: 1px solid currentColor; letter-spacing: 0.2px; white-space: nowrap; }
+    .sub { font-size: 12px; color: #8A94A2; line-height: 1.5; }
+    .chev { flex: 0 0 auto; }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 844px; background: #0D1116; color: #E7EBF0; display: flex; flex-direction: column;">
+
+  <div style="height: 56px; display: flex; align-items: center; padding: 0 16px; flex: 0 0 auto;">
+    <div style="font-size: 22px; font-weight: 500; flex: 1;">Markets</div>
+  </div>
+
+  <div style="padding: 0 16px 16px; display: flex; flex-direction: column; gap: 10px;">
+
+    <!-- The AI brief that used to be trapped in a modal behind a sparkle glyph. Its
+         watchlist figures are the same pre-market numbers the Watchlist screen shows. -->
+    <div style="background: #1C232C; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="font-size: 15px; font-weight: 500; flex: 1;">Market now</div>
+        <span class="m" style="font-size: 12px; color: #8A94A2;">Pre · 05:27 ET</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px 18px;">
+        <div style="display: flex; align-items: baseline; gap: 5px;"><span class="kv">S&amp;P</span><span class="m" style="font-size: 13px; color: #E8663F;">▼ 0.48%</span></div>
+        <div style="display: flex; align-items: baseline; gap: 5px;"><span class="kv">NASDAQ</span><span class="m" style="font-size: 13px; color: #E8663F;">▼ 0.64%</span></div>
+        <div style="display: flex; align-items: baseline; gap: 5px;"><span class="kv">RUSSELL</span><span class="m" style="font-size: 13px; color: #E8663F;">▼ 1.32%</span></div>
+        <div style="display: flex; align-items: baseline; gap: 5px;"><span class="kv">VIX</span><span class="m" style="font-size: 13px; color: #A3ADBA;">▪ 16.48</span></div>
+      </div>
+      <div style="align-self: flex-start;" class="pill"><span style="color: #E8663F;">RISK-OFF</span></div>
+      <div style="font-size: 14px; line-height: 1.5; font-weight: 500;">Small caps lead broad weakness; energy and financials hold ground in premarket.</div>
+      <div style="display: flex; flex-direction: column; gap: 7px;">
+        <div style="display: flex; gap: 8px;"><span style="color: #8A94A2;">·</span><span style="font-size: 13px; color: #A3ADBA; line-height: 1.5;">Russell 2000 down 1.32% against the S&amp;P at −0.48%; VIX flat at 16.48 suggests contained fear ahead of the open.</span></div>
+        <div style="display: flex; gap: 8px;"><span style="color: #8A94A2;">·</span><span style="font-size: 13px; color: #A3ADBA; line-height: 1.5;">AAPL +3.69% is the only thing lifting your watchlist; VTI −0.54%, SCHD −0.93% and BTC −1.66% weigh against it.</span></div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; padding-top: 2px;">
+        <div style="height: 48px; padding: 0 16px; border: 1px solid #B4A0FF; border-radius: 12px; display: grid; place-items: center; font-size: 13px; color: #B4A0FF; font-weight: 500;">Refresh — one model call</div>
+        <span class="m" style="font-size: 12px; color: #8A94A2;">written 9m ago</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+
+      <div class="door">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20h-20"/></svg>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div class="dt">Market scan</div>
+          <div class="ds">Nightly · 3,089 of 3,123 scored · breadth 47.5% above the 50-day · ran 22h ago</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <div class="door">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div class="dt">Heat map</div>
+          <div class="ds">43 up / 36 down · energy leads, consumer staples lag · live</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <div class="door">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div class="dt">Catalyst calendar</div>
+          <div class="ds">COST earnings Thursday · 2 more on names you hold this week</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <!-- Reachable on a zero-dip day too. The reject audit is most useful precisely then,
+           and it is the one state the screen cannot be opened from today. -->
+      <div class="door">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l5 6 4-3 5 7 4-4"/><path d="M21 17v4h-4"/></svg>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div class="dt">Dip radar</div>
+          <div class="ds">No dips right now — nothing you track is notably off its highs. Scanned 4m ago; 14 names checked, 3 rejected.</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <div class="door">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2" stroke-linecap="round"><path d="M12 21a9 9 0 1 0-9-9"/><path d="M12 12l4.5-3.2"/><path d="M3 12h3"/></svg>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div class="dt">Market fear · VIX</div>
+          <div class="ds">16.48 · flat on the day, in the normal band · live</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <!-- The gate is measured, so a shut gate names the legs that failed -->
+      <div style="background: #1C232C; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 9px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 15px; font-weight: 500; flex: 1;">Market gate</span>
+          <span class="pill" style="color: #E8663F;">SHUT</span>
+          <span class="m" style="font-size: 13px; color: #A3ADBA;">13.6</span>
+        </div>
+        <div style="font-size: 12px; color: #A3ADBA; line-height: 1.5;">Failing: SPY &gt; 50-EMA · QQQ &gt; 50-EMA · breadth &gt; 55% · SPY 20-day momentum &gt; 0</div>
+        <div class="m" style="font-size: 12px; color: #B0872B;">cached · 4m old</div>
+      </div>
+    </div>
+
+    <div class="sub" style="padding: 2px 2px 0;">Context, not advice. Every row here had exactly one entry point before, and none of them was labelled.</div>
+  </div>
+
+  <div style="flex: 1 1 auto; min-height: 12px;"></div>
+
+  <div style="height: 80px; background: #1C232C; display: flex; align-items: center; padding: 0 4px; flex: 0 0 auto;">
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 5-7 4 4"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Watchlist</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Portfolio</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px; border-radius: 16px; background: rgba(180,160,255,0.16);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20h-20"/></svg></div>
+      <div style="font-size: 11px; color: #B4A0FF; font-weight: 500;">Markets</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Sandbox</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Settings</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

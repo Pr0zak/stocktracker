@@ -1,0 +1,84 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 900,
+      "title": "Watchlist"
+    },
+    {
+      "file": "Detail.dc.html",
+      "x": 470,
+      "y": 0,
+      "w": 390,
+      "h": 2620,
+      "title": "Ticker \u00b7 VTI"
+    },
+    {
+      "file": "Portfolio.dc.html",
+      "x": 940,
+      "y": 0,
+      "w": 390,
+      "h": 1780,
+      "title": "Portfolio"
+    },
+    {
+      "file": "Markets.dc.html",
+      "x": 1410,
+      "y": 0,
+      "w": 390,
+      "h": 1220,
+      "title": "Markets"
+    },
+    {
+      "file": "Tokens.dc.html",
+      "x": 0,
+      "y": 2760,
+      "w": 1160,
+      "h": 1460,
+      "title": "R2 \u00b7 Ink"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -190,
+      "w": 560,
+      "text": "Repair in Place \u2014 dark only.\n\nSame screens, same gestures, same vocabulary. Everything here is either a defect fixed in place or the one structural move (Markets takes the Widgets tab). Metrics are lifted from the real source: AssetRow's 20dp radius and 14\u00d79 padding, the lens card's 16dp and 14dp, the 58\u00d726 sparkline."
+    },
+    {
+      "id": "detail-order",
+      "x": 470,
+      "y": -190,
+      "w": 390,
+      "text": "The whole direction in one screen.\n\nYOUR MONEY \u2014 position, alerts, entry plan, options \u2014 now sits one screenful down instead of four, and the eleven lenses survive intact below it under three quiet section headers."
+    },
+    {
+      "id": "portfolio-doors",
+      "x": 940,
+      "y": -190,
+      "w": 390,
+      "text": "Every row is a door.\n\nHoldings and AI verdict rows navigate to detail/{type}/{symbol} \u2014 the route that already exists. This is release R1: pure additions, no relocation risk, shippable in days."
+    },
+    {
+      "id": "markets-tab",
+      "x": 1410,
+      "y": -190,
+      "w": 390,
+      "text": "The one structural move.\n\nFive features that were each reachable through exactly one unlabelled glyph get a labelled front door with a live summary. The dip radar is reachable on a zero-dip day, which is the one state it cannot be opened from today."
+    },
+    {
+      "id": "ink-note",
+      "x": 0,
+      "y": 2570,
+      "w": 640,
+      "text": "R2 \u00b7 Ink \u2014 the release that has to come first.\n\nEvery contrast ratio on this sheet was computed against the surface it is drawn on, not asserted. Going dark-only retires the top-ranked finding outright rather than repainting it."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

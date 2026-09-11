@@ -206,20 +206,25 @@ class SignalsApiService {
      *  "smart money" context, never a signal. Returns null on any failure or when nobody traded it. */
     suspend fun congress(baseUrl: String, symbol: String): CongressBlock? {
         if (baseUrl.isBlank()) return null
-        return runCatching {
-            val body = sGet("${baseUrl.trimEnd('/')}/congress/${symbol.uppercase()}", slow = true)
-            Http.json.decodeFromString<CongressResponse>(body).congress
-        }.getOrNull()
+        // Throws, like every other lens endpoint here, and deliberately so.
+        //
+        // This used to wrap itself in runCatching and hand back null, which meant the caller could
+        // not tell "no politician has disclosed a trade in this name" from "the phone has no
+        // network". The detail screen was drawing the same blank space for both, and once it
+        // started naming them it began asserting "checked, nothing to show" for a lens that had
+        // never been reached. A 404 is still a null — that is the server answering — but a dead
+        // socket is now a throw the caller can see.
+        val body = sGet("${baseUrl.trimEnd('/')}/congress/${symbol.uppercase()}", slow = true)
+        return Http.json.decodeFromString<CongressResponse>(body).congress
     }
 
     /** Per-calendar-month seasonal price action (~10y): avg return + hit rate per month, current-month
      *  tendency, best/worst months. Free, no LLM. Weak, sample-limited context. Null under ~2y history. */
     suspend fun seasonality(baseUrl: String, symbol: String): SeasonalityBlock? {
         if (baseUrl.isBlank()) return null
-        return runCatching {
-            val body = sGet("${baseUrl.trimEnd('/')}/seasonality/${symbol.uppercase()}", slow = true)
-            Http.json.decodeFromString<SeasonalityResponse>(body).seasonality
-        }.getOrNull()
+        // Throws — see the note on congress() above for why swallowing here was a bug.
+        val body = sGet("${baseUrl.trimEnd('/')}/seasonality/${symbol.uppercase()}", slow = true)
+        return Http.json.decodeFromString<SeasonalityResponse>(body).seasonality
     }
 
     /** Theme C — a concrete, sized rebalance plan: sell/buy N shares to bring the book under

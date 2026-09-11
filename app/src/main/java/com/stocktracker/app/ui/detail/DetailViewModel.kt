@@ -129,14 +129,16 @@ data class DetailUiState(
      * card. Null renders as no line at all.
      */
     val chase: ChaseState? = null,
+    // The nine free lenses below carry their own status — see Lens.kt. `x.value` is the old
+    // nullable; `x.status` is the thing a blank space could never say.
     /** Short-pressure read (SI/short-volume/FTDs) — free data, auto-fetched for stocks. */
-    val shortPressure: ShortPressureResponse? = null,
-    /** Insider buying (Form 4 open-market purchases) — free, auto-fetched for stocks (only set when >0). */
-    val insider: InsiderResponse? = null,
-    /** Congressional / political trades — free, auto-fetched for stocks (only set when any disclosed). */
-    val congress: CongressBlock? = null,
+    val shortPressure: Lens<ShortPressureResponse> = Lens.idle,
+    /** Insider buying (Form 4 open-market purchases) — free, auto-fetched for stocks (only when >0). */
+    val insider: Lens<InsiderResponse> = Lens.idle,
+    /** Congressional / political trades — free, auto-fetched for stocks (only when any disclosed). */
+    val congress: Lens<CongressBlock> = Lens.idle,
     /** Seasonality — typical per-month price action (~10y), free, auto-fetched for stocks. */
-    val seasonality: SeasonalityBlock? = null,
+    val seasonality: Lens<SeasonalityBlock> = Lens.idle,
     /** "Why it moved" (AIE-4) — notable recent moves correlated with news. On-demand (an LLM call). */
     val newsMoves: NewsMovesBlock? = null,
     val newsMovesNote: String? = null,     // e.g. "not available for crypto"
@@ -144,15 +146,23 @@ data class DetailUiState(
     val newsMovesError: String? = null,
     val newsMovesLoaded: Boolean = false,  // true once a fetch has completed (drives the empty state)
     /** Quality tags (ROE/margins/D-E + Buffett/wide-moat/aristocrat flags) — free, auto-fetched for stocks. */
-    val quality: QualityResponse? = null,
+    val quality: Lens<QualityResponse> = Lens.idle,
     /** MB-17 — discount vs deterioration. Free (no LLM), loaded alongside quality. */
-    val valueTrap: ValueTrapResponse? = null,
+    val valueTrap: Lens<ValueTrapResponse> = Lens.idle,
     /** Halving-cycle + multi-year trend — free data, auto-fetched for crypto. */
-    val cycleInfo: CycleResponse? = null,
+    val cycleInfo: Lens<CycleResponse> = Lens.idle,
     /** Below-the-200-week-line trend (SMA, zone, direction, weekly RSI) — free, auto-fetched for stocks. */
-    val stockTrend: TrendResponse? = null,
-    /** Historical touch / forward-return study — free, auto-fetched for stocks below-line-eligible. */
+    val stockTrend: Lens<TrendResponse> = Lens.idle,
+    /**
+     * Historical touch / forward-return study — free, auto-fetched for stocks below-line-eligible.
+     *
+     * Deliberately NOT a [Lens]: it has no card of its own, it is an optional extra panel inside the
+     * 200-week card, and a lens status for it would be a retry affordance for something the reader
+     * never asked for separately.
+     */
     val touchStudy: TouchStudyResponse? = null,
+    /** True once the quote says this is a fund — insiders and Congress do not file against an ETF. */
+    val isEtf: Boolean = false,
 )
 
 class DetailViewModel(private val asset: Asset) : ViewModel() {
@@ -218,53 +228,116 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             // additionally requires the AI kill-switch for the token-spending Claude cards.
             _state.update { it.copy(aiEnabled = base.isNotBlank() && on, signalsConfigured = base.isNotBlank()) }
         }
-        // Short-pressure data IS auto-fetched for stocks: it's free (FINRA/SEC data, no model call)
-        // and gated only on the service URL, not the AI switch.
-        if (asset.type == AssetType.STOCK) {
-            viewModelScope.launch {
-                val base = settings.signalsApiUrl.first()
-                if (base.isBlank()) return@launch
-                val sp = runCatching { signalsApi.shortPressure(base, asset.symbol) }.getOrNull()
-                if (sp != null) {
-                    _state.update { it.copy(shortPressure = sp) }
-                    applyDtcTilt(sp.daysToCover) // fold high days-to-cover into the rule score
-                }
-                // Insider buying — the bullish informed-money mirror; only surface when buys exist.
-                val ins = runCatching { signalsApi.insider(base, asset.symbol) }.getOrNull()
-                if (ins != null && ins.buyCount12m > 0) _state.update { it.copy(insider = ins) }
-                // Congressional trades — public-official smart money; lagging/weak, shown as context.
-                val cg = runCatching { signalsApi.congress(base, asset.symbol) }.getOrNull()
-                if (cg != null && cg.tradeCount > 0) _state.update { it.copy(congress = cg) }
-                // Seasonality — typical per-month price action (weak tilt).
-                val sea = runCatching { signalsApi.seasonality(base, asset.symbol) }.getOrNull()
-                if (sea?.currentMonth != null) _state.update { it.copy(seasonality = sea) }
-                // Business-quality descriptors — stance-neutral context; show when there's anything to show.
-                val q = runCatching { signalsApi.quality(base, asset.symbol) }.getOrNull()
-                if (q != null && (q.hasAnyFlag || q.hasMetrics)) _state.update { it.copy(quality = q) }
-                // MB-17: only worth showing for a name that is actually cheap versus its own trend.
-                // On a name trading above its line the question "is this a value trap" is not one
-                // the user is asking, and a "discount" badge there would read as a buy nudge.
-                val vt = runCatching { signalsApi.valueTrap(base, asset.symbol) }.getOrNull()
-                if (vt != null && vt.belowLine == true) _state.update { it.copy(valueTrap = vt) }
-            }
-            // Below-the-200-week-line context (the equity mirror of crypto's cycle card) + the touch
-            // study — both free, no LLM. 404s for names with under ~4 years of weekly history → stay null.
-            viewModelScope.launch {
-                val base = settings.signalsApiUrl.first()
-                if (base.isBlank()) return@launch
-                val tr = runCatching { signalsApi.trend(base, asset.symbol) }.getOrNull()
-                if (tr != null) _state.update { it.copy(stockTrend = tr) }
-                val ts = runCatching { signalsApi.touchStudy(base, asset.symbol) }.getOrNull()
-                if (ts != null) _state.update { it.copy(touchStudy = ts) }
+        // The free lenses — FINRA/SEC/market data, no model call, gated only on the service URL.
+        // Each one now reports what happened to it rather than leaving a hole; see Lens.kt.
+        loadLenses()
+    }
+
+    /**
+     * Fetch every free lens that applies to this instrument, and mark the ones that do not.
+     *
+     * [only] restricts the run to a single lens, which is what the retry row on a failed card calls.
+     */
+    fun loadLenses(only: LensId? = null) {
+        val isStock = asset.type == AssetType.STOCK
+        fun wanted(id: LensId) = only == null || only == id
+
+        // Applicability is decided here, once, rather than in a hardcoded list on the screen — the
+        // screen had its own copy and it disagreed with this one (it never mentioned seasonality or
+        // short pressure for a coin, and it had no idea an ETF is not a company).
+        val na = buildSet {
+            if (isStock) {
+                add(LensId.CYCLE)
+                // An ETF files no Form 4s and no Congressional trades are disclosed against it. The
+                // app's AssetType has no ETF member — the fact lives on the quote — so this is
+                // re-evaluated when the quote lands, below.
+                if (_state.value.isEtf) { add(LensId.INSIDER); add(LensId.CONGRESS) }
+            } else {
+                addAll(LensId.entries.filter { it != LensId.CYCLE })
             }
         }
-        // Crypto gets the halving-cycle / long-term-trend context instead (also free).
-        if (asset.type == AssetType.CRYPTO) {
-            viewModelScope.launch {
-                val base = settings.signalsApiUrl.first()
-                if (base.isBlank()) return@launch
-                val ci = runCatching { signalsApi.cycleInfo(base, asset.symbol) }.getOrNull()
-                if (ci != null) _state.update { it.copy(cycleInfo = ci) }
+        _state.update { st ->
+            st.copy(
+                shortPressure = if (LensId.SHORT_PRESSURE in na) Lens.notApplicable else st.shortPressure,
+                insider = if (LensId.INSIDER in na) Lens.notApplicable else st.insider,
+                congress = if (LensId.CONGRESS in na) Lens.notApplicable else st.congress,
+                seasonality = if (LensId.SEASONALITY in na) Lens.notApplicable else st.seasonality,
+                quality = if (LensId.QUALITY in na) Lens.notApplicable else st.quality,
+                valueTrap = if (LensId.VALUE_TRAP in na) Lens.notApplicable else st.valueTrap,
+                stockTrend = if (LensId.TREND in na) Lens.notApplicable else st.stockTrend,
+                cycleInfo = if (LensId.CYCLE in na) Lens.notApplicable else st.cycleInfo,
+            )
+        }
+
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) return@launch // IDLE: nothing was asked, and the banner says why
+
+            // Two coroutines so a slow lens does not hold up the rest, but the ORDER inside each is
+            // deliberate: these all hit the same backend and firing nine at once buys nothing but a
+            // burst the service has to absorb.
+            if (asset.type == AssetType.STOCK) {
+                launch {
+                    if (wanted(LensId.SHORT_PRESSURE) && LensId.SHORT_PRESSURE !in na) {
+                        _state.update { it.copy(shortPressure = Lens.loading) }
+                        val r = runCatching { signalsApi.shortPressure(base, asset.symbol) }
+                        val lens = Lens.from(r) { true }
+                        _state.update { it.copy(shortPressure = lens) }
+                        lens.value?.let { applyDtcTilt(it.daysToCover) } // high days-to-cover tilts the rule score
+                    }
+                    // Insider buying — the bullish informed-money mirror; only surface when buys exist.
+                    if (wanted(LensId.INSIDER) && LensId.INSIDER !in na) {
+                        _state.update { it.copy(insider = Lens.loading) }
+                        val r = runCatching { signalsApi.insider(base, asset.symbol) }
+                        _state.update { it.copy(insider = Lens.from(r) { v -> v.buyCount12m > 0 }) }
+                    }
+                    // Congressional trades — public-official smart money; lagging/weak, shown as context.
+                    if (wanted(LensId.CONGRESS) && LensId.CONGRESS !in na) {
+                        _state.update { it.copy(congress = Lens.loading) }
+                        val r = runCatching { signalsApi.congress(base, asset.symbol) }
+                        _state.update { it.copy(congress = Lens.from(r) { v -> v.tradeCount > 0 }) }
+                    }
+                    // Seasonality — typical per-month price action (weak tilt).
+                    if (wanted(LensId.SEASONALITY) && LensId.SEASONALITY !in na) {
+                        _state.update { it.copy(seasonality = Lens.loading) }
+                        val r = runCatching { signalsApi.seasonality(base, asset.symbol) }
+                        _state.update { it.copy(seasonality = Lens.from(r) { v -> v.currentMonth != null }) }
+                    }
+                    // Business-quality descriptors — stance-neutral context.
+                    if (wanted(LensId.QUALITY) && LensId.QUALITY !in na) {
+                        _state.update { it.copy(quality = Lens.loading) }
+                        val r = runCatching { signalsApi.quality(base, asset.symbol) }
+                        _state.update { it.copy(quality = Lens.from(r) { v -> v.hasAnyFlag || v.hasMetrics }) }
+                    }
+                    // MB-17: only worth showing for a name that is actually cheap versus its own
+                    // trend. On a name trading above its line "is this a value trap" is not a
+                    // question the user is asking, and a "discount" badge there reads as a buy nudge.
+                    if (wanted(LensId.VALUE_TRAP) && LensId.VALUE_TRAP !in na) {
+                        _state.update { it.copy(valueTrap = Lens.loading) }
+                        val r = runCatching { signalsApi.valueTrap(base, asset.symbol) }
+                        _state.update { it.copy(valueTrap = Lens.from(r) { v -> v.belowLine == true }) }
+                    }
+                }
+                // Below-the-200-week-line context (the equity mirror of crypto's cycle card) plus the
+                // touch study. A 404 for a name with under ~4 years of weekly history is an EMPTY,
+                // not a failure — no retry can conjure the history.
+                launch {
+                    if (wanted(LensId.TREND) && LensId.TREND !in na) {
+                        _state.update { it.copy(stockTrend = Lens.loading) }
+                        val r = runCatching { signalsApi.trend(base, asset.symbol) }
+                        _state.update { it.copy(stockTrend = Lens.from(r) { true }) }
+                        val ts = runCatching { signalsApi.touchStudy(base, asset.symbol) }.getOrNull()
+                        if (ts != null) _state.update { it.copy(touchStudy = ts) }
+                    }
+                }
+            }
+            // Crypto gets the halving-cycle / long-term-trend context instead (also free).
+            if (asset.type == AssetType.CRYPTO && wanted(LensId.CYCLE)) {
+                launch {
+                    _state.update { it.copy(cycleInfo = Lens.loading) }
+                    val r = runCatching { signalsApi.cycleInfo(base, asset.symbol) }
+                    _state.update { it.copy(cycleInfo = Lens.from(r) { true }) }
+                }
             }
         }
     }
@@ -671,7 +744,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
         }
         val vix = if (asset.type == AssetType.STOCK) runCatching { repo.vix() }.getOrNull()?.value else null
         signalInputs = Triple(daily, bench, vix)
-        val dtc = _state.value.shortPressure?.daysToCover // may already be loaded
+        val dtc = _state.value.shortPressure.value?.daysToCover // may already be loaded
         val sig = SignalEngine().evaluate(daily, benchmark = bench, vix = vix, daysToCover = dtc)
         // Walk-forward backtest is pure TA (no DTC) — the honesty check on the mechanical signal.
         val bt = runCatching { Backtest.run(daily, benchmark = bench) }.getOrNull()
@@ -690,7 +763,16 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
         viewModelScope.launch {
             val q = runCatching { repo.quote(asset) }.getOrNull()
                 ?: ServiceLocator.priceCache.getQuote(asset.id)
-            _state.update { it.copy(quote = q) }
+            _state.update { it.copy(quote = q, isEtf = q?.isEtf ?: it.isEtf) }
+            // An ETF has no insiders filing Form 4s and no Congressional trades disclosed against
+            // it. The app's AssetType is only STOCK or CRYPTO, so a fund is a STOCK until the quote
+            // says otherwise — and by then those two lenses have already been asked for and come
+            // back empty, which is indistinguishable from a quiet company. Re-mark them.
+            if (q?.isEtf == true) {
+                _state.update {
+                    it.copy(insider = Lens.notApplicable, congress = Lens.notApplicable)
+                }
+            }
         }
     }
 

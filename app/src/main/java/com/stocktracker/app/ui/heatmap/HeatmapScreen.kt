@@ -214,6 +214,9 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
 }
 
 /** Height reserved for a sector's caption strip. Small enough not to eat the tiles it labels. */
+/** Nothing on this map is drawn below this, at any font scale. Material's own floor. */
+private const val MIN_LABEL_SP = 11f
+
 private val SECTOR_HEADER = 15.dp
 
 /**
@@ -236,6 +239,16 @@ private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp)),
     ) {
         val density = LocalDensity.current
+        // The fit gate measures dp; Text sizes in SP, which grows with the user's font-size
+        // setting. This used to be reconciled by dividing the font size back down by fontScale —
+        // which made the map fit, and in doing so cancelled the setting outright: at 200% scale the
+        // labels came out exactly the same physical size as at 100%. That is the one thing a
+        // font-size setting may never do.
+        //
+        // So scale the GATES instead. A bigger font means a tile has to be bigger to earn a label,
+        // and a tile that no longer qualifies is drawn unlabelled — which is this file's own stated
+        // rule, the same one that refuses to truncate GOOGL into GOOG. Nothing is ever shrunk below
+        // the 11sp floor to make it fit.
         val fs = density.fontScale.coerceAtLeast(0.5f)
         val wPx = with(density) { maxWidth.toPx() }
         val hPx = with(density) { maxHeight.toPx() }
@@ -261,7 +274,7 @@ private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
             if (labelled) {
                 Text(
                     block.key.uppercase(),
-                    fontSize = (9f / fs).sp,
+                    fontSize = MIN_LABEL_SP.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -317,32 +330,44 @@ private fun TileBox(
             },
         contentAlignment = Alignment.Center,
     ) {
-        if (shortDp.value >= 20f && wDp.value >= 34f) {
+        // A ticker that does not fit is not drawn, and "fit" has to be arithmetic rather than a
+        // hope: Text clips at maxLines = 1, and a clipped ticker is not an abbreviation, it is a
+        // rename — GOOGL cut to GOOG is a different real security, and it is on this very map.
+        // The gates above no longer shrink text to force a fit, so this is the guard that replaces
+        // that behaviour. Monospace advance is about 0.6em; the margin is for the edge glyph.
+        fun fits(text: String, sp: Float) =
+            // sp, not dp: at a 2x font setting a 22sp glyph is twice as wide in dp as the
+            // number suggests, which is exactly the discrepancy the old fontScale divisor
+            // was papering over. Multiply it back in or this guard permits the clip it exists
+            // to prevent — which is how GOOGL rendered as GOOG at 200%.
+            wDp.value >= text.length * sp * fs * 0.62f + 6f
+        val symSp = (shortDp.value * 0.30f).coerceIn(MIN_LABEL_SP, 20f)
+        if (shortDp.value >= 20f * fs && wDp.value >= 34f * fs && fits(t.symbol, symSp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     t.symbol,
-                    fontSize = ((shortDp.value * 0.30f).coerceIn(8f, 20f) / fs).sp,
+                    fontSize = symSp.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
                     maxLines = 1,
                 )
-                if (areaDp > 2000f) {
+                if (areaDp > 2000f * fs * fs) {
                     Text(
                         t.label(),
-                        fontSize = ((shortDp.value * 0.17f).coerceIn(7f, 12f) / fs).sp,
+                        fontSize = (shortDp.value * 0.17f).coerceIn(MIN_LABEL_SP, 13f).sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.White.copy(alpha = 0.9f),
                         maxLines = 1,
                     )
                 }
             }
-        } else if (shortDp.value >= 10f && t.symbol.length <= 4) {
+        } else if (shortDp.value >= 14f * fs && fits(t.symbol, MIN_LABEL_SP)) {
             // Only tickers that fit WHOLE — truncating a ticker renames it (GOOGL -> GOOG is a
             // different real security), so a label either fits or is not drawn.
             Text(
                 t.symbol,
-                fontSize = ((shortDp.value * 0.42f).coerceIn(6f, 10f) / fs).sp,
+                fontSize = MIN_LABEL_SP.sp,
                 fontFamily = FontFamily.Monospace,
                 color = Color.White,
                 maxLines = 1,
@@ -360,10 +385,16 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp)),
     ) {
         val density = LocalDensity.current
-        // The fit gate below measures dp, but Text sizes in SP, which grows with the user's system
-        // font-size setting. At 1.3x accessibility scale every label came out 30% larger than the
-        // gate had allowed for and clipped. Divide it back out so what is drawn matches what was
-        // measured; the map stays legible instead of turning to shards at large font sizes.
+        // The fit gate measures dp; Text sizes in SP, which grows with the user's font-size
+        // setting. This used to be reconciled by dividing the font size back down by fontScale —
+        // which made the map fit, and in doing so cancelled the setting outright: at 200% scale the
+        // labels came out exactly the same physical size as at 100%. That is the one thing a
+        // font-size setting may never do.
+        //
+        // So scale the GATES instead. A bigger font means a tile has to be bigger to earn a label,
+        // and a tile that no longer qualifies is drawn unlabelled — which is this file's own stated
+        // rule, the same one that refuses to truncate GOOGL into GOOG. Nothing is ever shrunk below
+        // the 11sp floor to make it fit.
         val fs = density.fontScale.coerceAtLeast(0.5f)
         val wPx = with(density) { maxWidth.toPx() }
         val hPx = with(density) { maxHeight.toPx() }
@@ -392,29 +423,36 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
             ) {
                 // Content degrades with area: a label either FITS or is not drawn. Truncating a
                 // ticker mid-word turns a readable map into noise.
-                if (shortDp.value >= 22f && wDp.value >= 40f) {
+                val symSp = (shortDp.value * 0.30f).coerceIn(MIN_LABEL_SP, 22f)
+                fun fits(text: String, sp: Float) =
+            // sp, not dp: at a 2x font setting a 22sp glyph is twice as wide in dp as the
+            // number suggests, which is exactly the discrepancy the old fontScale divisor
+            // was papering over. Multiply it back in or this guard permits the clip it exists
+            // to prevent — which is how GOOGL rendered as GOOG at 200%.
+            wDp.value >= text.length * sp * fs * 0.62f + 6f
+                if (shortDp.value >= 22f * fs && wDp.value >= 40f * fs && fits(t.symbol, symSp)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             t.symbol,
-                            fontSize = ((shortDp.value * 0.30f).coerceIn(9f, 22f) / fs).sp,
+                            fontSize = symSp.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White,
                             maxLines = 1,
                         )
-                        if (areaDp > 2600f) {
+                        if (areaDp > 2600f * fs * fs) {
                             Text(
                                 t.label(),
-                                fontSize = ((shortDp.value * 0.17f).coerceIn(8f, 13f) / fs).sp,
+                                fontSize = (shortDp.value * 0.17f).coerceIn(MIN_LABEL_SP, 13f).sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = Color.White.copy(alpha = 0.9f),
                                 maxLines = 1,
                             )
                         }
-                        if (areaDp > 12000f && t.name.isNotBlank()) {
+                        if (areaDp > 12000f * fs * fs && t.name.isNotBlank()) {
                             Text(
                                 t.name,
-                                fontSize = (9f / fs).sp,
+                                fontSize = MIN_LABEL_SP.sp,
                                 color = Color.White.copy(alpha = 0.66f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -423,14 +461,14 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                             )
                         }
                     }
-                } else if (shortDp.value >= 11f && t.symbol.length <= 4) {
+                } else if (shortDp.value >= 14f * fs && fits(t.symbol, MIN_LABEL_SP)) {
                     // Only tickers that fit WHOLE. take(4) turned GOOGL into "GOOG" — a different
                     // real security, which is on this very map. Truncating a ticker does not
                     // abbreviate it, it renames it; the invariant above says a label either fits or
                     // is not drawn, and this branch was breaking it.
                     Text(
                         t.symbol,
-                        fontSize = ((shortDp.value * 0.42f).coerceIn(7f, 11f) / fs).sp,
+                        fontSize = MIN_LABEL_SP.sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.White,
                         maxLines = 1,

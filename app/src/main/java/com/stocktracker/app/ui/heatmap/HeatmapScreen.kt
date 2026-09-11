@@ -48,10 +48,14 @@ import com.stocktracker.app.data.remote.HeatmapTile
 import com.stocktracker.app.util.Treemap
 import com.stocktracker.app.util.TreemapItem
 import kotlin.math.abs
+import com.stocktracker.app.ui.theme.DividerDark
+import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.ui.theme.LossRed
+import com.stocktracker.app.ui.theme.Signal
 
 /** Market green / loss red, as used everywhere else in the app. */
-private val GAIN = Color(0xFF2E9E57)
-private val LOSS = Color(0xFFB0543D)
+private val GAIN = GainGreen
+private val LOSS = LossRed
 
 /**
  * Amber, and ONLY for this system's own reads.
@@ -60,8 +64,8 @@ private val LOSS = Color(0xFFB0543D)
  * the price scale would make "we flagged this" read as "it went up today", which is the opposite of
  * the truth for a name that is down 40%.
  */
-private val SIGNAL = Color(0xFFB0872B)
-private val FLAT = Color(0xFF39424E)
+private val SIGNAL = Signal
+private val FLAT = DividerDark
 
 /** Magnitude rides in lightness as well as hue, so the map still reads without colour vision. */
 private fun ramp(base: Color, t: Float): Color {

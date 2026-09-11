@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.stocktracker.app.ui.theme.Signal
 
 /**
  * "How far is price below / above its 200-week line?" — a position bar with the LINE fixed at centre.
@@ -35,7 +36,7 @@ fun TwoHundredWeekLineBar(
     belowLine: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val amber = Color(0xFFD29922)
+    val amber = Signal
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val trackColor = neutral.copy(alpha = 0.16f)
     val surface = MaterialTheme.colorScheme.surface

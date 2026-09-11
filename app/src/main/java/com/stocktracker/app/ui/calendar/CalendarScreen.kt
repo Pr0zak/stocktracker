@@ -42,6 +42,7 @@ import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import com.stocktracker.app.ui.theme.GainGreen
 
 private sealed interface CalState {
     data object Loading : CalState
@@ -185,7 +186,7 @@ private fun relativeDay(iso: String): String = runCatching {
 private fun EventRow(e: CalendarEvent, onOpenSymbol: (String) -> Unit = {}) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val kindColor = when (e.kind) {
-        "earnings" -> Color(0xFF16A34A)
+        "earnings" -> GainGreen
         "opex" -> MaterialTheme.colorScheme.primary
         else -> neutral // si_settlement / si_publication
     }

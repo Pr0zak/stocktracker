@@ -89,10 +89,12 @@ import com.stocktracker.app.util.Formatting
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.theme.ChartSeries
 
 internal val GREEN = GainGreen
 internal val RED = LossRed
-internal val AMBER = Color(0xFFB0872B)
+internal val AMBER = Signal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1202,8 +1204,8 @@ private fun ArmComparison(
 /** One colour per arm, stable across recompositions and independent of list order — so an arm keeps
  *  its colour when another is added or deleted. */
 private val ARM_COLORS = listOf(
-    Color(0xFF2563EB), Color(0xFFB0872B), Color(0xFF16A34A),
-    Color(0xFF9333EA), Color(0xFFDC2626), Color(0xFF0891B2),
+    ChartSeries[5], Signal, GainGreen,
+    ChartSeries[6], LossRed, ChartSeries[7],
 )
 
 private fun armColor(arm: String): Color =

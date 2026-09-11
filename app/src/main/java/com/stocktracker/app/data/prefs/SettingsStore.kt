@@ -14,13 +14,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 
-enum class ThemeMode { SYSTEM, LIGHT, DARK }
-
 /** App-level preferences: theme, dynamic color, default widget refresh interval. */
 class SettingsStore(private val context: Context) {
 
-    private val themeKey = stringPreferencesKey("theme_mode")
-    private val dynamicKey = booleanPreferencesKey("dynamic_color")
+    // theme_mode and dynamic_color are no longer read: the app is dark, always. The stored keys
+    // are left in place rather than migrated away — they cost nothing and a future reader
+    // finding them in a DataStore dump should find this note rather than a mystery.
     private val refreshKey = intPreferencesKey("default_refresh_minutes")
     private val finnhubKeyKey = stringPreferencesKey("finnhub_api_key")
     private val hideZeroCentsKey = booleanPreferencesKey("hide_zero_cents")
@@ -184,16 +183,10 @@ class SettingsStore(private val context: Context) {
             ?: emptyList()
     }
 
-    val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
-        runCatching { ThemeMode.valueOf(prefs[themeKey] ?: ThemeMode.SYSTEM.name) }.getOrDefault(ThemeMode.SYSTEM)
-    }
 
-    val dynamicColor: Flow<Boolean> = context.dataStore.data.map { it[dynamicKey] ?: true }
 
     val defaultRefreshMinutes: Flow<Int> = context.dataStore.data.map { it[refreshKey] ?: 15 }
 
-    suspend fun setThemeMode(mode: ThemeMode) = context.dataStore.edit { it[themeKey] = mode.name }
-    suspend fun setDynamicColor(enabled: Boolean) = context.dataStore.edit { it[dynamicKey] = enabled }
     suspend fun setDefaultRefreshMinutes(minutes: Int) = context.dataStore.edit { it[refreshKey] = minutes }
     suspend fun setFinnhubApiKey(key: String) = context.dataStore.edit { it[finnhubKeyKey] = key.trim() }
     suspend fun setHideZeroCents(enabled: Boolean) = context.dataStore.edit { it[hideZeroCentsKey] = enabled }

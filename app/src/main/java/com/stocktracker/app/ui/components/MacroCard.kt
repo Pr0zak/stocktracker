@@ -35,8 +35,9 @@ import com.stocktracker.app.data.remote.MacroCatalyst
 import com.stocktracker.app.data.remote.MacroState
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
+import com.stocktracker.app.ui.theme.Signal
 
-private val AMBER = Color(0xFFB0872B)
+private val AMBER = Signal
 
 /** Catalysts drawn when the card is open. The backend merges an ongoing story into one entry, so a
  *  healthy read is ~5; this only bounds a pathological one. */

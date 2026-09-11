@@ -68,6 +68,9 @@ import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.StockTrackerTheme
 import com.stocktracker.app.util.Formatting
 import kotlinx.coroutines.launch
+import com.stocktracker.app.ui.theme.OnSurfaceDark
+import com.stocktracker.app.ui.theme.OnSurfaceVariantDark
+import com.stocktracker.app.ui.theme.SurfaceContainerDark
 
 class WidgetConfigActivity : ComponentActivity() {
 
@@ -272,15 +275,15 @@ private fun WidgetPreview(config: TickerWidgetConfig) {
     ) {
         Column(
             modifier = Modifier
-                .background(Color(0xFF1C1B21), RoundedCornerShape(20.dp))
+                .background(SurfaceContainerDark, RoundedCornerShape(20.dp))
                 .padding(16.dp)
                 .width(150.dp),
         ) {
             if (config.showName) {
-                Text(config.displayName, color = Color(0xFFCAC4D3), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                Text(config.displayName, color = OnSurfaceVariantDark, style = MaterialTheme.typography.labelSmall, maxLines = 1)
             }
             Text(config.symbol, color = Color(config.accentArgb.toInt()), fontWeight = FontWeight.Bold)
-            Text(Formatting.price(229.14), color = Color(0xFFE6E1E9), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall)
+            Text(Formatting.price(229.14), color = OnSurfaceDark, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall)
             if (config.showChangePercent) {
                 Text("${Formatting.arrow(true)} ${Formatting.percent(1.20)}", color = GainGreen)
             }

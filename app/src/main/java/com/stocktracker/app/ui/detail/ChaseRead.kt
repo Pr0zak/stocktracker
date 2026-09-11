@@ -23,6 +23,8 @@ import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.data.remote.PlanResponse
 import com.stocktracker.app.ui.ideas.usd
 import java.util.Locale
+import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.ui.theme.Signal
 
 /**
  * SWT-3 — turning the server's chase read into one line the entry-plan card can print.
@@ -183,9 +185,9 @@ internal fun ChaseLine(chase: ChaseState?) {
     } ?: return
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val color = when (banner.tone) {
-        ChaseTone.ALARM -> Color(0xFFC64040)
-        ChaseTone.CAUTION -> Color(0xFFD29922)
-        ChaseTone.CALM -> Color(0xFF2E9E57)
+        ChaseTone.ALARM -> Signal
+        ChaseTone.CAUTION -> Signal
+        ChaseTone.CALM -> GainGreen
         ChaseTone.NEUTRAL -> neutral
     }
     val loud = banner.tone == ChaseTone.ALARM

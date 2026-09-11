@@ -52,6 +52,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -168,6 +171,7 @@ fun DetailScreen(
     asset: Asset,
     onBack: () -> Unit,
     onOpenCalendar: () -> Unit = {},
+    onOpenCalls: () -> Unit = {},
 ) {
     val vm: DetailViewModel = viewModel(key = asset.id) { DetailViewModel(asset) }
     val state by vm.state.collectAsState()
@@ -211,7 +215,11 @@ fun DetailScreen(
         value = if (benchEnabled) runCatching { ServiceLocator.repository.benchmark(state.range) }.getOrDefault(emptyList()) else emptyList()
     }
 
+    // "Tracking in Portfolio › My Calls" used to be a toast: it named a destination and then left
+    // the user to go and find it. A snackbar can carry the trip.
+    val trackedHost = remember { SnackbarHostState() }
     Scaffold(
+        snackbarHost = { SnackbarHost(trackedHost) },
         topBar = {
             TopAppBar(
                 title = {
@@ -783,7 +791,14 @@ fun DetailScreen(
             onSave = { position ->
                 scope.launch { ServiceLocator.callPositionStore.add(position) }
                 callDraft = null
-                Toast.makeText(context, "Tracking in Portfolio › My Calls", Toast.LENGTH_SHORT).show()
+                scope.launch {
+                    val r = trackedHost.showSnackbar(
+                        message = "Tracking in My Calls",
+                        actionLabel = "View",
+                        withDismissAction = true,
+                    )
+                    if (r == SnackbarResult.ActionPerformed) onOpenCalls()
+                }
             },
         )
     }

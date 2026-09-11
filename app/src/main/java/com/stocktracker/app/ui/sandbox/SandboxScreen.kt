@@ -95,6 +95,8 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import com.stocktracker.app.ui.theme.Signal
 import com.stocktracker.app.ui.theme.ArmSeries
+import com.stocktracker.app.ui.theme.NumberSmall
+import com.stocktracker.app.ui.theme.PriceSmall
 
 internal val GREEN = GainGreen
 internal val RED = LossRed
@@ -575,9 +577,9 @@ private fun PositionRow(p: SandboxPosition, equity: Double, onClick: () -> Unit)
             )
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text("$" + Formatting.compact(p.value), fontWeight = FontWeight.Medium)
+            Text("$" + Formatting.compact(p.value), style = PriceSmall)
             p.unrealizedPct?.let {
-                Text(signedPct(it), style = MaterialTheme.typography.labelSmall, color = if (it >= 0) GREEN else RED)
+                Text(signedPct(it), style = NumberSmall, color = if (it >= 0) GREEN else RED)
             }
         }
         Icon(
@@ -999,7 +1001,7 @@ private fun LegendRow(color: Color, label: String, pct: Double, onClick: (() -> 
     ) {
         Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(color))
         Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
-        Text("${pct.toInt()}%", style = MaterialTheme.typography.labelSmall,
+        Text("${pct.toInt()}%", style = NumberSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -1264,6 +1266,9 @@ private fun ArmTrendCard(
     selected: String,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    // Which overlay the reader has asked to pick out. rememberSaveable so a rotation does not send
+    // them back to the tangle they just untangled.
+    var focusedArm by rememberSaveable { mutableStateOf<String?>(null) }
     val base = nav.commonStartIndex
     Box(
         Modifier.fillMaxWidth()
@@ -1305,7 +1310,22 @@ private fun ArmTrendCard(
             val armNames = indexed.map { it.first.arm }
             val overlays = indexed.filter { it !== primary }.map { (s, vals, _) ->
                 val st = armStyle(s.arm, armNames)
-                ChartLineOverlay(s.label.ifBlank { s.arm }, st.color, vals, dashed = st.dashed)
+                // Focus, because seven lines on one plot is past what any palette can carry.
+                //
+                // The measured limit is six colours (see ArmSeries), and the seventh arm onward
+                // reuses them dashed — which tells them apart but does not make a tangle of seven
+                // curves readable. The honest finish is not a better hue: it is letting the reader
+                // ask "which one is that?" and get an answer. Tapping a name in the key below dims
+                // everything else to a ghost, so the line you asked about is the only bright one.
+                // The dimmed lines stay drawn rather than disappearing: they are the context that
+                // makes the highlighted one mean anything.
+                val dim = focusedArm != null && focusedArm != s.arm
+                ChartLineOverlay(
+                    s.label.ifBlank { s.arm },
+                    if (dim) st.color.copy(alpha = 0.18f) else st.color,
+                    vals,
+                    dashed = st.dashed,
+                )
             }
             // The main series takes its colour from its own direction, so the legend has to read the
             // same number — it used to hardcode GREEN for the selected arm, which meant that on any
@@ -1327,11 +1347,26 @@ private fun ArmTrendCard(
                 )
             }
             // Legend: the solid line is named too, since the chart itself only labels overlays.
+            // Every row is also the control that picks its line out of the tangle.
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 indexed.forEach { (s, vals, _) ->
                     val last = vals.lastOrNull { it != null }
                     val isPrimary = s === primary.first
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    val focused = focusedArm == s.arm
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // The primary is already the one bright solid line; dimming the others
+                            // to point at it would say nothing new, so it is not a focus target.
+                            .then(
+                                if (isPrimary) Modifier
+                                else Modifier.clickable {
+                                    focusedArm = if (focused) null else s.arm
+                                },
+                            )
+                            .heightIn(min = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         // The swatch carries the dash as well as the hue, for the same reason the
                         // chart's own legend does: a key that shows a solid square for a dashed
                         // line is a key that is wrong about the only thing it exists to say.
@@ -1350,9 +1385,13 @@ private fun ArmTrendCard(
                         }
                         Spacer(Modifier.width(7.dp))
                         Text(
-                            s.label.ifBlank { s.arm } + if (isPrimary) " (shown)" else "",
+                            s.label.ifBlank { s.arm } + when {
+                                isPrimary -> " (shown)"
+                                focused -> " (highlighted)"
+                                else -> ""
+                            },
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isPrimary) FontWeight.SemiBold else FontWeight.Normal,
+                            fontWeight = if (isPrimary || focused) FontWeight.SemiBold else FontWeight.Normal,
                             modifier = Modifier.weight(1f),
                         )
                         Text(
@@ -1367,6 +1406,14 @@ private fun ArmTrendCard(
                     }
                 }
             }
+            Text(
+                if (focusedArm == null) {
+                    "Tap a name to pick its line out of the chart."
+                } else {
+                    "Showing one line brightly. Tap it again to bring the rest back."
+                },
+                style = MaterialTheme.typography.labelSmall, color = neutral,
+            )
             Text(
                 "Indexed to 100 on ${nav.commonStart} — the first day all arms existed. " +
                     "${dates.size} day${if (dates.size == 1) "" else "s"} of overlap: far too short " +

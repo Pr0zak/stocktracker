@@ -62,7 +62,21 @@ private val BOUNDS = doubleArrayOf(0.0, 15.0, 20.0, 30.0, 40.0, GAUGE_MAX)
  * high volatility (fear) is red, a falling VIX (calming) is green — so the card reads as sentiment.
  */
 @Composable
-fun FearGauge(vix: VixQuote, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+fun FearGauge(
+    vix: VixQuote,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    /**
+     * True when the last attempt to re-read the VIX reached nothing, so [vix] is the previous
+     * reading rather than the current one.
+     *
+     * The gauge had no way to say this, and the watchlist's poll dropped its failures silently:
+     * a number that stopped moving looked exactly like a market that stopped moving. The value is
+     * still worth showing — it is the last thing that was true — but not in the same voice as a
+     * live one.
+     */
+    stale: Boolean = false,
+) {
     val zone = vix.zone
     val zoneColor = zone.color()
 
@@ -75,9 +89,9 @@ fun FearGauge(vix: VixQuote, modifier: Modifier = Modifier, onClick: (() -> Unit
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                "Market Fear · VIX",
+                if (stale) "Market Fear · VIX · last read, not current" else "Market Fear · VIX",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (stale) Signal else MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Row(

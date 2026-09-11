@@ -68,6 +68,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -560,61 +561,47 @@ fun DetailScreen(
                 )
             }
 
-            // Snapshot — one-glance rollup of the lenses below (stocks only, when ≥2 are available).
-            if (!isCrypto) {
-                val snapCount = listOf(
-                    state.signal != null || state.aiVerdict != null,
-                    state.stockTrend != null,
-                    state.quality?.let { it.hasAnyFlag || it.hasMetrics } == true,
-                    state.insider?.let { it.buyCount12m > 0 } == true,
-                    state.shortPressure != null,
-                ).count { it }
-                if (snapCount >= 2) {
-                    SnapshotCard(
-                        signal = state.signal,
-                        verdict = state.aiVerdict,
-                        aiEnabled = state.aiEnabled,
-                        aiError = state.aiError,
-                        trend = state.stockTrend,
-                        quality = state.quality,
-                        insider = state.insider,
-                        shortPressure = state.shortPressure,
-                    )
-                }
-            }
 
-            if (state.signal != null || state.aiEnabled) {
-                SignalsCard(
-                    signal = state.signal,
-                    backtest = state.backtest,
-                    verdict = state.aiVerdict,
-                    model = state.aiModel,
-                    verdictAtMs = state.aiVerdictAtMs,
-                    loading = state.aiLoading,
-                    error = state.aiError,
-                    aiEnabled = state.aiEnabled,
-                    onAnalyze = { vm.requestAiVerdict(deep = false) },
-                    onDeepDive = { vm.requestAiVerdict(deep = true) },
-                )
-            }
-            state.shortPressure?.let { ShortPressureCard(it) }
-            state.insider?.let { InsiderBuyingCard(it) }
-            state.congress?.let { CongressCard(it) }
-            state.seasonality?.let { SeasonalityCard(it) }
-            if (state.aiEnabled && state.asset.type == AssetType.STOCK) {
-                NewsMovesCard(
-                    block = state.newsMoves,
-                    note = state.newsMovesNote,
-                    loading = state.newsMovesLoading,
-                    error = state.newsMovesError,
-                    loaded = state.newsMovesLoaded,
-                    onExplain = { vm.requestNewsMoves() },
-                )
-            }
-            state.cycleInfo?.let { HalvingCycleCard(it) }
-            state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
-            state.quality?.let { QualityCard(it) }
-            state.valueTrap?.let { ValueTrapCard(it) }
+            // Everything on this screen used to be the market's opinion first and yours last: the
+            SectionHeader("YOUR MONEY")
+            // position card and the alerts sat below eleven analysis cards, four screenfuls down,
+            // and they are the two things you came to act on. They lead now. The lenses did not
+            // shrink or move out — they moved BELOW, which is the whole of this change.
+
+            HoldingsAndAlertsSection(
+                symbol = asset.symbol,
+                quote = quote,
+                hideZeroCents = hideZeroCents,
+                shares = state.shares,
+                avgCost = state.avgCost,
+                alerts = state.alerts,
+                // Pre-formatted here rather than passed as a raw number, because the caller is the
+                // only place that knows what the loaded bars ARE. "1 ATR" off a 5-minute series is
+                // not the quantity a stop distance is compared against, so the hint simply does not
+                // appear unless the chart is on daily bars.
+                atrHint = remember(state.chart) {
+                    val daily = barSpacingLabel(medianBarSpacingMs(state.chart)) == "1d"
+                    val a = if (daily) atr(state.chart, 14).lastOrNull() else null
+                    val px = state.chart.lastOrNull()?.price
+                    if (a != null && px != null && px > 0.0) {
+                        "1 ATR (14d) = ${fmtLevel(a)} · 1x below ${fmtLevel(px - a)} · 2x below ${fmtLevel(px - 2 * a)}"
+                    } else null
+                },
+                onSave = { newShares, newAvgCost, newAlerts ->
+                    vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
+                    if (!newAlerts.isEmpty) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        WidgetRefreshScheduler.refreshNow(context) // check the new thresholds promptly
+                    }
+                    Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                },
+            )
+
 
             if (state.aiEnabled) {
                 EntryPlanCard(
@@ -699,38 +686,116 @@ fun DetailScreen(
                 } // if (optionsOpen)
             }
 
-            HoldingsAndAlertsSection(
-                symbol = asset.symbol,
-                quote = quote,
-                hideZeroCents = hideZeroCents,
-                shares = state.shares,
-                avgCost = state.avgCost,
-                alerts = state.alerts,
-                // Pre-formatted here rather than passed as a raw number, because the caller is the
-                // only place that knows what the loaded bars ARE. "1 ATR" off a 5-minute series is
-                // not the quantity a stop distance is compared against, so the hint simply does not
-                // appear unless the chart is on daily bars.
-                atrHint = remember(state.chart) {
-                    val daily = barSpacingLabel(medianBarSpacingMs(state.chart)) == "1d"
-                    val a = if (daily) atr(state.chart, 14).lastOrNull() else null
-                    val px = state.chart.lastOrNull()?.price
-                    if (a != null && px != null && px > 0.0) {
-                        "1 ATR (14d) = ${fmtLevel(a)} · 1x below ${fmtLevel(px - a)} · 2x below ${fmtLevel(px - 2 * a)}"
-                    } else null
-                },
-                onSave = { newShares, newAvgCost, newAlerts ->
-                    vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
-                    if (!newAlerts.isEmpty) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-                            PackageManager.PERMISSION_GRANTED
-                        ) {
-                            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                        WidgetRefreshScheduler.refreshNow(context) // check the new thresholds promptly
-                    }
-                    Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
-                },
+
+            // A header that stands over nothing is a promise the screen does not keep — and on an
+            // ETF, where insider filings and Congress trades genuinely do not apply, that is most
+            // of them. Each header renders only if something beneath it will.
+            val hasRead = (!isCrypto) || state.signal != null || state.aiEnabled
+            val hasFlows = state.shortPressure != null || state.insider != null || state.congress != null
+            val hasPatterns = state.seasonality != null ||
+                (state.aiEnabled && state.asset.type == AssetType.STOCK) ||
+                state.cycleInfo != null || state.stockTrend != null ||
+                state.quality != null || state.valueTrap != null
+
+            // The rollup, and then the evidence it was rolled up from.
+            if (hasRead) SectionHeader("TODAY'S READ")
+
+            // Snapshot — one-glance rollup of the lenses below (stocks only, when ≥2 are available).
+            if (!isCrypto) {
+                val snapCount = listOf(
+                    state.signal != null || state.aiVerdict != null,
+                    state.stockTrend != null,
+                    state.quality?.let { it.hasAnyFlag || it.hasMetrics } == true,
+                    state.insider?.let { it.buyCount12m > 0 } == true,
+                    state.shortPressure != null,
+                ).count { it }
+                if (snapCount >= 2) {
+                    SnapshotCard(
+                        signal = state.signal,
+                        verdict = state.aiVerdict,
+                        aiEnabled = state.aiEnabled,
+                        aiError = state.aiError,
+                        trend = state.stockTrend,
+                        quality = state.quality,
+                        insider = state.insider,
+                        shortPressure = state.shortPressure,
+                    )
+                }
+            }
+
+            if (state.signal != null || state.aiEnabled) {
+                SignalsCard(
+                    signal = state.signal,
+                    backtest = state.backtest,
+                    verdict = state.aiVerdict,
+                    model = state.aiModel,
+                    verdictAtMs = state.aiVerdictAtMs,
+                    loading = state.aiLoading,
+                    error = state.aiError,
+                    aiEnabled = state.aiEnabled,
+                    onAnalyze = { vm.requestAiVerdict(deep = false) },
+                    onDeepDive = { vm.requestAiVerdict(deep = true) },
+                )
+            }
+
+            // Who is positioned how — short interest, insiders, Congress.
+            if (hasFlows) SectionHeader("SIGNALS & FLOWS")
+
+            state.shortPressure?.let { ShortPressureCard(it) }
+            state.insider?.let { InsiderBuyingCard(it) }
+            state.congress?.let { CongressCard(it) }
+
+            // What this name has done before, and what moved it.
+            if (hasPatterns) SectionHeader("PATTERNS & HISTORY")
+
+            state.seasonality?.let { SeasonalityCard(it) }
+            if (state.aiEnabled && state.asset.type == AssetType.STOCK) {
+                NewsMovesCard(
+                    block = state.newsMoves,
+                    note = state.newsMovesNote,
+                    loading = state.newsMovesLoading,
+                    error = state.newsMovesError,
+                    loaded = state.newsMovesLoaded,
+                    onExplain = { vm.requestNewsMoves() },
+                )
+            }
+            state.cycleInfo?.let { HalvingCycleCard(it) }
+            state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
+            state.quality?.let { QualityCard(it) }
+            state.valueTrap?.let { ValueTrapCard(it) }
+            // One footer, once, instead of "· tap for detail" repeated on nine cards and a
+            // disclaimer restated on sixteen. The per-lens caveats that say something SPECIFIC —
+            // that Congress filings lag 45 days, that a low 200-week reading is not a buy on its
+            // own — stay where they are: those are not boilerplate, they are the epistemics of
+            // that particular lens, and deleting them would be the opposite of this change.
+            // Absence, said out loud. An ETF has no insiders to file Form 4s and no Congressional
+            // trades reported against it; a stock has no halving cycle. Those lenses are not
+            // missing or broken — they do not exist for this instrument, and a blank space cannot
+            // tell you which of the three it is.
+            val notApplicable = if (isCrypto) {
+                listOf("Insider buying", "Congress trades", "Quality", "Value trap", "200-week line")
+            } else {
+                listOfNotNull(
+                    "Halving cycle",
+                    if (state.asset.type != AssetType.STOCK) "Insider buying" else null,
+                    if (state.asset.type != AssetType.STOCK) "Congress trades" else null,
+                )
+            }
+            if (notApplicable.isNotEmpty()) {
+                Text(
+                    "Not applicable to this " + (if (isCrypto) "coin" else "instrument") + ": " +
+                        notApplicable.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Text(
+                "Every card above is collapsible — tap it for the detail behind the summary. " +
+                    "Context, not advice.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
             )
 
             Text(
@@ -1222,6 +1287,31 @@ private data class SnapFactor(
  * Each factor is a coloured one-liner; tap to expand the sub-detail. Context, not advice; the detailed
  * cards remain below for the drill-down.
  */
+/**
+ * A quiet rule with a word on it.
+ *
+ * The detail screen is one flat column of about twenty-eight cards that all share the same
+ * chrome — same surface, same pill, same chevron — so nothing told you where one concern ended
+ * and the next began. Four headers is not a redesign; it is punctuation.
+ */
+@Composable
+private fun SectionHeader(title: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.4.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        HorizontalDivider(modifier = Modifier.weight(1f))
+    }
+}
+
 @Composable
 private fun SnapshotCard(
     signal: SignalResult?,
@@ -1544,7 +1634,7 @@ private fun SignalsCard(
                 else -> null
             }
             Text(
-                listOfNotNull(rulesPart, aiPart).joinToString(" · ") + " · tap for detail",
+                listOfNotNull(rulesPart, aiPart).joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
@@ -1774,7 +1864,7 @@ private fun HalvingCycleCard(ci: CycleResponse) {
                 lt?.mayerMultiple?.let { "Mayer %.2f".format(it) },
             )
             Text(
-                (parts.joinToString(" · ").ifBlank { "long-term data" }) + " · tap for detail",
+                (parts.joinToString(" · ").ifBlank { "long-term data" }),
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
@@ -1921,7 +2011,7 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
                 tr.volumeSignal?.takeIf { it != "neutral" }?.replace('_', ' '),
             )
             Text(
-                (parts.joinToString(" · ").ifBlank { "long-term trend" }) + " · tap for detail",
+                (parts.joinToString(" · ").ifBlank { "long-term trend" }),
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
@@ -2069,7 +2159,7 @@ private fun InsiderBuyingCard(ins: InsiderResponse) {
                 if (ins.hasClusterBuy) "cluster" else null,
             )
             Text(
-                parts.joinToString(" · ") + " · tap for detail",
+                parts.joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
@@ -2153,7 +2243,7 @@ private fun CongressCard(c: CongressBlock) {
                 if (c.clusterBuy) "cluster" else null,
             )
             Text(
-                parts.joinToString(" · ") + " · tap for detail",
+                parts.joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
@@ -2343,7 +2433,7 @@ private fun SeasonalityCard(s: SeasonalityBlock) {
         }
         if (!open && cur != null) {
             Text(
-                "${cur.name} is historically ${fmtSignedPct(cur.avgPct)} on average · up ${cur.hitRate ?: 0}% of ${cur.n} years · tap for detail",
+                "${cur.name} is historically ${fmtSignedPct(cur.avgPct)} on average · up ${cur.hitRate ?: 0}% of ${cur.n} years",
                 style = MaterialTheme.typography.labelSmall, color = neutral,
             )
         }
@@ -2456,7 +2546,7 @@ private fun QualityCard(q: QualityResponse) {
                 q.debtToEquity?.let { "D/E %.2f".format(it) },
             )
             Text(
-                (parts.joinToString(" · ").ifBlank { "quality metrics" }) + " · tap for detail",
+                (parts.joinToString(" · ").ifBlank { "quality metrics" }),
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )
@@ -2625,7 +2715,7 @@ private fun ShortPressureCard(sp: ShortPressureResponse) {
                     sp.daysToCover?.let { "DTC %.1f".format(it) },
                     sp.shortVolRatio5d?.let { "short vol %.0f%%".format(it * 100) },
                     sp.ftdTrend?.let { "FTDs $it" },
-                ).joinToString(" · ") + " · tap for detail",
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
             )

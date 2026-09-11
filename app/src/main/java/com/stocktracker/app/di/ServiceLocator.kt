@@ -2,6 +2,7 @@ package com.stocktracker.app.di
 
 import android.content.Context
 import com.stocktracker.app.BuildConfig
+import com.stocktracker.app.data.MarketContextStore
 import com.stocktracker.app.data.MarketRepository
 import com.stocktracker.app.data.prefs.CallPositionStore
 import com.stocktracker.app.data.prefs.ClosedCallPositionStore
@@ -39,6 +40,16 @@ object ServiceLocator {
     lateinit var verdictJournalStore: VerdictJournalStore
         private set
 
+    /**
+     * What the app believes about the market, shared by every screen that shows any of it.
+     *
+     * Lives here rather than in a view model because three screens need the same reading and a
+     * view-model-scoped copy dies with its screen — which is how the watchlist strip and the dip
+     * radar ended up fetching the same nightly scan twice and being able to disagree about it.
+     */
+    lateinit var marketContext: MarketContextStore
+        private set
+
     /** User-entered Finnhub key from Settings; blank means use the build-time key. */
     @Volatile
     var finnhubKeyOverride: String = ""
@@ -55,6 +66,7 @@ object ServiceLocator {
     fun init(context: Context) {
         if (initialized) return
         val app = context.applicationContext
+        marketContext = MarketContextStore(scope)
         watchlistStore = WatchlistStore(app)
         settingsStore = SettingsStore(app)
         priceCache = PriceCache(app)

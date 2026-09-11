@@ -84,6 +84,7 @@ import com.stocktracker.app.ui.components.FearGauge
 import com.stocktracker.app.ui.components.SessionTimelineBar
 import com.stocktracker.app.ui.components.SwipeToDeleteRow
 import androidx.compose.material3.Card
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.util.Formatting
@@ -141,9 +142,16 @@ fun WatchlistScreen(
             value = System.currentTimeMillis()
         }
     }
-    val vix by produceState<VixQuote?>(initialValue = null) {
+    // One VIX for the whole app, from the shared market context. This used to be a poll of its own
+    // here, a second one on the VIX detail screen and a third inside the detail view model's signal
+    // inputs; the repository's own cache hid most of the cost, but not the disagreement — each
+    // caller had its own idea of whether the last read had succeeded.
+    val marketCtx = ServiceLocator.marketContext
+    val marketContext by marketCtx.state.collectAsStateWithLifecycle()
+    val vix = marketContext.vix
+    LaunchedEffect(Unit) {
         while (true) {
-            runCatching { ServiceLocator.repository.vix() }.getOrNull()?.let { value = it }
+            marketCtx.refreshVix()
             delay(120_000)
         }
     }
@@ -1045,18 +1053,21 @@ private fun ModeChip(label: String, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
-    var reload by remember { mutableStateOf(0) }
-    var state by remember { mutableStateOf<DipRadarState>(DipRadarState.Loading) }
+    // The scan comes from the shared market context, not from a fetch of this screen's own. This
+    // screen used to hold a `remember` of the state and call latestScan() itself, while the strip on
+    // the watchlist did the same in its view model — two fetches of one nightly file, and two
+    // answers that could disagree about whether the market is calm. Opening this screen after
+    // glancing at the strip now costs nothing and shows the same reading.
+    val ctx = ServiceLocator.marketContext
+    val market by ctx.state.collectAsStateWithLifecycle()
+    val state = market.dipRadar
     var bySym by remember { mutableStateOf(emptyMap<String, Asset>()) }
     // rememberSaveable: the audit section stays open across a retry and a rotation, so a user who
     // opened it to read the reasons isn't sent back to the summary by a refresh.
     var rejectsOpen by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(reload) {
-        state = DipRadarState.Loading
-        val base = ServiceLocator.settingsStore.signalsApiUrl.first()
+    LaunchedEffect(Unit) {
         bySym = ServiceLocator.watchlistStore.watchlist.first().associateBy { it.symbol.uppercase() }
-        val res = runCatching { SignalsApiService().latestScan(base) }
-        state = DipRadar.state(res.getOrNull(), res.exceptionOrNull(), configured = base.isNotBlank())
+        ctx.refreshScan()
     }
     val open: (String) -> Unit = { sym ->
         onOpenDetail(bySym[sym.uppercase()] ?: Asset(sym, AssetType.STOCK, sym))
@@ -1071,7 +1082,7 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { reload++ }) {
+                    IconButton(onClick = { ctx.refreshScan(maxAgeMs = 0L) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Reload the scan")
                     }
                 },
@@ -1101,7 +1112,7 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
                         title = "Couldn't reach the scan service",
                         body = s.message?.takeIf { it.isNotBlank() }
                             ?: "The request failed, so there's nothing to show — this is not a quiet market.",
-                        onRetry = { reload++ },
+                        onRetry = { ctx.refreshScan(maxAgeMs = 0L) },
                     )
                 }
                 is DipRadarState.NotConfigured -> item {
@@ -1118,7 +1129,7 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
                         body = s.reason?.takeIf { it.isNotBlank() }
                             ?.replaceFirstChar { c -> c.uppercase() }
                             ?: "The scan service has no results stored, so nothing has been measured yet.",
-                        onRetry = { reload++ },
+                        onRetry = { ctx.refreshScan(maxAgeMs = 0L) },
                     )
                 }
                 is DipRadarState.Ready -> {

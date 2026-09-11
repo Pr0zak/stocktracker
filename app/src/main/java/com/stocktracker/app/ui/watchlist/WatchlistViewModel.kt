@@ -158,7 +158,7 @@ class WatchlistViewModel : ViewModel() {
     private var loadGeneration = 0
 
     init {
-        viewModelScope.launch { loadBelowLineFlags() }
+        observeMarketContext()
         loadRegime()
         loadGate()
         viewModelScope.launch {
@@ -213,7 +213,8 @@ class WatchlistViewModel : ViewModel() {
             _state.update { it.copy(refreshing = true, refreshError = null) }
             repo.invalidateQuotes()
             loadQuotes(currentAssets)
-            loadBelowLineFlags()
+            // Forced: a refresh the user asked for must not be served the store's cached scan.
+            ServiceLocator.marketContext.refreshScan(maxAgeMs = 0L)
             loadSectors()
             _state.update { it.copy(refreshing = false) }
         }
@@ -327,54 +328,44 @@ class WatchlistViewModel : ViewModel() {
      * read.
      */
     fun reloadDips() {
-        viewModelScope.launch { loadBelowLineFlags() }
+        ServiceLocator.marketContext.refreshScan(maxAgeMs = 0L)
     }
 
-    /** Pull the latest nightly scan once to learn which watchlist names sit below their 200-week
-     *  line, and stamp the flag onto the current rows. Best-effort; no-op without a Signals URL. */
-    private suspend fun loadBelowLineFlags() {
-        val configured = settings.signalsApiUrl.first().isNotBlank()
-        // SWT-14. This used to `return` on every unhappy path, which was an improvement on the older
-        // behaviour (overwriting the strip with an emptiness that read as "checked, all clear") but
-        // still left the strip with exactly one thing it could say. A user who never opens the full
-        // radar screen had no way to learn the scan service was down: the strip's silence looks the
-        // same as a market with no dips in it, and that is the reassuring reading.
-        //
-        // So resolve the SAME four-state machine the radar screen runs on and hand it to the UI.
-        // One state machine, shared — two would drift and the two screens would eventually disagree
-        // about whether the market is calm.
-        val scan = if (configured) {
-            runCatching { signalsApi.latestScan(settings.signalsApiUrl.first()) }
-        } else {
-            Result.success(null)
-        }
-        val radar = DipRadar.state(
-            scan = scan.getOrNull(),
-            error = scan.exceptionOrNull(),
-            configured = configured,
-        )
-
-        // The below-200w flags are a SEPARATE fact from the strip's state and keep the old rule:
-        // only overwrite them when a real scan actually arrived. A failed fetch must not clear a
-        // flag we already hold and are still showing on the row.
-        val rows = (scan.getOrNull())?.results?.takeIf { it.isNotEmpty() && scan.getOrNull()?.hasScan == true }
-        if (rows != null) {
-            belowLineMap = rows.mapNotNull { r -> r.below200wma?.let { r.symbol.uppercase() to it } }.toMap()
-        }
-        _state.update { st ->
-            // Keep a good scan through a blip — the rule lives in DipRadar.holdThroughBlip so it
-            // is testable, and so the reasons NotConfigured and NoScan are excluded from it are
-            // written down next to the rule rather than here.
-            val upd = DipRadar.holdThroughBlip(st.dipRadar, radar)
-            st.copy(
-                items = if (rows != null) {
-                    st.items.map { it.copy(below200wma = belowLineMap[scanKey(it.asset)]) }
-                } else {
-                    st.items
-                },
-                dipRadar = upd.state,
-                dipStale = upd.stale,
-            )
+    /**
+     * Ask the shared market context for the nightly scan, and stamp its 200-week flags onto the rows.
+     *
+     * SWT-14. The strip used to `return` on every unhappy path, leaving it with exactly one thing it
+     * could say. A user who never opens the full radar screen had no way to learn the scan service
+     * was down: the strip's silence looks the same as a market with no dips in it, and that is the
+     * reassuring reading — the one that stops them looking. So it renders the same four-state
+     * machine the radar screen does.
+     *
+     * The fetch itself has moved to [MarketContextStore]. It used to live here, and the radar screen
+     * did its own, so the comment claiming one shared state machine was true of the type and false
+     * of the instance — two fetches, two answers, able to disagree about whether the market is calm.
+     */
+    private fun observeMarketContext() {
+        val ctx = ServiceLocator.marketContext
+        ctx.refreshScan()
+        viewModelScope.launch {
+            ctx.state.collect { m ->
+                // The below-200w flags keep the old rule: only overwrite them when a real scan has
+                // arrived. The store holds the last good scan through a failure for exactly this
+                // reason, so a blip cannot clear a flag we are still showing on a row.
+                val flags = m.belowLine
+                if (flags.isNotEmpty()) belowLineMap = flags
+                _state.update { st ->
+                    st.copy(
+                        items = if (flags.isNotEmpty()) {
+                            st.items.map { it.copy(below200wma = belowLineMap[scanKey(it.asset)]) }
+                        } else {
+                            st.items
+                        },
+                        dipRadar = m.dipRadar,
+                        dipStale = m.dipStale,
+                    )
+                }
+            }
         }
     }
 

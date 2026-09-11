@@ -59,7 +59,21 @@ enum class AlertCondition(val key: String, val label: String, val minBars: Int) 
     CLOSE_AT_52W_HIGH("at_52w_high", "Closes at a 52-week high", 252),
 }
 
-/** Per-asset notification thresholds. Any field set to null is inactive. */
+/** Which of the four level alerts a switch can turn off without throwing the level away. */
+@Serializable
+enum class AlertKind { PRICE_ABOVE, PRICE_BELOW, PERCENT_UP, PERCENT_DOWN }
+
+/**
+ * Per-asset notification thresholds.
+ *
+ * A level and whether it is armed used to be the same field: null meant off, so turning a switch
+ * off had to erase the number, and re-arming meant typing it again from memory. People do not set
+ * an alert at $390 by accident — flipping it off for a week is a normal thing to do, and the app
+ * charged them the level for it.
+ *
+ * [disarmed] separates the two. It defaults to empty, so every alert already stored — which by
+ * definition has a value and was on — decodes as armed, and nothing has to be migrated.
+ */
 @Serializable
 data class AssetAlerts(
     val priceAbove: Double? = null,   // notify when price >= this
@@ -68,7 +82,14 @@ data class AssetAlerts(
     val percentDown: Double? = null,  // notify when day change % <= -this
     /** Armed technical conditions. Defaulted so older backups and stored watchlists decode. */
     val conditions: Set<AlertCondition> = emptySet(),
+    /** Levels that are kept but not firing. Defaulted, so older data decodes as fully armed. */
+    val disarmed: Set<AlertKind> = emptySet(),
 ) {
+    /** The level, or null when there is no level OR the user has switched this one off. */
+    val armedPriceAbove: Double? get() = priceAbove.takeIf { AlertKind.PRICE_ABOVE !in disarmed }
+    val armedPriceBelow: Double? get() = priceBelow.takeIf { AlertKind.PRICE_BELOW !in disarmed }
+    val armedPercentUp: Double? get() = percentUp.takeIf { AlertKind.PERCENT_UP !in disarmed }
+    val armedPercentDown: Double? get() = percentDown.takeIf { AlertKind.PERCENT_DOWN !in disarmed }
     /**
      * True when nothing is armed at all.
      *
@@ -78,12 +99,14 @@ data class AssetAlerts(
      * error anywhere to say so.
      */
     val isEmpty: Boolean
-        get() = priceAbove == null && priceBelow == null && percentUp == null &&
-            percentDown == null && conditions.isEmpty()
+        get() = armedPriceAbove == null && armedPriceBelow == null && armedPercentUp == null &&
+            armedPercentDown == null && conditions.isEmpty()
 
     /** How many alerts are armed, for the badge. Same reasoning as [isEmpty]. */
     val activeCount: Int
-        get() = listOfNotNull(priceAbove, priceBelow, percentUp, percentDown).size + conditions.size
+        get() = listOfNotNull(
+            armedPriceAbove, armedPriceBelow, armedPercentUp, armedPercentDown,
+        ).size + conditions.size
 }
 
 /** A point-in-time price snapshot. */

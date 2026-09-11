@@ -1,5 +1,7 @@
 package com.stocktracker.app.ui.components
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +60,8 @@ fun BackendStatusBanner(modifier: Modifier = Modifier) {
             .fillMaxWidth()
             .background(red.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
             .clickable(enabled = !health.checking) { SignalsHealth.retry() }
+            // The only way to retry a dead backend, on seven screens, and it was about 33dp tall.
+            .heightIn(min = 48.dp)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -61,7 +61,7 @@ fun armedAlertLevels(
     }
 
     return listOfNotNull(
-        alerts.priceAbove?.let { level(it, rising = true) },
-        alerts.priceBelow?.let { level(it, rising = false) },
+        alerts.armedPriceAbove?.let { level(it, rising = true) },
+        alerts.armedPriceBelow?.let { level(it, rising = false) },
     )
 }

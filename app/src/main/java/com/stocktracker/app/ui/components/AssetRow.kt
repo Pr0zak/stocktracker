@@ -1,5 +1,8 @@
 package com.stocktracker.app.ui.components
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +37,7 @@ import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceMedium
 import com.stocktracker.app.ui.theme.Signal
 import com.stocktracker.app.ui.theme.NumberSmall
+import androidx.compose.foundation.layout.requiredSize
 
 @Composable
 fun AssetRow(
@@ -158,12 +162,26 @@ fun AssetRow(
             // An outlined star for "not a favourite" rather than no icon at all: an absent control
             // cannot be discovered, and the whole feature depends on the user finding it once.
             if (onToggleFavorite != null) {
-                IconButton(onClick = onToggleFavorite, modifier = Modifier.width(36.dp)) {
-                    Icon(
-                        if (favorite) Icons.Default.Star else Icons.Outlined.StarBorder,
-                        contentDescription = if (favorite) "Remove $symbol from favorites" else "Add $symbol to favorites",
-                        tint = if (favorite) Signal else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                // A 48dp target inside a 36dp slot.
+                //
+                // This is the most-rendered control in the app, it sits inside a row that is itself
+                // tappable, and at 36dp a miss did not do nothing — it opened the detail screen.
+                // But simply widening it to 48 took the 12dp out of the column beside it, which
+                // truncated every company name and left the holdings line reading "41 sh ·" with
+                // nothing after the separator. requiredSize ignores the parent's constraints, so
+                // the button draws and receives touches at 48dp while the row still measures 36:
+                // the target grows and the layout does not.
+                Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                    IconButton(
+                        onClick = onToggleFavorite,
+                        modifier = Modifier.requiredSize(48.dp),
+                    ) {
+                        Icon(
+                            if (favorite) Icons.Default.Star else Icons.Outlined.StarBorder,
+                            contentDescription = if (favorite) "Remove $symbol from favorites" else "Add $symbol to favorites",
+                            tint = if (favorite) Signal else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             // Drag-to-reorder affordance, shown only in the reorderable "All" tab. The whole row is

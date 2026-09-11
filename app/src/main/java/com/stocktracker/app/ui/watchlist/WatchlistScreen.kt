@@ -1352,9 +1352,11 @@ private fun RegimeCard(ui: RegimeUi, onRefresh: () -> Unit) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onRefresh, modifier = Modifier.size(28.dp)) {
+                    // The controls the honesty model depends on — the ones you reach for when a
+                    // card is showing a stale read — were the hardest to hit in the app at 28dp.
+                    IconButton(onClick = onRefresh, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh regime",
-                            tint = if (ui.error != null) red else neutral, modifier = Modifier.size(18.dp))
+                            tint = if (ui.error != null) red else neutral, modifier = Modifier.size(20.dp))
                     }
                     if (hasContent) {
                         Icon(
@@ -1484,7 +1486,7 @@ private fun GateCard(ui: GateUi, onRefresh: () -> Unit) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onRefresh, modifier = Modifier.size(28.dp)) {
+                    IconButton(onClick = onRefresh, modifier = Modifier.size(48.dp)) {
                         Icon(
                             Icons.Filled.Refresh, contentDescription = "Refresh the market gate",
                             tint = if (ui.error != null) red else neutral, modifier = Modifier.size(18.dp),

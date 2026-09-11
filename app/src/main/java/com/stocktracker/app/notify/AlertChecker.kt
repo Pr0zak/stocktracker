@@ -47,16 +47,16 @@ object AlertChecker {
                 }
             }
 
-            alerts.priceAbove?.let {
+            alerts.armedPriceAbove?.let {
                 evaluate("above", price >= it, "${asset.symbol} rose above ${Formatting.price(it, quote.currency, hideZeroCents)}")
             }
-            alerts.priceBelow?.let {
+            alerts.armedPriceBelow?.let {
                 evaluate("below", price <= it, "${asset.symbol} fell below ${Formatting.price(it, quote.currency, hideZeroCents)}")
             }
-            alerts.percentUp?.let {
+            alerts.armedPercentUp?.let {
                 evaluate("up", pct >= it, "${asset.symbol} up ${Formatting.percent(pct)} today")
             }
-            alerts.percentDown?.let {
+            alerts.armedPercentDown?.let {
                 evaluate("down", pct <= -it, "${asset.symbol} down ${Formatting.percent(pct)} today")
             }
 

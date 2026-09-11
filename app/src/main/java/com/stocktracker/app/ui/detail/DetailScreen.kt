@@ -168,6 +168,9 @@ import com.stocktracker.app.ui.theme.EtfAccent
 import com.stocktracker.app.ui.theme.Signal
 import com.stocktracker.app.ui.theme.CategoricalRamp
 import com.stocktracker.app.ui.theme.ChartSeries
+import androidx.compose.ui.text.style.TextDecoration
+import com.stocktracker.app.ui.theme.NumberSmall
+import androidx.compose.foundation.layout.heightIn
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -3008,28 +3011,67 @@ private fun HoldingsAndAlertsSection(
     // ----- Alerts (toggle rows; arm/disarm live, set the numbers in the sheet) -----
     val activeAlerts = alerts.activeCount
 
+    /**
+     * One level alert.
+     *
+     * Three things used to go wrong here, all of them on the app's most safety-critical control.
+     * Switching OFF erased the level, so re-arming meant retyping a number from memory. Switching
+     * ON with no level open a sheet instead of toggling, which is a switch doing something a switch
+     * does not do. And the value said "tap ✎" while the pencil it meant lived in a different card's
+     * header, two hundred pixels away.
+     *
+     * Now: off keeps the level and dims it, the value itself is the thing you tap to edit, and the
+     * row is a 48dp target.
+     */
     @Composable
-    fun AlertRow(label: String, valueText: String?, valueColor: androidx.compose.ui.graphics.Color, cleared: AssetAlerts) {
+    fun AlertRow(
+        label: String,
+        level: Double?,
+        kind: com.stocktracker.app.data.model.AlertKind,
+        format: (Double) -> String,
+        valueColor: androidx.compose.ui.graphics.Color,
+    ) {
+        val armed = level != null && kind !in alerts.disarmed
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clickable { showSheet = true },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Switch(
-                checked = valueText != null,
-                onCheckedChange = { checked -> if (!checked) onSave(shares, avgCost, cleared) else showSheet = true },
+                checked = armed,
+                onCheckedChange = { checked ->
+                    when {
+                        // Off: keep the number, stop it firing.
+                        !checked -> onSave(shares, avgCost, alerts.copy(disarmed = alerts.disarmed + kind))
+                        // On with a level already set: just arm it. No sheet, no surprise.
+                        level != null -> onSave(shares, avgCost, alerts.copy(disarmed = alerts.disarmed - kind))
+                        // On with nothing to arm: there is genuinely a number to collect first.
+                        else -> showSheet = true
+                    }
+                },
             )
             Text(
                 label,
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (valueText != null) MaterialTheme.colorScheme.onSurface else neutral,
+                color = if (armed) MaterialTheme.colorScheme.onSurface else neutral,
             )
             Text(
-                valueText ?: "tap ✎",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
-                color = if (valueText != null) valueColor else neutral.copy(alpha = 0.6f),
+                when {
+                    level == null -> "not set"
+                    armed -> format(level)
+                    else -> format(level) + " · off"
+                },
+                style = NumberSmall,
+                color = when {
+                    level == null -> neutral.copy(alpha = 0.6f)
+                    armed -> valueColor
+                    else -> neutral
+                },
+                textDecoration = if (level != null) TextDecoration.Underline else null,
             )
         }
     }
@@ -3062,22 +3104,14 @@ private fun HoldingsAndAlertsSection(
                 }
             }
         }
-        AlertRow(
-            "Crosses above", alerts.priceAbove?.let { "$" + numText(it) }, GainGreen,
-            alerts.copy(priceAbove = null),
-        )
-        AlertRow(
-            "Falls below", alerts.priceBelow?.let { "$" + numText(it) }, LossRed,
-            alerts.copy(priceBelow = null),
-        )
-        AlertRow(
-            "Jumps in a day", alerts.percentUp?.let { "≥ " + numText(it) + "%" }, GainGreen,
-            alerts.copy(percentUp = null),
-        )
-        AlertRow(
-            "Drops in a day", alerts.percentDown?.let { "≥ " + numText(it) + "%" }, LossRed,
-            alerts.copy(percentDown = null),
-        )
+        AlertRow("Crosses above", alerts.priceAbove,
+            com.stocktracker.app.data.model.AlertKind.PRICE_ABOVE, { "$" + numText(it) }, GainGreen)
+        AlertRow("Falls below", alerts.priceBelow,
+            com.stocktracker.app.data.model.AlertKind.PRICE_BELOW, { "$" + numText(it) }, LossRed)
+        AlertRow("Jumps in a day", alerts.percentUp,
+            com.stocktracker.app.data.model.AlertKind.PERCENT_UP, { "≥ " + numText(it) + "%" }, GainGreen)
+        AlertRow("Drops in a day", alerts.percentDown,
+            com.stocktracker.app.data.model.AlertKind.PERCENT_DOWN, { "≥ " + numText(it) + "%" }, LossRed)
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
         // Conditions, not levels. Each is a change of state rather than a price being touched, so
         // they arm with a switch and carry no number to edit.

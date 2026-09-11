@@ -1,0 +1,278 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;600&display=swap">
+  <style>
+    /* Portfolio, made alive: every holding row is a door to detail/{type}/{symbol}.
+       Every figure here reconciles — the total is the sum of the rows, the rows are
+       shares x the prices the other two screens quote, the returns are those prices
+       against the stated average costs, and the drawdown matches the drawn curve. */
+    body { margin: 0; font-family: Roboto, system-ui, sans-serif; }
+    a { color: #B4A0FF; } a:hover { color: #CFC2FF; }
+    .m { font-family: "Roboto Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .sec { display: flex; align-items: center; gap: 8px; height: 40px; }
+    .sec b { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; color: #8A94A2; }
+    .sec .rule { flex: 1; height: 1px; background: #39424E; }
+    .row { min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+           background: #1C232C; border-radius: 14px; }
+    .sym { font-size: 15px; font-weight: 700; line-height: 1.2; }
+    .sub { font-size: 12px; color: #8A94A2; line-height: 1.5; }
+    .kv { font-size: 11px; letter-spacing: 0.8px; color: #8A94A2; }
+    .chev { flex: 0 0 auto; }
+  </style>
+</helmet>
+
+<div style="width: 390px; background: #0D1116; color: #E7EBF0; display: flex; flex-direction: column;">
+
+  <div style="height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 16px; flex: 0 0 auto;">
+    <div style="font-size: 22px; font-weight: 500; flex: 1;">Portfolio</div>
+    <div style="width: 48px; height: 48px; display: grid; place-items: center;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#A3ADBA"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+    </div>
+  </div>
+
+  <div style="padding: 0 16px 16px; display: flex; flex-direction: column; gap: 10px;">
+
+    <div style="display: flex; flex-direction: column; gap: 5px;">
+      <div class="m" style="font-size: 28px; font-weight: 600; letter-spacing: -0.6px;">$78,593.38</div>
+      <div class="m" style="font-size: 15px; color: #5EDD9C;">▲ +13.08 (+0.02%) <span style="color: #A3ADBA; font-family: Roboto, sans-serif;">Today</span></div>
+      <div class="m" style="font-size: 15px; color: #5EDD9C;">▲ +20,663.88 (+35.67%) <span style="color: #A3ADBA; font-family: Roboto, sans-serif;">total return</span></div>
+    </div>
+
+    <!-- The screen with the most money on it gets the same freshness line as the others,
+         and the total names the one holding it could not price fresh. -->
+    <div style="display: flex; align-items: center; gap: 6px; height: 48px; margin-top: -6px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+      <span style="font-size: 12px; color: #8A94A2;">Updated just now ·</span>
+      <span style="font-size: 12px; color: #B0872B;">1 holding priced from cache, and today's move excludes it</span>
+    </div>
+
+    <div style="background: #1C232C; border-radius: 14px; padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 6px 20px;">
+      <div style="display: flex; align-items: baseline; gap: 6px;"><span class="kv">VS S&amp;P</span><span class="m" style="font-size: 13px; font-weight: 500; color: #E8663F;">▼ 6.8%</span></div>
+      <div style="display: flex; align-items: baseline; gap: 6px;"><span class="kv">MAX DRAWDOWN</span><span class="m" style="font-size: 13px; font-weight: 500;">−14.7%</span></div>
+      <div style="display: flex; align-items: baseline; gap: 6px;"><span class="kv">COST</span><span class="m" style="font-size: 13px; font-weight: 500;">$57,929.50</span></div>
+    </div>
+
+    <!-- Scale: y30 = $80,000, y140 = $56,000, so $218.18 per px. The peak the drawdown
+         implies ($76,300.83 = trough / 0.853) is drawn where that scale puts it, before
+         the trough dot — so the percentage, the label and the geometry are one story. -->
+    <div style="background: #1C232C; border-radius: 14px; padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 8px;">
+      <svg viewBox="0 0 334 150" style="width: 100%; height: 150px; display: block;">
+        <defs>
+          <linearGradient id="pfill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#5EDD9C" stop-opacity="0.2"/>
+            <stop offset="1" stop-color="#5EDD9C" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="M0 36.4 H334" stroke="#39424E" stroke-width="1"/>
+        <path d="M0 98.4 H334" stroke="#39424E" stroke-width="1"/>
+        <polygon points="0,124 24,118 48,110 72,96 96,64 110,47 128,72 150,98.4 174,86 198,74 222,66 246,58 270,50 296,44 334,36.4 334,150 0,150" fill="url(#pfill)"/>
+        <polyline points="0,124 24,118 48,110 72,96 96,64 110,47 128,72 150,98.4 174,86 198,74 222,66 246,58 270,50 296,44 334,36.4" fill="none" stroke="#5EDD9C" stroke-width="2" stroke-linejoin="round"/>
+        <polyline points="0,120 24,112 48,102 72,88 96,58 110,44 128,62 150,84 174,72 198,60 222,52 246,44 270,36 296,30 334,22" fill="none" stroke="#8A94A2" stroke-width="1.6" stroke-dasharray="5 4" stroke-linejoin="round"/>
+        <path d="M0 131.2 H334" stroke="#8A94A2" stroke-width="1.2" stroke-dasharray="4 4"/>
+        <circle cx="110" cy="47" r="3" fill="none" stroke="#5EDD9C" stroke-width="1.6"/>
+        <circle cx="150" cy="98.4" r="3.4" fill="#E8663F"/>
+        <text x="2" y="14" fill="#A3ADBA" font-size="11" font-family="Roboto Mono, monospace">— you    – – S&amp;P 500</text>
+        <text x="2" y="128" fill="#A3ADBA" font-size="11" font-family="Roboto Mono, monospace">cost $57,929.50</text>
+        <text x="116" y="44" fill="#8A94A2" font-size="11" font-family="Roboto Mono, monospace">peak $76,300.83</text>
+        <text x="156" y="112" fill="#8A94A2" font-size="11" font-family="Roboto Mono, monospace">trough $65,084.61</text>
+      </svg>
+      <div style="font-size: 11px; color: #A3ADBA; line-height: 1.45;">1Y · history reflects your current share counts across the whole period</div>
+    </div>
+
+    <div style="display: flex; border: 1px solid #6B7787; border-radius: 12px; overflow: hidden; height: 48px;">
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA; border-right: 1px solid #6B7787;">1M</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA; border-right: 1px solid #6B7787;">3M</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #2A1E52; background: #B4A0FF; font-weight: 700; border-right: 1px solid #6B7787;">1Y</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA; border-right: 1px solid #6B7787;">3Y</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA; border-right: 1px solid #6B7787;">ALL</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA;">$</div>
+    </div>
+
+    <div class="sec"><b>HOLDINGS · 11</b><span class="rule"></span></div>
+
+    <!-- The donut is a part-to-whole of labelled categories, so it is keyed by lightness
+         on one neutral ramp. Spending gain, crypto or ETF accents on arbitrary slices
+         would let a slice colour read as a verdict about the holding. -->
+    <div style="background: #1C232C; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <svg width="78" height="78" viewBox="0 0 78 78" style="flex: 0 0 auto;">
+          <circle cx="39" cy="39" r="29" fill="none" stroke="#C3CEDD" stroke-width="14" stroke-dasharray="35.7 146.5"/>
+          <circle cx="39" cy="39" r="29" fill="none" stroke="#9BAABE" stroke-width="14" stroke-dasharray="25.5 156.7" stroke-dashoffset="-35.7"/>
+          <circle cx="39" cy="39" r="29" fill="none" stroke="#78899F" stroke-width="14" stroke-dasharray="20.0 162.2" stroke-dashoffset="-61.2"/>
+          <circle cx="39" cy="39" r="29" fill="none" stroke="#5A6B81" stroke-width="14" stroke-dasharray="17.7 164.5" stroke-dashoffset="-81.2"/>
+          <circle cx="39" cy="39" r="29" fill="none" stroke="#3E4C5F" stroke-width="14" stroke-dasharray="83.4 98.8" stroke-dashoffset="-98.9"/>
+        </svg>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 5px;">
+          <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #C3CEDD; flex: 0 0 auto;"></span><span style="font-size: 12px; flex: 1;">VTI</span><span class="m" style="font-size: 12px; color: #A3ADBA;">19.6%</span></div>
+          <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #9BAABE; flex: 0 0 auto;"></span><span style="font-size: 12px; flex: 1;">AAPL</span><span class="m" style="font-size: 12px; color: #A3ADBA;">14.0%</span></div>
+          <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #78899F; flex: 0 0 auto;"></span><span style="font-size: 12px; flex: 1;">GOOGL</span><span class="m" style="font-size: 12px; color: #A3ADBA;">11.0%</span></div>
+          <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #5A6B81; flex: 0 0 auto;"></span><span style="font-size: 12px; flex: 1;">VXUS</span><span class="m" style="font-size: 12px; color: #A3ADBA;">9.7%</span></div>
+          <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #3E4C5F; flex: 0 0 auto;"></span><span style="font-size: 12px; flex: 1;">7 more</span><span class="m" style="font-size: 12px; color: #A3ADBA;">45.7%</span></div>
+        </div>
+      </div>
+      <div class="sub">4 exposure groups · US equity is 46.3% of the book across VTI, QQQM, MSFT and AAPL</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+
+      <div class="row">
+        <div style="width: 4px; height: 28px; border-radius: 2px; background: #14B8A6; flex: 0 0 auto;"></div>
+        <div style="flex: 1; min-width: 0;">
+          <div class="sym" style="color: #14B8A6;">VTI</div>
+          <div class="m" style="font-size: 11px; color: #8A94A2;">41 sh · 19.6%</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="m" style="font-size: 14px; font-weight: 500;">$15,397.96</div>
+          <div class="m" style="font-size: 12px; color: #5EDD9C;">▲ +39.9%</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <div class="row">
+        <div style="flex: 1; min-width: 0;">
+          <div class="sym">AAPL</div>
+          <div class="m" style="font-size: 11px; color: #8A94A2;">35 sh · 14.0%</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="m" style="font-size: 14px; font-weight: 500;">$11,036.90</div>
+          <div class="m" style="font-size: 12px; color: #5EDD9C;">▲ +72.6%</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <div class="row">
+        <div style="flex: 1; min-width: 0;">
+          <div class="sym">GOOGL</div>
+          <div class="m" style="font-size: 11px; color: #8A94A2;">26 sh · 11.0%</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="m" style="font-size: 14px; font-weight: 500;">$8,647.60</div>
+          <div class="m" style="font-size: 12px; color: #5EDD9C;">▲ +94.4%</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <div class="row">
+        <div style="width: 4px; height: 28px; border-radius: 2px; background: #14B8A6; flex: 0 0 auto;"></div>
+        <div style="flex: 1; min-width: 0;">
+          <div class="sym" style="color: #14B8A6;">VXUS</div>
+          <div class="m" style="font-size: 11px; color: #8A94A2;">88 sh · 9.7%</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="m" style="font-size: 14px; font-weight: 500;">$7,592.64</div>
+          <div class="m" style="font-size: 12px; color: #5EDD9C;">▲ +35.0%</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <div class="row">
+        <div style="width: 4px; height: 28px; border-radius: 2px; background: #F7A928; flex: 0 0 auto;"></div>
+        <div style="flex: 1; min-width: 0;">
+          <div class="sym" style="color: #F7A928;">BTC</div>
+          <div class="m" style="font-size: 11px; color: #8A94A2;">0.0824 · 8.2%</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="m" style="font-size: 14px; font-weight: 500;">$6,439.07</div>
+          <div class="m" style="font-size: 12px; color: #5EDD9C;">▲ +26.2%</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <div class="row">
+        <div style="flex: 1; min-width: 0;">
+          <div class="sym">PFE</div>
+          <div class="m" style="font-size: 11px; color: #8A94A2;">210 sh · 7.4%</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="m" style="font-size: 14px; font-weight: 500;">$5,806.50</div>
+          <div class="m" style="font-size: 12px; color: #E8663F;">▼ −13.1%</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <!-- A holding priced from cache says how old the price is, next to the figure it affects -->
+      <div class="row" style="border: 1px solid #B0872B;">
+        <div style="width: 4px; height: 28px; border-radius: 2px; background: #F7A928; flex: 0 0 auto;"></div>
+        <div style="flex: 1; min-width: 0;">
+          <div class="sym" style="color: #F7A928;">ETH</div>
+          <div class="m" style="font-size: 11px; color: #8A94A2;">1.35 · 4.2%</div>
+          <div class="m" style="font-size: 11px; color: #B0872B;">priced 3h ago</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="m" style="font-size: 14px; font-weight: 500; color: #A3ADBA;">$3,322.55</div>
+          <div class="m" style="font-size: 12px; color: #E8663F;">▼ −17.4%</div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <div style="height: 48px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; color: #B4A0FF;">
+        Show 4 more holdings
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+    </div>
+
+    <div class="sec"><b>PUT CASH TO WORK</b><span class="rule"></span></div>
+
+    <div style="background: #1C232C; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="font-size: 13px; color: #A3ADBA; flex: 1;">Cash to invest</div>
+        <div style="height: 48px; min-width: 118px; border: 1px solid #6B7787; border-radius: 12px; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; gap: 4px;">
+          <span class="m" style="font-size: 14px; color: #A3ADBA;">$</span><span class="m" style="font-size: 17px;">6,400</span>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <div style="flex: 1; height: 48px; border: 1px solid #6B7787; border-radius: 12px; display: grid; place-items: center; font-size: 14px; color: #A3ADBA;">Add to holdings</div>
+        <div style="flex: 1; height: 48px; border-radius: 12px; background: #B4A0FF; color: #2A1E52; display: grid; place-items: center; font-size: 14px; font-weight: 700;">Find new</div>
+      </div>
+    </div>
+
+    <div class="row" style="min-height: 64px;">
+      <div style="flex: 1;">
+        <div style="font-size: 14px; font-weight: 500;">Verdict journal</div>
+        <div class="sub">12 verdicts · you vs the plan</div>
+      </div>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M9 6l6 6-6 6"/></svg>
+    </div>
+
+    <div style="background: #1C232C; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="font-size: 14px; font-weight: 500; flex: 1;">My Calls</div>
+        <div style="height: 48px; padding: 0 16px; border: 1px solid #B4A0FF; border-radius: 24px; display: grid; place-items: center; font-size: 13px; color: #B4A0FF;">+ Track a call</div>
+      </div>
+      <div class="sub">No tracked calls yet. Buy a call on Fidelity, then tap Track a call — or use Track this on a stock's options card.</div>
+    </div>
+  </div>
+
+  <div style="height: 80px; background: #1C232C; display: flex; align-items: center; padding: 0 4px; flex: 0 0 auto;">
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 5-7 4 4"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Watchlist</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px; border-radius: 16px; background: rgba(180,160,255,0.16);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4"/></svg></div>
+      <div style="font-size: 11px; color: #B4A0FF; font-weight: 500;">Portfolio</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20h-20"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Markets</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Sandbox</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Settings</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

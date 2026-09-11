@@ -1,0 +1,249 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;600&display=swap">
+  <style>
+    /* Repair in Place — dark only. Metrics lifted from AssetRow.kt: card radius 20, padding 14x9,
+       stripe 4x28 r2, sparkline 58x26 at a 2.5 stroke, 12 inter-element gap, badge r4 pad 5x1.
+       Type from Type.kt: PriceMedium 18/500 mono for the price, bodySmall 12 for the change. */
+    body { margin: 0; font-family: Roboto, system-ui, sans-serif; }
+    a { color: #B4A0FF; } a:hover { color: #CFC2FF; }
+    .m { font-family: "Roboto Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .row { background: #1C232C; border-radius: 20px; padding: 9px 14px; display: flex; align-items: center; gap: 12px; }
+    .sym { font-size: 16px; font-weight: 700; line-height: 1.2; }
+    .nm { font-size: 12px; color: #A3ADBA; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hold { font-size: 11px; color: #B4A0FF; }
+    .px { font-size: 18px; font-weight: 500; line-height: 1.2; }
+    .chg { font-size: 12px; font-weight: 500; }
+    .star { width: 48px; height: 48px; display: grid; place-items: center; margin-right: -10px; flex: 0 0 auto; }
+    /* One section-header spec; the watchlist adds a chevron and a count to the same base. */
+    .sec { display: flex; align-items: center; gap: 8px; height: 40px; }
+    .sec b { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; color: #8A94A2; }
+    .sec .rule { flex: 1; height: 1px; background: #39424E; }
+    .cnt { font-size: 11px; color: #A3ADBA; background: #1C232C; border-radius: 10px; padding: 1px 7px; }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 844px; background: #0D1116; color: #E7EBF0; display: flex; flex-direction: column;">
+
+  <!-- Two icons and a labelled overflow, replacing five unlabelled glyphs -->
+  <div style="height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 16px; flex: 0 0 auto;">
+    <div style="font-size: 22px; font-weight: 500; letter-spacing: -0.2px; flex: 1;">StockTracker</div>
+    <div style="width: 48px; height: 48px; display: grid; place-items: center;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+    </div>
+    <div style="width: 48px; height: 48px; display: grid; place-items: center;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="#A3ADBA"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+    </div>
+  </div>
+
+  <!-- Chips: stateful borders are brighter than a decorative divider, so an unselected
+       chip's edge clears the 3:1 mark floor. Right edge fades rather than hard-clipping. -->
+  <div style="position: relative; flex: 0 0 auto;">
+    <div style="display: flex; gap: 8px; padding: 2px 16px 0; overflow: hidden;">
+      <div style="height: 48px; display: flex; align-items: center; gap: 6px; padding: 0 14px; border: 1px solid #6B7787; border-radius: 24px; font-size: 14px; color: #A3ADBA; white-space: nowrap;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h6"/></svg>Sector
+      </div>
+      <div style="height: 48px; display: flex; align-items: center; gap: 6px; padding: 0 14px; background: rgba(180,160,255,0.16); border: 1px solid #B4A0FF; border-radius: 24px; font-size: 14px; color: #B4A0FF; font-weight: 500; white-space: nowrap;">All <span class="m" style="color: #A3ADBA;">14</span></div>
+      <div style="height: 48px; display: flex; align-items: center; gap: 6px; padding: 0 14px; border: 1px solid #6B7787; border-radius: 24px; font-size: 14px; color: #A3ADBA; white-space: nowrap;">Below 200w <span class="m">2</span></div>
+      <div style="height: 48px; display: flex; align-items: center; gap: 6px; padding: 0 14px; border: 1px solid #6B7787; border-radius: 24px; font-size: 14px; color: #A3ADBA; white-space: nowrap;">Core <span class="m">4</span></div>
+    </div>
+    <div style="position: absolute; top: 0; right: 0; width: 40px; height: 50px; background: linear-gradient(to right, rgba(13,17,22,0), #0D1116); pointer-events: none;"></div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 16px; flex: 0 0 auto;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+    <div style="font-size: 12px; color: #8A94A2; flex: 1;">Updated just now · Tap to refresh</div>
+    <div style="display: flex; align-items: center; gap: 4px; font-size: 12px; color: #B4A0FF;">Sort: My order
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </div>
+  </div>
+
+  <!-- Collapsed and persisted across launches; opening it no longer pushes the list off screen -->
+  <div style="margin: 2px 16px 6px; padding: 12px 14px; background: #1C232C; border-radius: 14px; display: flex; align-items: center; gap: 8px; flex: 0 0 auto;">
+    <div style="font-size: 13px; color: #A3ADBA; flex: 1; line-height: 1.4;">Pre-market · <span style="color: #B0872B;">Choppy pullback</span> · <span style="color: #E8663F;">Gate shut</span> · VIX <span class="m">16.48</span></div>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+  </div>
+
+  <div style="padding: 0 16px;" class="sec">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="#B0872B"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>
+    <b style="color: #B0872B;">FAVOURITES</b>
+    <span class="cnt m">4</span>
+    <span class="rule"></span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px; padding: 0 16px; flex: 0 0 auto;">
+
+    <!-- VTI — ETF. The class accent colours the stripe AND the ticker, as the source does. -->
+    <div class="row">
+      <div style="width: 4px; height: 28px; border-radius: 2px; background: #14B8A6; flex: 0 0 auto;"></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+        <div style="display: flex; align-items: baseline; gap: 6px;">
+          <span class="sym" style="color: #14B8A6;">VTI</span>
+          <span class="nm">Vanguard Total Stock</span>
+        </div>
+        <div class="hold m">41 sh · $15,397.96</div>
+      </div>
+      <svg width="58" height="26" viewBox="0 0 58 26" fill="none" style="flex: 0 0 auto;">
+        <path d="M2 8 L9 7 L16 10 L23 9 L30 13 L37 12 L44 16 L51 15 L56 18" stroke="#E8663F" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <path d="M0 11 H58" stroke="#8A94A2" stroke-width="1" stroke-dasharray="3 3"/>
+      </svg>
+      <div style="text-align: right; flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px;">
+        <div class="px m">$375.56</div>
+        <div class="chg m" style="color: #E8663F;">▼ −2.04 (−0.54%)</div>
+      </div>
+      <div class="star"><svg width="20" height="20" viewBox="0 0 24 24" fill="#B0872B"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg></div>
+    </div>
+
+    <div class="row">
+      <div style="width: 4px; height: 28px; border-radius: 2px; background: #14B8A6; flex: 0 0 auto;"></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+        <div style="display: flex; align-items: baseline; gap: 6px;">
+          <span class="sym" style="color: #14B8A6;">SCHD</span>
+          <span class="nm">Schwab US Dividend</span>
+        </div>
+        <div class="hold m">120 sh · $4,090.80</div>
+      </div>
+      <svg width="58" height="26" viewBox="0 0 58 26" fill="none" style="flex: 0 0 auto;">
+        <path d="M2 9 L9 11 L16 10 L23 14 L30 13 L37 16 L44 15 L51 18 L56 17" stroke="#E8663F" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <path d="M0 11 H58" stroke="#8A94A2" stroke-width="1" stroke-dasharray="3 3"/>
+      </svg>
+      <div style="text-align: right; flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px;">
+        <div class="px m">$34.09</div>
+        <div class="chg m" style="color: #E8663F;">▼ −0.32 (−0.93%)</div>
+      </div>
+      <div class="star"><svg width="20" height="20" viewBox="0 0 24 24" fill="#B0872B"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg></div>
+    </div>
+
+    <!-- AAPL — a single stock, so no class accent on either the stripe or the ticker -->
+    <div class="row">
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+        <div style="display: flex; align-items: baseline; gap: 6px;">
+          <span class="sym">AAPL</span>
+          <span class="nm">Apple Inc.</span>
+        </div>
+        <div class="hold m">35 sh · $11,036.90</div>
+      </div>
+      <svg width="58" height="26" viewBox="0 0 58 26" fill="none" style="flex: 0 0 auto;">
+        <path d="M2 18 L9 16 L16 19 L23 13 L30 15 L37 10 L44 12 L51 7 L56 6" stroke="#5EDD9C" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <path d="M0 17 H58" stroke="#8A94A2" stroke-width="1" stroke-dasharray="3 3"/>
+      </svg>
+      <div style="text-align: right; flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px;">
+        <div class="px m">$315.34</div>
+        <div class="chg m" style="color: #5EDD9C;">▲ +11.23 (+3.69%)</div>
+      </div>
+      <div class="star"><svg width="20" height="20" viewBox="0 0 24 24" fill="#B0872B"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg></div>
+    </div>
+
+    <div class="row">
+      <div style="width: 4px; height: 28px; border-radius: 2px; background: #F7A928; flex: 0 0 auto;"></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+        <div style="display: flex; align-items: baseline; gap: 6px;">
+          <span class="sym" style="color: #F7A928;">BTC</span>
+          <span class="nm">Bitcoin</span>
+        </div>
+        <div class="hold m">0.0824 · $6,439.07</div>
+      </div>
+      <svg width="58" height="26" viewBox="0 0 58 26" fill="none" style="flex: 0 0 auto;">
+        <path d="M2 7 L9 9 L16 8 L23 12 L30 11 L37 15 L44 14 L51 19 L56 20" stroke="#E8663F" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <path d="M0 10 H58" stroke="#8A94A2" stroke-width="1" stroke-dasharray="3 3"/>
+      </svg>
+      <div style="text-align: right; flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px;">
+        <div class="px m">$78,144</div>
+        <div class="chg m" style="color: #E8663F;">▼ −1,318 (−1.66%)</div>
+      </div>
+      <div class="star"><svg width="20" height="20" viewBox="0 0 24 24" fill="#B0872B"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg></div>
+    </div>
+  </div>
+
+  <div style="padding: 0 16px;" class="sec">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+    <b>CONSUMER CYCLICAL</b>
+    <span class="cnt m">2</span>
+    <span class="rule"></span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px; padding: 0 16px; flex: 0 0 auto;">
+    <div class="row">
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+        <div style="display: flex; align-items: baseline; gap: 6px;">
+          <span class="sym">AMZN</span>
+          <span class="nm">Amazon.com, Inc.</span>
+        </div>
+      </div>
+      <svg width="58" height="26" viewBox="0 0 58 26" fill="none" style="flex: 0 0 auto;">
+        <path d="M2 9 L9 8 L16 12 L23 11 L30 14 L37 13 L44 17 L51 16 L56 19" stroke="#E8663F" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <path d="M0 11 H58" stroke="#8A94A2" stroke-width="1" stroke-dasharray="3 3"/>
+      </svg>
+      <div style="text-align: right; flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px;">
+        <div class="px m">$252.40</div>
+        <div class="chg m" style="color: #E8663F;">▼ −4.57 (−1.78%)</div>
+      </div>
+      <div class="star"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2.6l2.8 6.1 6.6.8-4.9 4.5 1.3 6.5L12 17.3l-5.8 3.2 1.3-6.5-4.9-4.5 6.6-.8z"/></svg></div>
+    </div>
+
+    <!-- The 200w badge is a value cue from the nightly scan, not a buy flag. Untinted,
+         so its 11px amber clears 4.5:1 rather than the 4.27:1 a 16% tint would give it. -->
+    <div class="row">
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+        <div style="display: flex; align-items: baseline; gap: 6px;">
+          <span class="sym">GME</span>
+          <span class="m" style="font-size: 11px; font-weight: 700; color: #B0872B; border: 1px solid #B0872B; border-radius: 4px; padding: 0 5px;">200w</span>
+          <span class="nm">GameStop</span>
+        </div>
+      </div>
+      <svg width="58" height="26" viewBox="0 0 58 26" fill="none" style="flex: 0 0 auto;">
+        <path d="M2 20 L9 18 L16 19 L23 14 L30 15 L37 10 L44 11 L51 7 L56 6" stroke="#5EDD9C" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <path d="M0 18 H58" stroke="#8A94A2" stroke-width="1" stroke-dasharray="3 3"/>
+      </svg>
+      <div style="text-align: right; flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px;">
+        <div class="px m">$19.89</div>
+        <div class="chg m" style="color: #5EDD9C;">▲ +1.00 (+5.29%)</div>
+      </div>
+      <div class="star"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2.6l2.8 6.1 6.6.8-4.9 4.5 1.3 6.5L12 17.3l-5.8 3.2 1.3-6.5-4.9-4.5 6.6-.8z"/></svg></div>
+    </div>
+  </div>
+
+  <div style="flex: 1 1 auto; min-height: 16px;"></div>
+
+  <div style="display: flex; justify-content: flex-end; padding: 0 16px 12px; flex: 0 0 auto;">
+    <div style="width: 56px; height: 56px; border-radius: 18px; background: #B4A0FF; display: grid; place-items: center;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2A1E52" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </div>
+  </div>
+
+  <div style="height: 80px; background: #1C232C; display: flex; align-items: center; padding: 0 4px; flex: 0 0 auto;">
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px; border-radius: 16px; background: rgba(180,160,255,0.16);">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B4A0FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 5-7 4 4"/></svg>
+      </div>
+      <div style="font-size: 11px; color: #B4A0FF; font-weight: 500;">Watchlist</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Portfolio</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20h-20"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Markets</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Sandbox</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="padding: 4px 18px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></svg></div>
+      <div style="font-size: 11px; color: #A3ADBA;">Settings</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

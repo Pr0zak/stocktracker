@@ -1,0 +1,293 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;600&display=swap">
+  <style>
+    /* Detail, flipped to decision order. Lens-card metrics from DetailScreen.kt: radius 16,
+       padding 14, inner gap 9, pill radius 50 at 10x3, factor label column 100. Type from
+       Type.kt: PriceLarge 28/600 for the hero, PriceMedium 18/500 for the position figure. */
+    body { margin: 0; font-family: Roboto, system-ui, sans-serif; }
+    a { color: #B4A0FF; } a:hover { color: #CFC2FF; }
+    .m { font-family: "Roboto Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .card { background: #1C232C; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 9px; }
+    .ct { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .cn { font-size: 14px; font-weight: 500; color: #A3ADBA; }
+    /* Pills are outlined, not tinted: a 16% wash drops loss coral to 3.93:1 on this card,
+       while the same ink on the plain card reads 4.83:1. */
+    .pill { font-size: 14px; font-weight: 700; border-radius: 50px; padding: 2px 10px;
+            border: 1px solid currentColor; letter-spacing: 0.2px; white-space: nowrap; }
+    .sec { display: flex; align-items: center; gap: 8px; height: 40px; }
+    .sec b { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; color: #8A94A2; }
+    .sec .rule { flex: 1; height: 1px; background: #39424E; }
+    .sub { font-size: 12px; color: #8A94A2; line-height: 1.5; }
+    .btn { height: 48px; border: 1px solid #B4A0FF; border-radius: 12px; display: grid; place-items: center;
+           font-size: 13px; color: #B4A0FF; font-weight: 500; }
+    .kv { font-size: 11px; letter-spacing: 0.8px; color: #8A94A2; }
+    .chev { flex: 0 0 auto; }
+  </style>
+</helmet>
+
+<div style="width: 390px; background: #0D1116; color: #E7EBF0; display: flex; flex-direction: column;">
+
+  <div style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 6px; flex: 0 0 auto;">
+    <div style="width: 48px; height: 48px; display: grid; place-items: center;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#E7EBF0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+    </div>
+    <div style="flex: 1; min-width: 0;">
+      <div style="font-size: 20px; font-weight: 500; line-height: 1.1; color: #14B8A6;">VTI</div>
+      <div style="font-size: 11px; color: #8A94A2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Vanguard Total Stock Market ETF</div>
+    </div>
+    <div style="width: 48px; height: 48px; display: grid; place-items: center;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+    </div>
+    <div style="width: 48px; height: 48px; display: grid; place-items: center;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#B0872B"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>
+    </div>
+    <div style="width: 48px; height: 48px; display: grid; place-items: center;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#A3ADBA"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+    </div>
+  </div>
+
+  <div style="padding: 0 16px 16px; display: flex; flex-direction: column; gap: 10px;">
+
+    <div style="display: flex; flex-direction: column; gap: 4px; padding-top: 2px;">
+      <div class="m" style="font-size: 28px; font-weight: 600; letter-spacing: -0.6px;">$375.56</div>
+      <div class="m" style="font-size: 15px; color: #E8663F;">▼ −2.04 (−0.54%) <span style="color: #A3ADBA; font-family: Roboto, sans-serif;">Today</span></div>
+      <div style="display: flex; align-items: center; gap: 6px; height: 48px; margin-top: -8px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+        <span style="font-size: 12px; color: #8A94A2;">Updated just now</span>
+      </div>
+    </div>
+
+    <div style="background: #1C232C; border-radius: 14px; padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 6px 20px;">
+      <div style="display: flex; align-items: baseline; gap: 6px;"><span class="kv">OPEN</span><span class="m" style="font-size: 13px; font-weight: 500;">$376.84</span></div>
+      <div style="display: flex; align-items: baseline; gap: 6px;"><span class="kv">HIGH</span><span class="m" style="font-size: 13px; font-weight: 500;">$377.00</span></div>
+      <div style="display: flex; align-items: baseline; gap: 6px;"><span class="kv">LOW</span><span class="m" style="font-size: 13px; font-weight: 500;">$375.02</span></div>
+      <div style="display: flex; align-items: baseline; gap: 6px;"><span class="kv">VOL</span><span class="m" style="font-size: 13px; font-weight: 500;">2.55M</span></div>
+    </div>
+
+    <!-- Scale: y10 = $386.00, y130 = $373.00, so $0.1083 per px. Every label and the
+         endpoint sit where that scale puts them. The cost line is off-scale on a one-month
+         window and is not drawn rather than drawn wrong; it is on the position card instead. -->
+    <div style="background: #1C232C; border-radius: 14px; padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 8px;">
+      <svg viewBox="0 0 334 150" style="width: 100%; height: 150px; display: block;">
+        <defs>
+          <linearGradient id="vtifill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#E8663F" stop-opacity="0.24"/>
+            <stop offset="1" stop-color="#E8663F" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="M0 18 H334" stroke="#39424E" stroke-width="1"/>
+        <path d="M0 74.6 H334" stroke="#39424E" stroke-width="1"/>
+        <path d="M0 119.4 H334" stroke="#39424E" stroke-width="1"/>
+        <polygon points="0,22 20,19 38,26 56,23 74,31 92,36 110,44 128,40 146,52 164,60 182,55 200,68 218,76 236,71 254,88 272,95 290,90 308,101 334,106 334,150 0,150" fill="url(#vtifill)"/>
+        <polyline points="0,22 20,19 38,26 56,23 74,31 92,36 110,44 128,40 146,52 164,60 182,55 200,68 218,76 236,71 254,88 272,95 290,90 308,101 334,106" fill="none" stroke="#E8663F" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M0 87.5 H334" stroke="#8A94A2" stroke-width="1.2" stroke-dasharray="4 4"/>
+        <circle cx="334" cy="106" r="3.2" fill="#E8663F"/>
+        <text x="332" y="14" fill="#8A94A2" font-size="11" font-family="Roboto Mono, monospace" text-anchor="end">$385.12</text>
+        <text x="332" y="71" fill="#8A94A2" font-size="11" font-family="Roboto Mono, monospace" text-anchor="end">$379.00</text>
+        <text x="332" y="132" fill="#8A94A2" font-size="11" font-family="Roboto Mono, monospace" text-anchor="end">$374.15</text>
+        <text x="2" y="84" fill="#A3ADBA" font-size="11" font-family="Roboto Mono, monospace">prev close $377.60</text>
+      </svg>
+      <div style="font-size: 11px; color: #A3ADBA; line-height: 1.45;">1M · 287 bars — too many to draw as candles, showing the close line</div>
+    </div>
+
+    <div style="display: flex; border: 1px solid #6B7787; border-radius: 12px; overflow: hidden; height: 48px;">
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA; border-right: 1px solid #6B7787;">1D</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA; border-right: 1px solid #6B7787;">1W</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #2A1E52; background: #B4A0FF; font-weight: 700; border-right: 1px solid #6B7787;">1M</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA; border-right: 1px solid #6B7787;">3M</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA; border-right: 1px solid #6B7787;">1Y</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA; border-right: 1px solid #6B7787;">3Y</div>
+      <div style="flex: 1; display: grid; place-items: center; font-size: 13px; color: #A3ADBA;">5Y</div>
+    </div>
+
+    <!-- 87% is ($375.56 − $310.40) / ($385.12 − $310.40): the bar means what it draws. -->
+    <div style="display: flex; flex-direction: column; gap: 7px; padding: 2px 0 4px;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 13px; color: #A3ADBA;">52-week range</span>
+        <span class="m" style="font-size: 13px; font-weight: 500;">$375.56 now</span>
+      </div>
+      <div style="height: 6px; border-radius: 3px; background: #39424E; position: relative;">
+        <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 87%; border-radius: 3px; background: #8A94A2;"></div>
+        <div style="position: absolute; left: 87%; top: -3px; width: 12px; height: 12px; border-radius: 6px; background: #E7EBF0; transform: translateX(-6px);"></div>
+      </div>
+      <div class="m" style="display: flex; justify-content: space-between; font-size: 11px; color: #8A94A2;"><span>$310.40</span><span>$385.12</span></div>
+    </div>
+
+    <!-- ================= YOUR MONEY — one screenful down, not four ================= -->
+    <div class="sec"><b>YOUR MONEY</b><span class="rule"></span></div>
+
+    <div class="card">
+      <div class="ct">
+        <span class="cn">Your position</span>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span class="pill m" style="color: #5EDD9C;">▲ +39.9%</span>
+          <div style="width: 48px; height: 48px; margin: -14px -8px -14px 0; display: grid; place-items: center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A3ADBA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="m" style="font-size: 18px; font-weight: 500;">$15,397.96</div>
+      <div class="m" style="font-size: 12px; color: #A3ADBA;">41 sh @ $268.40 avg · cost $11,004.40</div>
+      <div class="m" style="font-size: 13px; color: #5EDD9C;">▲ +$4,393.56 total return</div>
+    </div>
+
+    <!-- Turning an alert off keeps its level, and the level itself is the edit target -->
+    <div class="card">
+      <div class="ct"><span class="cn">Alerts</span><span class="m" style="font-size: 12px; color: #8A94A2;">2 armed</span></div>
+      <div style="display: flex; flex-direction: column;">
+        <div style="height: 48px; display: flex; align-items: center; gap: 12px;">
+          <div style="width: 38px; height: 22px; border-radius: 11px; background: #B4A0FF; position: relative; flex: 0 0 auto;"><div style="position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; border-radius: 8px; background: #2A1E52;"></div></div>
+          <span style="font-size: 14px; flex: 1;">Crosses above</span>
+          <span class="m" style="font-size: 14px; color: #B4A0FF; border-bottom: 1px solid #B4A0FF; padding: 12px 2px;">$390.00</span>
+        </div>
+        <div style="height: 48px; display: flex; align-items: center; gap: 12px;">
+          <div style="width: 38px; height: 22px; border-radius: 11px; background: #6B7787; position: relative; flex: 0 0 auto;"><div style="position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 8px; background: #A3ADBA;"></div></div>
+          <span style="font-size: 14px; flex: 1; color: #A3ADBA;">Falls below</span>
+          <span class="m" style="font-size: 14px; color: #A3ADBA; border-bottom: 1px solid #6B7787; padding: 12px 2px;">$355.00 · off</span>
+        </div>
+        <div style="height: 48px; display: flex; align-items: center; gap: 12px;">
+          <div style="width: 38px; height: 22px; border-radius: 11px; background: #6B7787; position: relative; flex: 0 0 auto;"><div style="position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 8px; background: #A3ADBA;"></div></div>
+          <span style="font-size: 14px; flex: 1; color: #A3ADBA;">Jumps in a day</span>
+          <span style="font-size: 13px; color: #A3ADBA;">not set</span>
+        </div>
+        <div style="height: 48px; display: flex; align-items: center; gap: 12px;">
+          <div style="width: 38px; height: 22px; border-radius: 11px; background: #B4A0FF; position: relative; flex: 0 0 auto;"><div style="position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; border-radius: 8px; background: #2A1E52;"></div></div>
+          <span style="font-size: 14px; flex: 1;">Closes below its 50-day</span>
+          <span style="font-size: 13px; color: #A3ADBA;">armed</span>
+        </div>
+      </div>
+      <div class="sub">Turning one off keeps its level. Checked on daily closes, about every 15 minutes.</div>
+    </div>
+
+    <div class="card">
+      <div class="ct"><span class="cn">Entry plan</span></div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="flex: 1; height: 48px; border: 1px solid #6B7787; border-radius: 12px; display: flex; align-items: center; padding: 0 12px; gap: 6px;">
+          <span class="m" style="font-size: 14px; color: #A3ADBA;">$</span><span class="m" style="font-size: 16px;">6,400</span>
+        </div>
+        <div style="height: 48px; padding: 0 20px; border-radius: 12px; background: #B4A0FF; color: #2A1E52; font-size: 14px; font-weight: 700; display: grid; place-items: center;">Plan</div>
+      </div>
+      <div class="sub">Scenario planner · staged buy, not advice</div>
+    </div>
+
+    <div class="card" style="gap: 2px;">
+      <div class="ct">
+        <div>
+          <div class="cn" style="color: #E7EBF0;">Options</div>
+          <div class="sub" style="margin-top: 2px;">Calls · cash-secured puts · covered calls</div>
+        </div>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+    </div>
+
+    <!-- ================= The market's view, below your own ================= -->
+    <div class="sec"><b>TODAY'S READ</b><span class="rule"></span></div>
+
+    <div class="card">
+      <div class="ct">
+        <span class="cn">Snapshot</span>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span class="pill" style="color: #E8663F;">BEARISH</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;"><div style="width: 9px; height: 9px; border-radius: 5px; background: #8A94A2;"></div><span style="font-size: 12px; color: #A3ADBA; width: 100px;">Momentum</span><span style="font-size: 12px; font-weight: 700; color: #A3ADBA;">Neutral</span></div>
+      <div style="display: flex; align-items: center; gap: 10px;"><div style="width: 9px; height: 9px; border-radius: 5px; background: #E8663F;"></div><span style="font-size: 12px; color: #A3ADBA; width: 100px;">Value</span><span style="font-size: 12px; font-weight: 700; color: #E8663F;">Extended</span></div>
+      <div style="display: flex; align-items: center; gap: 10px;"><div style="width: 9px; height: 9px; border-radius: 5px; background: #8A94A2;"></div><span style="font-size: 12px; color: #A3ADBA; width: 100px;">Short pressure</span><span style="font-size: 12px; font-weight: 700; color: #A3ADBA;">Quiet</span></div>
+      <div class="sub">Rolled up from the lenses below · computed 4m ago</div>
+    </div>
+
+    <div class="sec"><b>SIGNALS &amp; FLOWS</b><span class="rule"></span></div>
+
+    <!-- Not configured, not empty: the card says what is missing and what turns it on -->
+    <div class="card">
+      <div class="ct">
+        <span class="cn">Signals</span>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span class="pill" style="color: #A3ADBA;">NEUTRAL</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+      </div>
+      <div style="font-size: 13px; color: #A3ADBA;">Rules Hold 53 · <span style="color: #B0872B;">AI not run</span></div>
+      <div class="btn">Run AI analysis — one model call</div>
+    </div>
+
+    <div class="card">
+      <div class="ct">
+        <span class="cn">Short pressure</span>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span class="pill" style="color: #A3ADBA;">QUIET</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+      </div>
+      <div class="m" style="font-size: 12px; color: #A3ADBA;">DTC 1.0 · short vol 41% · FTDs quiet</div>
+      <div class="sub">Short interest settled 29 Aug, published 11 Sep · FINRA reports twice a month</div>
+    </div>
+
+    <!-- A lens that failed to load says so, and offers the retry. It does not vanish. -->
+    <div style="border: 1px solid #B0872B; border-radius: 16px; padding: 12px 14px; display: flex; align-items: center; gap: 10px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B0872B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: 0 0 auto;"><path d="M12 9v5M12 17.5v.01"/><path d="M10.3 3.9 2.4 17.4A2 2 0 0 0 4.1 20.4h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <div style="font-size: 13px; color: #B0872B; flex: 1;">Couldn't load Congress trades</div>
+      <div style="height: 48px; padding: 0 16px; border: 1px solid #B0872B; border-radius: 12px; display: grid; place-items: center; font-size: 13px; color: #B0872B; font-weight: 500;">Retry</div>
+    </div>
+
+    <div class="sec"><b>PATTERNS &amp; HISTORY</b><span class="rule"></span></div>
+
+    <div class="card">
+      <div class="ct">
+        <span class="cn">Seasonality</span>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span class="pill m" style="color: #E8663F;">SEP ▼ 1.4%</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+      </div>
+      <div style="font-size: 13px; color: #A3ADBA;">September averages −1.4% · up in 5 of 9 years <span class="m" style="color: #8A94A2;">(n=9)</span></div>
+    </div>
+
+    <div class="card">
+      <div class="ct"><span class="cn">Why it moved</span></div>
+      <div class="sub">Correlate this ETF's recent big moves with the news that drove them.</div>
+      <div class="btn">Explain — one model call, about 2¢</div>
+    </div>
+
+    <div class="card">
+      <div class="ct">
+        <span class="cn">200-week line</span>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span class="pill m" style="color: #A3ADBA;">+37.9%</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8A94A2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="chev"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+      </div>
+      <div style="font-size: 13px; color: #A3ADBA;">37.9% above the 200-week line · well clear of it</div>
+    </div>
+
+    <!-- Not applicable is stated, so it can never be mistaken for a failed fetch -->
+    <div class="sub" style="padding: 0 2px;">Not applicable to an ETF: Insider · Quality · Value trap · Halving cycle</div>
+
+    <!-- One footer, replacing the fourteen "· not advice" lines scattered through the cards -->
+    <div style="height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 2px;">
+      <span class="sub">Context, not advice.</span>
+      <span style="font-size: 12px; color: #B4A0FF;">How these are measured →</span>
+    </div>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <div style="height: 48px; padding: 0 16px; background: rgba(180,160,255,0.16); border: 1px solid #B4A0FF; border-radius: 24px; display: grid; place-items: center; font-size: 13px; color: #B4A0FF;">Core</div>
+      <div style="height: 48px; padding: 0 16px; border: 1px solid #6B7787; border-radius: 24px; display: grid; place-items: center; font-size: 13px; color: #A3ADBA;">Income</div>
+      <div style="height: 48px; padding: 0 16px; border: 1px solid #6B7787; border-radius: 24px; display: grid; place-items: center; font-size: 13px; color: #A3ADBA;">Quality</div>
+      <div style="height: 48px; padding: 0 16px; border: 1px solid #6B7787; border-radius: 24px; display: grid; place-items: center; font-size: 13px; color: #A3ADBA;">+ New list</div>
+    </div>
+
+    <div style="height: 48px; border: 1px solid #6B7787; border-radius: 12px; display: grid; place-items: center; font-size: 14px; color: #A3ADBA; margin-top: 4px;">Add a widget for VTI</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

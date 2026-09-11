@@ -73,6 +73,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.remote.SandboxPosition
 import com.stocktracker.app.data.remote.SandboxState
@@ -91,7 +94,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import com.stocktracker.app.ui.theme.Signal
-import com.stocktracker.app.ui.theme.ChartSeries
+import com.stocktracker.app.ui.theme.ArmSeries
 
 internal val GREEN = GainGreen
 internal val RED = LossRed
@@ -1209,15 +1212,33 @@ private fun ArmComparison(
     }
 }
 
-/** One colour per arm, stable across recompositions and independent of list order — so an arm keeps
- *  its colour when another is added or deleted. */
-private val ARM_COLORS = listOf(
-    ChartSeries[5], Signal, GainGreen,
-    ChartSeries[6], LossRed, ChartSeries[7],
-)
+/**
+ * How one arm's line is drawn: a colour, and whether it is dashed.
+ *
+ * Two things were wrong with the colour alone. Green, amber and red were in the list, and on this
+ * chart those three already mean something else — the selected arm is drawn as the main price
+ * series and takes GainGreen or LossRed from its own direction, the trend line is amber and the S&P
+ * shadow is grey. A second line in the same green, meaning only "this is the arm whose name hashes
+ * to 2", looked like it was saying something it was not.
+ *
+ * The second was worse and only visible on a device: the colour was picked by hashing the arm's
+ * name, so two arms could land on the same colour with no warning — and with seven arms and six
+ * colours they did. "Looser trade caps" and "Higher conviction bar" drew as the same magenta.
+ *
+ * Assigning by position in a stable sorted order fixes the collisions up to six. Past six there is
+ * no honest way to go on adding hues: a search over every hue this app has not already spoken for,
+ * checked against deuteranope and protanope simulations, gives six at a worst pair of ΔE 21.6 and
+ * eight at 15.9 — and at 15.9 two of the eight are the same blue. So the seventh arm and beyond
+ * reuse the six colours DASHED. Shape is a second channel that costs no hue, and twelve lines told
+ * apart by six colours and one dash is a thing a reader can actually do.
+ */
+private data class ArmStyle(val color: Color, val dashed: Boolean)
 
-private fun armColor(arm: String): Color =
-    ARM_COLORS[(arm.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }) % ARM_COLORS.size]
+private fun armStyle(arm: String, allArms: List<String>): ArmStyle {
+    // Sorted, not list order, so an arm keeps its line when another is added or removed.
+    val i = allArms.sorted().indexOf(arm).coerceAtLeast(0)
+    return ArmStyle(ArmSeries[i % ArmSeries.size], dashed = i >= ArmSeries.size)
+}
 
 /** "2026-08-13" → epoch millis at UTC midnight. The NAV axis is ET trading DATES, not instants, so
  *  the wall-clock time within the day is meaningless — anchoring to a fixed offset keeps the chart's
@@ -1281,13 +1302,20 @@ private fun ArmTrendCard(
                     PricePoint(dateToEpochMillis(dates[i]), v)
                 }
             }
+            val armNames = indexed.map { it.first.arm }
             val overlays = indexed.filter { it !== primary }.map { (s, vals, _) ->
-                ChartLineOverlay(s.label.ifBlank { s.arm }, armColor(s.arm), vals)
+                val st = armStyle(s.arm, armNames)
+                ChartLineOverlay(s.label.ifBlank { s.arm }, st.color, vals, dashed = st.dashed)
             }
+            // The main series takes its colour from its own direction, so the legend has to read the
+            // same number — it used to hardcode GREEN for the selected arm, which meant that on any
+            // arm ending below where it started the chart drew a red line and the key beside it
+            // showed a green square. A legend is the one thing on a chart that must not lie.
+            val primaryUp = points.size >= 2 && points.last().price >= points.first().price
             if (points.size >= 2) {
                 PriceChart(
                     points = points,
-                    up = points.last().price >= points.first().price,
+                    up = primaryUp,
                     showAxis = true,
                     overlays = overlays,
                     modifier = Modifier.fillMaxWidth().height(240.dp),
@@ -1304,10 +1332,22 @@ private fun ArmTrendCard(
                     val last = vals.lastOrNull { it != null }
                     val isPrimary = s === primary.first
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.size(9.dp).clip(RoundedCornerShape(2.dp))
-                                .background(if (isPrimary) GREEN else armColor(s.arm)),
-                        )
+                        // The swatch carries the dash as well as the hue, for the same reason the
+                        // chart's own legend does: a key that shows a solid square for a dashed
+                        // line is a key that is wrong about the only thing it exists to say.
+                        val st = armStyle(s.arm, armNames)
+                        val swatch = if (isPrimary) (if (primaryUp) GREEN else RED) else st.color
+                        Canvas(Modifier.size(width = 14.dp, height = 9.dp)) {
+                            val y = size.height / 2f
+                            drawLine(
+                                swatch,
+                                start = Offset(0f, y), end = Offset(size.width, y),
+                                strokeWidth = 3.dp.toPx(),
+                                pathEffect = if (!isPrimary && st.dashed) {
+                                    PathEffect.dashPathEffect(floatArrayOf(4f, 3f))
+                                } else null,
+                            )
+                        }
                         Spacer(Modifier.width(7.dp))
                         Text(
                             s.label.ifBlank { s.arm } + if (isPrimary) " (shown)" else "",

@@ -44,6 +44,9 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.widget.WidgetRefreshScheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.foundation.layout.heightIn
+import com.stocktracker.app.ui.theme.Signal
 
 /** Curated "watch for dips" starter list — core ETFs + wide-moat compounders. Added alert-only
  *  (no shares) so they simply populate the watchlist for the buy-the-dip radar. */
@@ -74,16 +77,25 @@ fun AddTickerScreen(onBack: () -> Unit) {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
+    // A failed lookup used to be swallowed into an empty list, so "the network is down" and "no
+    // such ticker" rendered as exactly the same blank screen — and one of them means try again
+    // while the other means you typed it wrong.
+    var searchFailed by remember { mutableStateOf(false) }
+    var attempt by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(query) {
+    LaunchedEffect(query, attempt) {
         if (query.isBlank()) {
             results = emptyList()
             searching = false
+            searchFailed = false
             return@LaunchedEffect
         }
         searching = true
+        searchFailed = false
         delay(300)
-        results = runCatching { ServiceLocator.repository.search(query) }.getOrDefault(emptyList())
+        runCatching { ServiceLocator.repository.search(query) }
+            .onSuccess { results = it }
+            .onFailure { results = emptyList(); searchFailed = true }
         searching = false
     }
 
@@ -144,6 +156,35 @@ fun AddTickerScreen(onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+
+            if (searchFailed && !searching) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "Couldn't search — the lookup failed.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Signal,
+                    )
+                    Text(
+                        "This is not \"no such ticker\": nothing was looked up. Check your connection " +
+                            "or the Finnhub key in Settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(onClick = { attempt++ }, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text("Try again")
+                    }
+                }
+            } else if (!searching && query.isNotBlank() && results.isEmpty()) {
+                Text(
+                    "No match for \"$query\".",
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {

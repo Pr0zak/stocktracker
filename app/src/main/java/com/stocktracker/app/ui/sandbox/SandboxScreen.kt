@@ -1,5 +1,6 @@
 package com.stocktracker.app.ui.sandbox
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -982,7 +983,14 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
 @Composable
 private fun LegendRow(color: Color, label: String, pct: Double, onClick: (() -> Unit)? = null) {
     Row(
-        modifier = if (onClick != null) Modifier.clickable { onClick() } else Modifier,
+        // A tappable legend row was about 16dp tall — under even WCAG's 24px floor, never mind the
+        // 48 this app now holds itself to. Only the clickable variant grows; a static legend is
+        // text, and text has no target to hit.
+        modifier = if (onClick != null) {
+            Modifier.heightIn(min = 48.dp).clickable { onClick() }
+        } else {
+            Modifier
+        },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {

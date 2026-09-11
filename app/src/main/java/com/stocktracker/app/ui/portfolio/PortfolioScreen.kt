@@ -106,19 +106,38 @@ fun PortfolioScreen(
             TopAppBar(
                 title = { Text("Portfolio") },
                 actions = {
-                    // NOT gated on holdings: the journal records verdicts you PASSED on, and someone
-                    // who owns nothing yet is exactly the person with passes to record.
-                    IconButton(onClick = onOpenJournal) {
-                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Verdict journal")
-                    }
-                    if (state.hasHoldings) {
-                        IconButton(onClick = { vm.openRebalance() }) {
-                            Icon(Icons.Filled.Balance, contentDescription = "AI rebalance plan")
-                        }
-                        IconButton(onClick = { vm.openReview() }) {
-                            Icon(Icons.Filled.AutoAwesome, contentDescription = "AI portfolio review")
-                        }
-                    }
+                    // All three were unlabelled glyphs, and a MenuBook was the only entrance to the
+                    // verdict journal anywhere in the app. Two of them also spend real money on a
+                    // model call, which is not something a glyph should be able to do by accident.
+                    com.stocktracker.app.ui.components.LabeledOverflow(
+                        buildList {
+                            // NOT gated on holdings: the journal records verdicts you PASSED on, and
+                            // someone who owns nothing yet is exactly the person with passes to record.
+                            add(
+                                com.stocktracker.app.ui.components.OverflowAction(
+                                    label = "Verdict journal",
+                                    icon = Icons.AutoMirrored.Filled.MenuBook,
+                                    onClick = onOpenJournal,
+                                ),
+                            )
+                            if (state.hasHoldings) {
+                                add(
+                                    com.stocktracker.app.ui.components.OverflowAction(
+                                        label = "AI rebalance plan — one model call",
+                                        icon = Icons.Filled.Balance,
+                                        onClick = { vm.openRebalance() },
+                                    ),
+                                )
+                                add(
+                                    com.stocktracker.app.ui.components.OverflowAction(
+                                        label = "AI portfolio review — one model call",
+                                        icon = Icons.Filled.AutoAwesome,
+                                        onClick = { vm.openReview() },
+                                    ),
+                                )
+                            }
+                        },
+                    )
                 },
             )
         },

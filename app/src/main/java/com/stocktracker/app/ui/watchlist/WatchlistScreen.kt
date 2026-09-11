@@ -427,8 +427,10 @@ fun WatchlistScreen(
                         val q = item.quote
                         val up = q?.isUp ?: true
                         val shares = item.asset.shares
-                        val holdingsText = if (shares != null && shares > 0.0 && q != null) {
-                            "${Formatting.shares(shares)} sh · ${Formatting.price(shares * q.price, q.currency, hideZeroCents)}"
+                        val hasPosition = shares != null && shares > 0.0 && q != null
+                        val holdingsShares = if (hasPosition) "${Formatting.shares(shares!!)} sh" else null
+                        val holdingsValue = if (hasPosition) {
+                            Formatting.price(shares!! * q!!.price, q.currency, hideZeroCents)
                         } else {
                             null
                         }
@@ -446,7 +448,8 @@ fun WatchlistScreen(
                                 // The level changeText is measured from, so the line and the
                                 // number can be read against the same baseline.
                                 previousClose = q?.prevClose,
-                                holdingsText = holdingsText,
+                                holdingsShares = holdingsShares,
+                                holdingsValue = holdingsValue,
                                 isCrypto = item.asset.type == AssetType.CRYPTO,
                                 isEtf = item.quote?.isEtf == true,
                                 belowLine = item.below200wma == true,

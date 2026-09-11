@@ -259,23 +259,35 @@ fun DetailScreen(
                             }
                         }
                     }
-                    IconButton(onClick = onOpenCalendar) {
-                        Icon(Icons.Filled.CalendarMonth, contentDescription = "This asset's calendar")
-                    }
-                    IconButton(onClick = { showIndicatorSheet = true }) {
-                        Icon(
-                            Icons.Filled.Insights,
-                            contentDescription = "Indicators",
-                            tint = if (indicators.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                    // Two icons, then words. The star and the refresh stay as glyphs because they
+                    // are conventional and this screen is where you use them; the calendar and the
+                    // indicator sheet were guesses, and they say what they are now.
                     IconButton(onClick = { vm.toggleWatchlist() }) {
                         Icon(
                             imageVector = if (state.inWatchlist) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                            contentDescription = "Toggle watchlist",
+                            contentDescription = if (state.inWatchlist) {
+                                "Remove ${asset.symbol} from the watchlist"
+                            } else {
+                                "Add ${asset.symbol} to the watchlist"
+                            },
                             tint = if (state.inWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    com.stocktracker.app.ui.components.LabeledOverflow(
+                        listOf(
+                            com.stocktracker.app.ui.components.OverflowAction(
+                                label = "Chart indicators" +
+                                    if (indicators.isEmpty()) "" else " · ${indicators.size} on",
+                                icon = Icons.Filled.Insights,
+                                onClick = { showIndicatorSheet = true },
+                            ),
+                            com.stocktracker.app.ui.components.OverflowAction(
+                                label = "Events for ${asset.symbol}",
+                                icon = Icons.Filled.CalendarMonth,
+                                onClick = onOpenCalendar,
+                            ),
+                        ),
+                    )
                 },
             )
         },

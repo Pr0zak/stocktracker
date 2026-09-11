@@ -55,6 +55,7 @@ import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.roundToInt
+import com.stocktracker.app.ui.theme.Signal
 
 /** An extra line drawn over the price chart (e.g. a moving average), aligned to the point indices. */
 data class ChartLineOverlay(
@@ -660,7 +661,7 @@ fun PriceChart(
             // 200-week line — amber dashed reference so you can see price cross it on long ranges.
             if (sma200wLine != null) {
                 val ly200 = y(sma200wLine)
-                val amber = Color(0xFFD29922)
+                val amber = Signal
                 drawLine(
                     color = amber.copy(alpha = 0.85f),
                     start = Offset(0f, ly200),

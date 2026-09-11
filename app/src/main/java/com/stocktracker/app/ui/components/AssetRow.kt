@@ -32,6 +32,7 @@ import com.stocktracker.app.ui.theme.EtfAccent
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceMedium
+import com.stocktracker.app.ui.theme.Signal
 
 @Composable
 fun AssetRow(
@@ -100,9 +101,9 @@ fun AssetRow(
                             "200w",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFD29922),
+                            color = Signal,
                             modifier = Modifier
-                                .background(Color(0xFFD29922).copy(alpha = 0.16f), RoundedCornerShape(4.dp))
+                                .background(Signal.copy(alpha = 0.16f), RoundedCornerShape(4.dp))
                                 .padding(horizontal = 5.dp, vertical = 1.dp),
                         )
                     }
@@ -157,7 +158,7 @@ fun AssetRow(
                     Icon(
                         if (favorite) Icons.Default.Star else Icons.Outlined.StarBorder,
                         contentDescription = if (favorite) "Remove $symbol from favorites" else "Add $symbol to favorites",
-                        tint = if (favorite) Color(0xFFD29922) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (favorite) Signal else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

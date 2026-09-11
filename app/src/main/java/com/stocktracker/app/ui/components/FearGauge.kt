@@ -36,14 +36,15 @@ import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import java.util.Locale
 import kotlin.math.abs
+import com.stocktracker.app.ui.theme.Signal
 
 // Green → red risk palette. Note the inversion vs a normal ticker: a HIGH reading is the "bad" end.
 private fun VixZone.color(): Color = when (this) {
-    VixZone.CALM -> Color(0xFF4ADE80)
-    VixZone.NORMAL -> Color(0xFFFACC15)
-    VixZone.ELEVATED -> Color(0xFFF59E0B)
-    VixZone.HIGH -> Color(0xFFFB923C)
-    VixZone.EXTREME -> Color(0xFFF87171)
+    VixZone.CALM -> GainGreen
+    VixZone.NORMAL -> Signal
+    VixZone.ELEVATED -> Signal
+    VixZone.HIGH -> Signal
+    VixZone.EXTREME -> LossRed
 }
 
 // Gauge spans 0..45; readings above cap at the right edge (Extreme).

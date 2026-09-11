@@ -164,6 +164,10 @@ import com.stocktracker.app.util.vwap
 import kotlinx.coroutines.launch
 import com.stocktracker.app.widget.WidgetPinning
 import kotlin.math.roundToInt
+import com.stocktracker.app.ui.theme.EtfAccent
+import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.theme.CategoricalRamp
+import com.stocktracker.app.ui.theme.ChartSeries
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -331,14 +335,14 @@ fun DetailScreen(
             val chartHeight = 200.dp + 18.dp + 64.dp * indicatorResult.subPanes.size
 
             // Ex-dividend markers (any mode) + S&P 500 comparison line (% mode only).
-            val divMarkers = if (divEnabled) dividends.map { ChartMarker(it.first, Color(0xFF6366F1), "Div") } else emptyList()
+            val divMarkers = if (divEnabled) dividends.map { ChartMarker(it.first, ChartSeries[3], "Div") } else emptyList()
             // Past FTD spike settlement days (amber) — the "did fails line up with big moves?" visual.
             val ftdMarkers = if (indicators.contains(Indicator.FTD_SPIKES.key)) {
                 (state.shortPressure?.ftdSpikeDates ?: emptyList()).mapNotNull { d ->
                     runCatching {
                         java.time.LocalDate.parse(d, java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
                             .atStartOfDay(java.time.ZoneOffset.UTC).plusHours(12).toInstant().toEpochMilli()
-                    }.getOrNull()?.let { ChartMarker(it, Color(0xFFD97706), "FTD") }
+                    }.getOrNull()?.let { ChartMarker(it, Signal, "FTD") }
                 }
             } else {
                 emptyList()
@@ -349,7 +353,7 @@ fun DetailScreen(
                     runCatching {
                         java.time.LocalDate.parse(d)
                             .atStartOfDay(java.time.ZoneOffset.UTC).plusHours(12).toInstant().toEpochMilli()
-                    }.getOrNull()?.let { ChartMarker(it, Color(0xFF8B5CF6), "Halving") }
+                    }.getOrNull()?.let { ChartMarker(it, ChartSeries[1], "Halving") }
                 }
             } else {
                 emptyList()
@@ -372,10 +376,10 @@ fun DetailScreen(
                         ChartLineOverlay("$label ${fmtLevel(p)}", color, List(chartPoints.size) { p })
                     }
                 listOfNotNull(
-                    lvl("Support", Color(0xFF2E9E57), lv.support),
-                    lvl("Resistance", Color(0xFFEF4444), lv.resistance),
-                    lvl("Target", Color(0xFF14B8A6), lv.target),
-                    lvl("Invalidation", Color(0xFFF59E0B), lv.invalidationPrice),
+                    lvl("Support", GainGreen, lv.support),
+                    lvl("Resistance", LossRed, lv.resistance),
+                    lvl("Target", EtfAccent, lv.target),
+                    lvl("Invalidation", Signal, lv.invalidationPrice),
                 )
             } else emptyList()
             // Armed price alerts (TV-3). The chart draws the cost line, the 200-week line and four
@@ -909,26 +913,26 @@ private fun buildIndicators(points: List<com.stocktracker.app.data.model.PricePo
     val subPanes = mutableListOf<ChartSubPane>()
     fun nonEmpty(v: List<Double?>) = v.any { it != null }
 
-    if (Indicator.SMA20.key in enabled) simpleMovingAverage(prices, 20).let { if (nonEmpty(it)) overlays += ChartLineOverlay("SMA20", Color(0xFF60A5FA), it) }
-    if (Indicator.SMA50.key in enabled) simpleMovingAverage(prices, 50).let { if (nonEmpty(it)) overlays += ChartLineOverlay("SMA50", Color(0xFFF59E0B), it) }
-    if (Indicator.EMA21.key in enabled) exponentialMovingAverage(prices, 21).let { if (nonEmpty(it)) overlays += ChartLineOverlay("EMA21", Color(0xFFA855F7), it) }
+    if (Indicator.SMA20.key in enabled) simpleMovingAverage(prices, 20).let { if (nonEmpty(it)) overlays += ChartLineOverlay("SMA20", ChartSeries[0], it) }
+    if (Indicator.SMA50.key in enabled) simpleMovingAverage(prices, 50).let { if (nonEmpty(it)) overlays += ChartLineOverlay("SMA50", Signal, it) }
+    if (Indicator.EMA21.key in enabled) exponentialMovingAverage(prices, 21).let { if (nonEmpty(it)) overlays += ChartLineOverlay("EMA21", ChartSeries[2], it) }
     if (Indicator.BOLLINGER.key in enabled) {
         val b = bollingerBands(prices, 20, 2.0)
         if (nonEmpty(b.mid)) {
-            val g = Color(0xFF94A3B8)
+            val g = BenchmarkGrey
             overlays += ChartLineOverlay("BB", g, b.mid)
             overlays += ChartLineOverlay("", g.copy(alpha = 0.7f), b.upper)
             overlays += ChartLineOverlay("", g.copy(alpha = 0.7f), b.lower)
         }
     }
-    if (Indicator.VWAP.key in enabled) vwap(prices, volumes).let { if (nonEmpty(it)) overlays += ChartLineOverlay("VWAP", Color(0xFF14B8A6), it) }
+    if (Indicator.VWAP.key in enabled) vwap(prices, volumes).let { if (nonEmpty(it)) overlays += ChartLineOverlay("VWAP", EtfAccent, it) }
     if (Indicator.RSI.key in enabled) {
         val r = rsi(prices, 14)
         if (nonEmpty(r)) subPanes += ChartSubPane(
             label = "RSI 14",
             // Labelled: the pane's value readout prints "<label> <value>", and a single unlabelled
             // number in an oscillator pane says nothing about which series it belongs to.
-            lines = listOf(ChartLineOverlay("RSI", Color(0xFF60A5FA), r)),
+            lines = listOf(ChartLineOverlay("RSI", ChartSeries[0], r)),
             guides = listOf(30.0, 70.0),
             fixedRange = 0.0..100.0,
         )
@@ -938,8 +942,8 @@ private fun buildIndicators(points: List<com.stocktracker.app.data.model.PricePo
         if (nonEmpty(m.macd)) subPanes += ChartSubPane(
             label = "MACD",
             lines = listOf(
-                ChartLineOverlay("MACD", Color(0xFF60A5FA), m.macd),
-                ChartLineOverlay("Signal", Color(0xFFF59E0B), m.signal),
+                ChartLineOverlay("MACD", ChartSeries[0], m.macd),
+                ChartLineOverlay("Signal", Signal, m.signal),
             ),
             histogram = m.histogram,
             guides = listOf(0.0),
@@ -956,7 +960,7 @@ private fun buildIndicators(points: List<com.stocktracker.app.data.model.PricePo
             val bars = barSpacingLabel(medianBarSpacingMs(points))
             subPanes += ChartSubPane(
                 label = if (bars != null) "ATR 14 · $bars bars" else "ATR 14",
-                lines = listOf(ChartLineOverlay("ATR", Color(0xFFEC4899), a)),
+                lines = listOf(ChartLineOverlay("ATR", ChartSeries[4], a)),
             )
         }
     }
@@ -968,8 +972,8 @@ private fun buildIndicators(points: List<com.stocktracker.app.data.model.PricePo
         if (nonEmpty(kLine)) subPanes += ChartSubPane(
             label = "Stoch 14",
             lines = listOf(
-                ChartLineOverlay("%K", Color(0xFF60A5FA), kLine),
-                ChartLineOverlay("%D", Color(0xFFF59E0B), dLine),
+                ChartLineOverlay("%K", ChartSeries[0], kLine),
+                ChartLineOverlay("%D", Signal, dLine),
             ),
             guides = listOf(20.0, 80.0),
             fixedRange = 0.0..100.0,
@@ -1213,11 +1217,11 @@ private fun SnapshotCard(
     insider: InsiderResponse?,
     shortPressure: ShortPressureResponse?,
 ) {
-    val buy = Color(0xFF16A34A)
-    val sell = Color(0xFFDC2626)
-    val amber = Color(0xFFD97706)
-    val value = Color(0xFFD29922)
-    val moat = Color(0xFF4666CF)
+    val buy = GainGreen
+    val sell = LossRed
+    val amber = Signal
+    val value = Signal
+    val moat = CategoricalRamp[1]
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
 
     val factors = buildList {
@@ -1412,9 +1416,9 @@ private fun SignalsCard(
     onAnalyze: () -> Unit,
     onDeepDive: () -> Unit,
 ) {
-    val buy = Color(0xFF16A34A)
-    val sell = Color(0xFFDC2626)
-    val mixed = Color(0xFFD97706)
+    val buy = GainGreen
+    val sell = LossRed
+    val mixed = Signal
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     fun bucketColor(b: Int) = when {
         b > 0 -> buy
@@ -1700,7 +1704,7 @@ private fun SignalsCard(
 @Composable
 private fun HalvingCycleCard(ci: CycleResponse) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val purple = Color(0xFF8B5CF6)
+    val purple = ChartSeries[1]
     var open by remember { mutableStateOf(false) }
     val hc = ci.halvingCycle
     val lt = ci.longTermTrend
@@ -1840,7 +1844,7 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val below = tr.belowLine == true
     // Amber = below the line (a heads-up, not a buy); neutral otherwise — keeps the stance neutral.
-    val accent = if (below) Color(0xFFD29922) else neutral
+    val accent = if (below) Signal else neutral
     var open by remember { mutableStateOf(false) }
 
     val zoneLabel = tr.zone?.replace('_', ' ')?.replaceFirstChar { it.uppercase() }
@@ -1923,8 +1927,8 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
             // Dislocation: how unusual today's drawdown is vs this name's own history (z-score).
             tr.drawdownZ?.let { z ->
                 val (word, zColor) = when {
-                    z <= -2.0 -> "unusually deep" to Color(0xFF2E9E57)
-                    z <= -1.0 -> "below typical" to Color(0xFFD29922)
+                    z <= -2.0 -> "unusually deep" to GainGreen
+                    z <= -1.0 -> "below typical" to Signal
                     z >= 1.0 -> "near highs" to neutral
                     else -> "typical range" to neutral
                 }
@@ -1937,8 +1941,8 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
             // RSI as a mini gauge — green when oversold (<30), red when overbought (>70).
             tr.rsi14w?.let { rsi ->
                 val rsiColor = when {
-                    rsi < 30 -> Color(0xFF2E9E57)
-                    rsi > 70 -> Color(0xFFB0543D)
+                    rsi < 30 -> GainGreen
+                    rsi > 70 -> LossRed
                     else -> neutral
                 }
                 ThresholdMeter(
@@ -1982,7 +1986,7 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
                         "Resolved higher after a dip",
                         "$pp% of ${t.touchCount}",
                         (pp / 100.0).toFloat(),
-                        if (pp >= 50) Color(0xFF2E9E57) else Color(0xFFB0543D),
+                        if (pp >= 50) GainGreen else LossRed,
                         thresholdFraction = 0.5f,
                     )
                 }
@@ -2003,7 +2007,7 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
 @Composable
 private fun InsiderBuyingCard(ins: InsiderResponse) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val green = Color(0xFF2E9E57)
+    val green = GainGreen
     var open by remember { mutableStateOf(false) }
 
     Column(
@@ -2087,7 +2091,7 @@ private fun InsiderBuyingCard(ins: InsiderResponse) {
 @Composable
 private fun CongressCard(c: CongressBlock) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val amber = Color(0xFFB0872B)
+    val amber = Signal
     var open by remember { mutableStateOf(false) }
 
     Column(
@@ -2191,8 +2195,8 @@ private fun NewsMovesCard(
     onExplain: () -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val green = Color(0xFF2E9E57)
-    val red = Color(0xFFC64040)
+    val green = GainGreen
+    val red = Signal
     var open by remember { mutableStateOf(false) }
     val hasContent = block != null || note != null || error != null
 
@@ -2282,8 +2286,8 @@ private fun NewsMovesCard(
 @Composable
 private fun SeasonalityCard(s: SeasonalityBlock) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val green = Color(0xFF2E9E57)
-    val red = Color(0xFFD1453B)
+    val green = GainGreen
+    val red = LossRed
     var open by remember { mutableStateOf(false) }
     val cur = s.currentMonth
 
@@ -2382,7 +2386,7 @@ private fun fmtLevel(v: Double): String =
 @Composable
 private fun QualityCard(q: QualityResponse) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val blue = Color(0xFF4666CF)
+    val blue = CategoricalRamp[1]
     var open by remember { mutableStateOf(false) }
     val headline = when {
         q.buffettQuality -> "Buffett quality"
@@ -2444,22 +2448,22 @@ private fun QualityCard(q: QualityResponse) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 q.roe?.let {
                     ThresholdMeter("ROE", "%.0f%%".format(it), (it / 40.0).toFloat(),
-                        if (it > 15) Color(0xFF2E9E57) else neutral, thresholdFraction = 15f / 40f)
+                        if (it > 15) GainGreen else neutral, thresholdFraction = 15f / 40f)
                 }
                 q.grossMargin?.let {
                     ThresholdMeter("Gross margin", "%.0f%%".format(it), (it / 100.0).toFloat(),
-                        if (it > 40) Color(0xFF2E9E57) else neutral, thresholdFraction = 0.40f)
+                        if (it > 40) GainGreen else neutral, thresholdFraction = 0.40f)
                 }
                 q.debtToEquity?.let {
                     ThresholdMeter("Debt / equity", "%.2f".format(it), (it / 2.0).toFloat(),
-                        if (it < 0.5) Color(0xFF2E9E57) else Color(0xFFD29922), thresholdFraction = 0.5f / 2f)
+                        if (it < 0.5) GainGreen else Signal, thresholdFraction = 0.5f / 2f)
                 }
             }
             // Free cash flow trend (MB-13) — rising green, falling clay.
             q.fcfTrend?.let { trend ->
                 val fcfColor = when (trend) {
-                    "rising" -> Color(0xFF2E9E57)
-                    "falling" -> Color(0xFFB0543D)
+                    "rising" -> GainGreen
+                    "falling" -> LossRed
                     else -> neutral
                 }
                 val latest = q.fcfLatest?.let { " · ${fmtUsdCompact(it)}/yr" } ?: ""
@@ -2493,8 +2497,8 @@ private fun QualityCard(q: QualityResponse) {
                         "Share count: ${"%+.1f".format(chg)}% / ${yrs}y · $label",
                         style = MaterialTheme.typography.labelSmall,
                         color = when (label) {
-                            "buybacks" -> Color(0xFF2E9E57)
-                            "dilution" -> Color(0xFFB0543D)
+                            "buybacks" -> GainGreen
+                            "dilution" -> LossRed
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
                     )
@@ -2552,9 +2556,9 @@ private fun fmtYmd(d: String): String = if (d.length == 8) "${d.substring(4, 6)}
  */
 @Composable
 private fun ShortPressureCard(sp: ShortPressureResponse) {
-    val buy = Color(0xFF16A34A)
-    val sell = Color(0xFFDC2626)
-    val amber = Color(0xFFD97706)
+    val buy = GainGreen
+    val sell = LossRed
+    val amber = Signal
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val (stateLabel, stateColor) = when (sp.state) {
         "ignition" -> "IGNITION" to sell // high-risk fireworks, not a calm buy — flag it hot
@@ -2784,8 +2788,8 @@ private fun EntryPlanCard(
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
         if (plan != null) {
             val c = planActionColor(plan.action, neutral)
-            val blue = Color(0xFF4666CF)
-            val dipAmber = Color(0xFFD29922)
+            val blue = CategoricalRamp[1]
+            val dipAmber = Signal
             val deploy = plan.allocationUsd ?: 0.0
             // Stage the allocation ACROSS the entry zone — average in on weakness rather than one lump
             // entry. Levels step down from the top of the zone (or current price, if already in it).
@@ -4119,9 +4123,9 @@ private fun StatCell(
 @Composable
 private fun ValueTrapCard(v: ValueTrapResponse) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val red = Color(0xFFB0543D)
-    val green = Color(0xFF2E9E57)
-    val amber = Color(0xFFB0872B)
+    val red = LossRed
+    val green = GainGreen
+    val amber = Signal
     val accent = when {
         !v.assessable -> neutral
         v.verdict == "deteriorating" -> red

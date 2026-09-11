@@ -21,6 +21,26 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
+      # The palette lives in one file, and stays there.
+      #
+      # Before this gate the app carried 144 hardcoded Color(0x..) literals in 36 distinct hexes
+      # outside the theme — four ambers, five reds and four greens doing three jobs — so "the app is
+      # warning you" rendered in a different hue depending on which screen drew it. Consolidating
+      # them was a day's work. Keeping them consolidated is this check, because otherwise the next
+      # feature quietly adds the thirty-seventh.
+      - name: No colour literals outside the theme
+        run: |
+          hits=$(grep -rn --include='*.kt' 'Color(0x' app/src/main/java \
+                   | grep -v '/ui/theme/' || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo
+            echo "Colours belong in ui/theme/Color.kt. Add a named token there and use it — or, if"
+            echo "this really is a one-off that means nothing, say so in a comment and widen this"
+            echo "check deliberately rather than in passing."
+            exit 1
+          fi
+
       # No FINNHUB_API_KEY here on purpose: the debug APK is a public CI artifact, so it must not
       # embed the key. Debug builds are crypto-only; the key is baked into signed releases instead.
       - name: Assemble debug APK

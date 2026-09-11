@@ -45,6 +45,9 @@ import com.stocktracker.app.data.remote.EntryPlan
 import com.stocktracker.app.ui.detail.ChaseLine
 import com.stocktracker.app.ui.detail.ChaseState
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.ui.theme.LossRed
+import com.stocktracker.app.ui.theme.Signal
 
 /**
  * "Ideas" — deploy free cash across the watchlist. The analyst sees every candidate at once, picks
@@ -220,9 +223,9 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
     }
 }
 
-private val Buy = Color(0xFF16A34A)
-private val Pullback = Color(0xFFD97706)
-private val Sell = Color(0xFFDC2626)
+private val Buy = GainGreen
+private val Pullback = Signal
+private val Sell = LossRed
 
 internal fun planActionColor(action: String, neutral: Color): Color = when (action) {
     "buy_now" -> Buy
@@ -358,7 +361,7 @@ private fun PickCard(pick: EntryPlan, isNew: Boolean = false, onClick: () -> Uni
 @Composable
 private fun ValueScreenCard(ui: IdeasUiState, onRefresh: () -> Unit, onOpen: (String) -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val amber = Color(0xFFB0872B)
+    val amber = Signal
     val screen = ui.screen
     if (screen == null && !ui.screenLoading && ui.screenError == null) return
 
@@ -468,8 +471,8 @@ private fun ValueScreenCard(ui: IdeasUiState, onRefresh: () -> Unit, onOpen: (St
 @Composable
 private fun SmartMoneyCard(ui: IdeasUiState, onRefresh: () -> Unit, onOpen: (String) -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val amber = Color(0xFFB0872B)
-    val green = Color(0xFF2E9E57)
+    val amber = Signal
+    val green = GainGreen
     val sm = ui.smartMoney
     if (sm == null && !ui.smartMoneyLoading && ui.smartMoneyError == null) return
 

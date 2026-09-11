@@ -56,7 +56,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stocktracker.app.BuildConfig
 import com.stocktracker.app.data.BackupManager
-import com.stocktracker.app.data.prefs.ThemeMode
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.notify.SignalScanNotifier
@@ -65,6 +64,7 @@ import com.stocktracker.app.update.UpdateUiState
 import com.stocktracker.app.update.rememberUpdateController
 import com.stocktracker.app.widget.WidgetRefreshScheduler
 import kotlinx.coroutines.launch
+import com.stocktracker.app.ui.theme.Signal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,8 +72,6 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}) {
     val settings = ServiceLocator.settingsStore
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val theme by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
-    val dynamic by settings.dynamicColor.collectAsState(initial = true)
     val refresh by settings.defaultRefreshMinutes.collectAsState(initial = 15)
     val savedKey by settings.finnhubApiKey.collectAsState(initial = "")
     val hideZeroCents by settings.hideZeroCents.collectAsState(initial = false)
@@ -126,21 +124,12 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}) {
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
+            // The theme picker and the Material You switch are gone. The app is dark, always: the
+            // light scheme was never finished — its gain and loss inks were the dark theme's
+            // pastels reused unchanged, at 1.66:1 and 2.63:1 against a light surface — and dynamic
+            // colour meant the branded palette never rendered at all on Android 12+. A picker with
+            // one option left in it is not a picker.
             SettingsSection("Appearance") {
-                LabeledChips("Theme") {
-                    ThemeMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = theme == mode,
-                            onClick = { scope.launch { settings.setThemeMode(mode) } },
-                            label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) },
-                        )
-                    }
-                }
-                SwitchRow(
-                    "Material You dynamic colour",
-                    "Tint the app from your wallpaper",
-                    dynamic,
-                ) { scope.launch { settings.setDynamicColor(it) } }
                 SwitchRow(
                     "Hide .00 on whole prices",
                     "Show $12 instead of $12.00",
@@ -325,8 +314,8 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}) {
                         val ok = health.state == BackendState.ONLINE
                         val dotColor = when {
                             health.checking -> MaterialTheme.colorScheme.onSurfaceVariant
-                            ok -> Color(0xFF2E7D32)
-                            health.state == BackendState.OFFLINE -> Color(0xFFC64040)
+                            ok -> GainGreen
+                            health.state == BackendState.OFFLINE -> Signal
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                         Row(
@@ -491,7 +480,7 @@ private fun BackgroundRunStatus() {
     val color = when {
         lastRun <= 0 -> neutral
         healthy -> GainGreen
-        else -> Color(0xFFB0872B)
+        else -> Signal
     }
     val label = when {
         lastRun <= 0 -> "Alert checks: hasn't run yet"

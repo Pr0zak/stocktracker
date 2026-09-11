@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.data.remote.SignalsHealth
+import com.stocktracker.app.ui.theme.Signal
 
 /**
  * The single, consistent "can't reach the AI service" indicator.
@@ -51,7 +52,7 @@ fun BackendStatusBanner(modifier: Modifier = Modifier) {
     val health by SignalsHealth.state.collectAsState()
     if (!health.isOffline) return
 
-    val red = Color(0xFFC64040)
+    val red = Signal
     Row(
         modifier = modifier
             .fillMaxWidth()

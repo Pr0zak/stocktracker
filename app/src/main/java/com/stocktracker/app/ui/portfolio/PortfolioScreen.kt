@@ -69,6 +69,7 @@ import com.stocktracker.app.ui.components.AllocationDonut
 import com.stocktracker.app.ui.components.DONUT_COLORS
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.asPercentChange
+import com.stocktracker.app.ui.theme.Signal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -442,7 +443,7 @@ private fun PortfolioReviewDialog(
     onOpenSymbol: (String) -> Unit = {},
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val amber = Color(0xFFB0872B)
+    val amber = Signal
     val r = ui.result?.review
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -586,7 +587,7 @@ private fun RebalancePlanDialog(
     onOpenSymbol: (String) -> Unit = {},
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val amber = Color(0xFFB0872B)
+    val amber = Signal
     val plan = ui.result?.plan
     // Was String.format("%.2f", s), which renders a 0.004 BTC move as "0.00 sh" — a real instruction
     // displayed as nothing. Formatting.shares is what the rest of the app uses: 4dp, trailing zeros

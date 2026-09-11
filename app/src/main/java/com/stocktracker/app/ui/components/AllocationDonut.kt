@@ -8,13 +8,18 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import com.stocktracker.app.ui.theme.EtfAccent
+import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.ui.theme.LossRed
+import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.theme.CategoricalRamp
 
 /** Distinct slice colours, cycled by position rank (largest first). Shared so the Portfolio and the
  *  Sandbox colour the same holding consistently. */
-val DONUT_COLORS = listOf(
-    Color(0xFF7C6BD6), Color(0xFF4666CF), Color(0xFF0F8A7E), Color(0xFFD29922),
-    Color(0xFFB0543D), Color(0xFFC2477E), Color(0xFF2E9E57), Color(0xFF8A6BB0),
-)
+// Was a grab-bag of literals mixed with the class accents. After the tokens landed, the accents in
+// it resolved to GainGreen and LossRed, so a holding's slice could be drawn in the ink that means
+// "this went down" — a category colour asserting a verdict. The ramp spends none of those.
+val DONUT_COLORS = CategoricalRamp
 
 /** A thin allocation donut — one arc per position, swept by its share of the book. [slices] are
  *  (colour, fraction-of-total) pairs; fractions should sum to <= 1. */

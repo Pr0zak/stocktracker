@@ -95,6 +95,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import com.stocktracker.app.ui.theme.CryptoAccent
+import com.stocktracker.app.ui.theme.EtfAccent
+import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.theme.CategoricalRamp
 
 // Built-in tabs; user-defined watchlist names extend the row after these.
 private const val TAB_ALL = "All"
@@ -291,8 +295,8 @@ fun WatchlistScreen(
                             val dot = when (tab) {
                                 TAB_ALL -> null
                                 TAB_STOCKS -> faint
-                                TAB_CRYPTO -> Color(0xFFF7A928)
-                                TAB_BELOW -> Color(0xFF4666CF)
+                                TAB_CRYPTO -> CryptoAccent
+                                TAB_BELOW -> CategoricalRamp[1]
                                 else -> primary
                             }
                             ListChip(
@@ -671,7 +675,7 @@ private fun MarketContext(
             add(g.chip to when (g.verdict) {
                 GateVerdict.OPEN -> GainGreen
                 GateVerdict.SHUT -> LossRed
-                GateVerdict.UNMEASURED -> Color(0xFFB0872B)
+                GateVerdict.UNMEASURED -> Signal
                 GateVerdict.UNAVAILABLE -> neutral
             })
         }
@@ -734,7 +738,7 @@ private fun DipStripSection(
 ) {
     var open by rememberSaveable { mutableStateOf(false) }   // collapsed by default
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val amber = Color(0xFFD29922)
+    val amber = Signal
     val note = DipRadar.strip(state)
     val dips = (state as? DipRadarState.Ready)?.dips.orEmpty()
     // `stale` is set when a refresh FAILED and these dips are the previous read. The list is real —
@@ -878,11 +882,11 @@ private fun DipRow(d: DipEntry, onClick: (() -> Unit)? = null) {
 }
 
 private fun dipMeta(tier: String): Pair<String, Color> = when (tier) {
-    "mega_dip" -> "MEGA DIP" to Color(0xFFB0543D)
-    "below_line" -> "BELOW LINE" to Color(0xFF4666CF)
-    "oversold" -> "OVERSOLD" to Color(0xFF0F8A7E)
-    "pullback_10" -> "DIP" to Color(0xFFD29922)
-    else -> "SMALL DIP" to Color(0xFFD29922)
+    "mega_dip" -> "MEGA DIP" to LossRed
+    "below_line" -> "BELOW LINE" to CategoricalRamp[1]
+    "oversold" -> "OVERSOLD" to EtfAccent
+    "pullback_10" -> "DIP" to Signal
+    else -> "SMALL DIP" to Signal
 }
 
 /** The dip as a plain signed percent off the year's high (negative), e.g. "-29%". */
@@ -946,7 +950,7 @@ private fun NewListChip(onClick: () -> Unit) {
  */
 @Composable
 private fun SectionHeading(label: String, count: Int, expanded: Boolean, onToggle: () -> Unit) {
-    val accent = if (label == WatchlistVerticals.FAVORITES) Color(0xFFD29922)
+    val accent = if (label == WatchlistVerticals.FAVORITES) Signal
                  else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         // The whole heading is the hit target, not just the chevron. A 16dp icon is a poor thing to
@@ -1129,7 +1133,7 @@ private fun DipNotice(title: String, body: String, onRetry: (() -> Unit)?) {
             Icon(
                 Icons.Filled.Warning,
                 contentDescription = null,
-                tint = Color(0xFFD29922),
+                tint = Signal,
                 modifier = Modifier.size(18.dp),
             )
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -1169,10 +1173,10 @@ private fun DipSummary(s: DipRadarState.Ready) {
                 Icon(
                     Icons.Filled.Warning,
                     contentDescription = null,
-                    tint = Color(0xFFD29922),
+                    tint = Signal,
                     modifier = Modifier.size(15.dp),
                 )
-                Text(it, style = MaterialTheme.typography.labelMedium, color = Color(0xFFD29922))
+                Text(it, style = MaterialTheme.typography.labelMedium, color = Signal)
             }
         }
     }
@@ -1223,13 +1227,13 @@ private fun DipRejectSection(
             return@Column
         }
         if (!open) return@Column
-        DipRejectGroup("Near misses", state.nearMiss, Color(0xFFD29922), onOpenSymbol)
+        DipRejectGroup("Near misses", state.nearMiss, Signal, onOpenSymbol)
         // The flat middle is long and dull by nature — capped, with the remainder counted so the cap
         // never reads as the whole list.
         DipRejectGroup("Nowhere near a dip", state.nowhereNear, neutral, onOpenSymbol, cap = 12)
         // Last and in its own group on purpose: these were NOT judged to be dip-free, they were never
         // measured. Merging them into the group above is the lie this feature exists to stop.
-        DipRejectGroup("Couldn't be measured", state.unmeasured, Color(0xFFC64040), onOpenSymbol)
+        DipRejectGroup("Couldn't be measured", state.unmeasured, Signal, onOpenSymbol)
     }
 }
 
@@ -1281,9 +1285,9 @@ private fun DipRejectGroup(
 @Composable
 private fun RegimeCard(ui: RegimeUi, onRefresh: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val green = Color(0xFF2E9E57)
-    val red = Color(0xFFC64040)
-    val amber = Color(0xFFB0872B)
+    val green = GainGreen
+    val red = Signal
+    val amber = Signal
     val r = ui.result?.regime
     val st = ui.result?.spyTrend
     val hasContent = r != null && r.label.isNotBlank()
@@ -1413,9 +1417,9 @@ private fun RegimeCard(ui: RegimeUi, onRefresh: () -> Unit) {
 @Composable
 private fun GateCard(ui: GateUi, onRefresh: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val green = Color(0xFF2E9E57)
-    val red = Color(0xFFC64040)
-    val amber = Color(0xFFB0872B)
+    val green = GainGreen
+    val red = Signal
+    val amber = Signal
     val summary = GateRead.summary(ui.result)
     val verdictColor = when (summary?.verdict) {
         GateVerdict.OPEN -> green
@@ -1547,8 +1551,8 @@ private fun GateCard(ui: GateUi, onRefresh: () -> Unit) {
 private fun GateLegRow(leg: GateLeg) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val (glyph, tint) = when (GateRead.mark(leg.ok)) {
-        LegMark.PASS -> "✓" to Color(0xFF2E9E57)
-        LegMark.FAIL -> "✗" to Color(0xFFC64040)
+        LegMark.PASS -> "✓" to GainGreen
+        LegMark.FAIL -> "✗" to Signal
         LegMark.UNKNOWN -> "—" to neutral
     }
     Row(
@@ -1630,9 +1634,9 @@ private fun MarketNowDialog(
                         val ov = ui.result.overviewStruct
                         if (ov != null) {
                             val toneColor = when (ov.tone.lowercase()) {
-                                "risk-on" -> Color(0xFF2E9E57)
-                                "risk-off" -> Color(0xFFD1453B)
-                                else -> Color(0xFFB0872B)
+                                "risk-on" -> GainGreen
+                                "risk-off" -> LossRed
+                                else -> Signal
                             }
                             Box(
                                 modifier = Modifier

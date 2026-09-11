@@ -37,11 +37,15 @@ import com.stocktracker.app.MainActivity
 import com.stocktracker.app.R
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.ui.theme.LossRed
+import com.stocktracker.app.ui.theme.OnSurfaceDark
+import com.stocktracker.app.ui.theme.OnSurfaceVariantDark
 
-private val OnSurface = Color(0xFFE6E1E9)
-private val Muted = Color(0xFFCAC4D3)
-private val Up = Color(0xFF4ADE80)
-private val Down = Color(0xFFF87171)
+private val OnSurface = OnSurfaceDark
+private val Muted = OnSurfaceVariantDark
+private val Up = GainGreen
+private val Down = LossRed
 
 class TickerWidget : GlanceAppWidget() {
 

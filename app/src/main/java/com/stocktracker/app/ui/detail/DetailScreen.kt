@@ -1061,6 +1061,9 @@ private fun QuoteAsOfLine(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .clickable(enabled = !refreshing) { onRefresh() }
+            // The tap that recovers a stale price was about 24dp tall. The controls the honesty
+            // model leans on should not be the hardest ones in the app to hit.
+            .heightIn(min = 48.dp)
             .padding(vertical = 2.dp, horizontal = 4.dp),
     ) {
         if (refreshing) {

@@ -12,6 +12,7 @@ import com.stocktracker.app.data.remote.CoinMarket
 import com.stocktracker.app.data.remote.FinnhubService
 import com.stocktracker.app.data.remote.YahooFinanceService
 import java.util.concurrent.ConcurrentHashMap
+import java.io.IOException
 
 /** Single entry point the app + widgets use to read market data. */
 class MarketRepository(
@@ -175,13 +176,28 @@ class MarketRepository(
     suspend fun search(query: String): List<SearchResult> {
         if (query.isBlank()) return emptyList()
         // Yahoo needs no key; supplement with Finnhub (warrants/odd tickers) when a key is present.
-        val yahooHits = runCatching { yahoo.search(query) }.getOrDefault(emptyList())
-        val finnhubHits = runCatching { if (finnhub.hasKey) finnhub.search(query) else emptyList() }
-            .getOrDefault(emptyList())
-        val stocks = (yahooHits + finnhubHits)
+        val yahooHits = runCatching { yahoo.search(query) }
+        val finnhubAsked = finnhub.hasKey
+        val finnhubHits = runCatching { if (finnhubAsked) finnhub.search(query) else emptyList() }
+        val cryptoHits = runCatching { coinGecko.search(query) }
+
+        // Every source used to be wrapped in getOrDefault(emptyList()), so a total outage and a
+        // ticker that does not exist produced the identical empty list — and the caller had no way
+        // to tell "try again" from "you typed it wrong". If at least one source ANSWERED, an empty
+        // result is a real answer and we return it. If every source we actually asked threw, we
+        // did not look anything up, and saying so is the only honest thing left.
+        val asked = listOfNotNull(yahooHits, finnhubHits.takeIf { finnhubAsked }, cryptoHits)
+        if (asked.all { it.isFailure }) {
+            throw IOException(
+                "Couldn't reach any search source",
+                asked.firstNotNullOfOrNull { it.exceptionOrNull() },
+            )
+        }
+
+        val stocks = (yahooHits.getOrDefault(emptyList()) + finnhubHits.getOrDefault(emptyList()))
             .distinctBy { it.symbol.uppercase() }
             .take(15)
-        val crypto = runCatching { coinGecko.search(query) }.getOrDefault(emptyList()).take(15)
+        val crypto = cryptoHits.getOrDefault(emptyList()).take(15)
         return interleave(stocks, crypto)
     }
 

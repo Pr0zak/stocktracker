@@ -55,6 +55,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.remote.SandboxSettings
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.Formatting
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.ui.text.style.TextAlign
 
 /**
  * The Sandbox's dedicated settings page (opened from the gear in the Sandbox top bar). Groups every
@@ -71,7 +74,19 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
     val s = st?.settings ?: SandboxSettings()
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
 
+    // Every save on this screen reports through ui.message, and this screen had nowhere to show it.
+    // So "Couldn't save that setting — nothing changed" went into the state and stopped there: you
+    // moved a risk cap, the write failed, and the control sat at the value you had just dragged it
+    // to. A settings screen that cannot say a write failed is worse than one that cannot write.
+    val host = remember { SnackbarHostState() }
+    LaunchedEffect(ui.message) {
+        val msg = ui.message ?: return@LaunchedEffect
+        host.showSnackbar(msg)
+        vm.clearMessage()
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(host) },
         topBar = {
             TopAppBar(
                 title = { Text("Sandbox settings") },
@@ -83,6 +98,37 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
+        // Until the settings load, `s` is a fresh SandboxSettings() — every default, rendered as
+        // though it were the user's configuration. Showing someone a risk cap that is not theirs,
+        // on a screen whose controls write, invites them to "correct" a number that was never wrong.
+        if (st == null) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (ui.loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                        Spacer(Modifier.height(12.dp))
+                        Text("Loading your sandbox settings…", color = neutral)
+                    } else {
+                        Text(
+                            "Couldn't load your sandbox settings.",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Nothing here would be yours, so nothing is shown. Check the Signals " +
+                                "service in Settings, then come back.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = neutral,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+            return@Scaffold
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),

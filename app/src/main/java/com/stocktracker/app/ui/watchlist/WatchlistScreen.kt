@@ -608,6 +608,8 @@ private fun FreshnessLine(
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .clickable(enabled = !refreshing) { onRefresh() }
+            // The home screen's whole staleness channel, and its only retry, at ~24dp.
+            .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

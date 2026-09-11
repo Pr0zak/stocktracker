@@ -435,6 +435,9 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenMethodology() }
+                        // 48dp, like every other tappable row. A single line of bodyLarge with 4dp
+                        // of padding is about 32dp, which is a target you have to aim at.
+                        .heightIn(min = 48.dp)
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -459,6 +462,7 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { showChangelog = true }
+                        .heightIn(min = 48.dp)
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,

@@ -42,6 +42,9 @@ import com.stocktracker.app.data.model.RiskMultiple
 import com.stocktracker.app.ui.ideas.usd
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
+import com.stocktracker.app.ui.theme.NumberSmall
+import com.stocktracker.app.ui.theme.PriceSmall
+import com.stocktracker.app.ui.theme.PriceLarge
 import kotlin.math.abs
 
 /**
@@ -167,13 +170,13 @@ private fun CallRowItem(row: CallRow, onClick: () -> Unit) {
                     val up = pl >= 0
                     Text(
                         "${if (up) "+" else "−"}${usd(abs(pl))}",
-                        fontWeight = FontWeight.Medium,
+                        style = PriceSmall,
                         color = plColor(up),
                     )
                     row.unrealizedPlPct?.let { pct ->
                         Text(
                             "${if (pct >= 0) "▲" else "▼"} ${"%.1f".format(abs(pct))}%",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = NumberSmall,
                             color = plColor(up),
                         )
                     }
@@ -182,7 +185,7 @@ private fun CallRowItem(row: CallRow, onClick: () -> Unit) {
                 else -> Text("—", color = neutral, fontWeight = FontWeight.Medium)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("${row.dte}d", style = MaterialTheme.typography.labelSmall, color = neutral)
+                Text("${row.dte}d", style = NumberSmall, color = neutral)
                 MoneynessChip(row.inTheMoney)
             }
         }
@@ -534,8 +537,7 @@ private fun ClosedSummaryCard(s: RealizedPnl.Summary, r: RiskMultiple.Aggregate,
     ) {
         Text(
             "${if (up) "+" else "−"}${usd(abs(s.totalRealized))}",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
+            style = PriceLarge,
             color = if (up) GainGreen else LossRed,
         )
         Text("Total realized P&L", style = MaterialTheme.typography.labelSmall, color = neutral)
@@ -710,14 +712,14 @@ private fun ClosedRow(c: ClosedCallPosition) {
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (c.outcome == CallOutcome.EXERCISED) {
-                Text("${c.exercisedShares} sh", fontWeight = FontWeight.Medium, color = neutral)
+                Text("${c.exercisedShares} sh", style = PriceSmall, color = neutral)
                 Text("now held", style = MaterialTheme.typography.labelSmall, color = neutral)
             } else {
                 val pnl = c.realizedPnl ?: 0.0
                 val up = pnl >= 0
                 Text(
                     "${if (up) "+" else "−"}${usd(abs(pnl))}",
-                    fontWeight = FontWeight.Medium,
+                    style = PriceSmall,
                     color = if (up) GainGreen else LossRed,
                 )
                 c.realizedPnlPct?.let { pct ->
@@ -728,7 +730,7 @@ private fun ClosedRow(c: ClosedCallPosition) {
                     val rSuffix = r?.let { " · ${RiskMultiple.format(it)}" } ?: ""
                     Text(
                         "${if (pct >= 0) "▲" else "▼"} ${"%.1f".format(abs(pct))}%$rSuffix",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = NumberSmall,
                         color = if (up) GainGreen else LossRed,
                     )
                 }

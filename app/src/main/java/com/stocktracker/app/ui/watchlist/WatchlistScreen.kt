@@ -380,6 +380,7 @@ fun WatchlistScreen(
                             marketState = marketState,
                             regime = reg,
                             vix = vix,
+                            vixStale = marketContext.vixFailed,
                             // The strip's own summary word, from the shared state machine — so the
                             // collapsed line cannot claim "no dips" while the card behind it says the
                             // scan service is unreachable.
@@ -411,7 +412,11 @@ fun WatchlistScreen(
                             item(key = "hdr:gate") { GateCard(state.gate, onRefresh = { vm.loadGate(force = true) }) }
                         }
                         if (showVix) {
-                            vix?.let { v -> item(key = "hdr:vix") { FearGauge(v, onClick = onOpenVix) } }
+                            vix?.let { v ->
+                                item(key = "hdr:vix") {
+                                    FearGauge(v, onClick = onOpenVix, stale = marketContext.vixFailed)
+                                }
+                            }
                         }
                     }
                 }
@@ -681,6 +686,8 @@ private fun MarketContext(
     vix: VixQuote?,
     /** The dip fact in two words, or null when there is nothing honest to compress. */
     dipChip: String?,
+    /** True when the last VIX re-read failed and [vix] is the previous reading. */
+    vixStale: Boolean,
     /** SWT-13 — the gate verdict, already resolved. Null = no reading, and no claim. */
     gate: GateSummary?,
     showMarketStatus: Boolean,
@@ -706,7 +713,13 @@ private fun MarketContext(
                 GateVerdict.UNAVAILABLE -> neutral
             })
         }
-        if (showVix) vix?.let { add("VIX ${String.format(Locale.US, "%.1f", it.value)}" to neutral) }
+        // The collapsed line says it too, in the one word it has room for. A strip that shows a
+        // number with no qualifier is the default most readings get — the card below is only seen
+        // by someone who expanded it.
+        if (showVix) vix?.let {
+            val v = "VIX ${String.format(Locale.US, "%.1f", it.value)}"
+            add(if (vixStale) "$v (old)" to Signal else v to neutral)
+        }
         dipChip?.let { add(it to neutral) }
     }
     Row(

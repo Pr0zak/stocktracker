@@ -70,6 +70,8 @@ import com.stocktracker.app.ui.components.DONUT_COLORS
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.asPercentChange
 import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.theme.NumberSmall
+import com.stocktracker.app.ui.theme.PriceMedium
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -337,7 +339,7 @@ fun PortfolioScreen(
                                 Text(h.asset.symbol, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                                 Text(
                                     "${String.format(java.util.Locale.US, "%.0f", pct)}%",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = NumberSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -378,19 +380,28 @@ fun PortfolioScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    // Tabular, like the watchlist rows: three stacked figures the eye runs down,
+                    // where a proportional font puts every digit in a different place and the column
+                    // stops being a column.
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(Formatting.price(h.value, hideZeroCents = hideZeroCents), fontWeight = FontWeight.Medium)
+                        Text(
+                            Formatting.price(h.value, hideZeroCents = hideZeroCents),
+                            // PriceMedium, matching AssetRow: this is the row's primary figure and
+                            // the watchlist sets it at 18sp. It was 16sp bodyLarge here, which was
+                            // neither tabular nor the same size as the same thing on another screen.
+                            style = PriceMedium,
+                        )
                         val hUp = h.dayChange >= 0
                         Text(
                             Formatting.change(h.dayChange, hideZeroCents),
-                            style = MaterialTheme.typography.bodySmall,
+                            style = NumberSmall,
                             color = if (hUp) GainGreen else LossRed,
                         )
                         h.gainPercent?.let { gp ->
                             val gUp = (h.gain ?: 0.0) >= 0
                             Text(
                                 "${if (gUp) "▲" else "▼"} ${String.format(java.util.Locale.US, "%.1f", kotlin.math.abs(gp))}% total",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = NumberSmall,
                                 color = if (gUp) GainGreen else LossRed,
                             )
                         }

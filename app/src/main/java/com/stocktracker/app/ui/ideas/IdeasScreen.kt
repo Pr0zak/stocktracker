@@ -48,6 +48,8 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.theme.NumberSmall
+import com.stocktracker.app.ui.theme.PriceSmall
 
 /**
  * "Ideas" — deploy free cash across the watchlist. The analyst sees every candidate at once, picks
@@ -521,8 +523,9 @@ private fun SmartMoneyCard(ui: IdeasUiState, onRefresh: () -> Unit, onOpen: (Str
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(row.symbol, style = MaterialTheme.typography.bodyMedium)
+                        // A column of scores the eye runs down — tabular, so 9.8 and 10.0 line up.
                         Text(String.format("%.1f", row.score),
-                             style = MaterialTheme.typography.labelSmall, color = green)
+                             style = NumberSmall, color = green)
                     }
                     row.reasons.forEach {
                         Text("· $it", style = MaterialTheme.typography.labelSmall, color = neutral)

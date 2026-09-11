@@ -7,6 +7,7 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.MarketClock
 import com.stocktracker.app.util.MarketHolidays
 import com.stocktracker.app.util.MarketPhase
+import com.stocktracker.app.ui.Routes
 import kotlinx.coroutines.flow.first
 import java.time.DayOfWeek
 import java.time.ZoneId
@@ -108,7 +109,7 @@ object MarketSummaryNotifier {
             MoverSummary.Kind.CLOSE -> "market_close".hashCode()
             MoverSummary.Kind.AFTER_HOURS -> "market_after_hours".hashCode()
         }
-        AlertNotifier.notifyMarket(context, notifId, summary.title, summary.body)
+        AlertNotifier.notifyMarket(context, notifId, summary.title, summary.body, Routes.WATCHLIST)
 
         when (summary.kind) {
             MoverSummary.Kind.CLOSE -> settings.setLastCloseSummaryDate(dateStr)

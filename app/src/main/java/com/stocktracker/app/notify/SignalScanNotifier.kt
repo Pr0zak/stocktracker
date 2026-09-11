@@ -4,6 +4,7 @@ import android.content.Context
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.Routes
 import kotlinx.coroutines.flow.first
 
 /**
@@ -43,7 +44,7 @@ object SignalScanNotifier {
             val title = if (n == 1) "1 signal changed overnight" else "$n signals changed overnight"
             // Per-batch id: a constant one made each new scan REPLACE an unread previous alert.
             AlertNotifier.notify(context, ("signal_scan:" + parts.joinToString(",")).hashCode(),
-                                 title, parts.joinToString(", "))
+                                 title, parts.joinToString(", "), Routes.WATCHLIST)
         }
         // 200-week-line crosses — a stance-neutral "heads up" (below the line is long-term
         // mean-reversion context, NOT a buy signal); its own notification so it doesn't muddy flips.
@@ -55,6 +56,7 @@ object SignalScanNotifier {
                 ("wma_cross:" + crossed.joinToString(",")).hashCode(),
                 if (n == 1) "1 name crossed below its 200-week line" else "$n names crossed below their 200-week line",
                 crossed.joinToString(", "),
+                Routes.WATCHLIST,
             )
         }
         // "Good time to add" dip alerts — a cue to add EXTRA cash on weakness, framed as such (never
@@ -73,7 +75,9 @@ object SignalScanNotifier {
                 "${a.symbol.removeSuffix("-USD")}: $tier"
             }
             val title = if (hasMega) "📉 Deep dip — a moment to add extra" else "Good time to add"
-            AlertNotifier.notify(context, ("dip_alerts:" + body).hashCode(), title, body)
+            // Straight to the dip list — including on a day it finds nothing, which is the day
+            // its reject audit is worth reading.
+            AlertNotifier.notify(context, ("dip_alerts:" + body).hashCode(), title, body, Routes.DIPS)
         }
         // Key-date warnings get their own notification so they don't drown in signal noise.
         val dateAlerts = scan.dateAlerts.orEmpty()
@@ -83,6 +87,7 @@ object SignalScanNotifier {
                 ("date_alerts:" + dateAlerts.joinToString(",")).hashCode(),
                 "Market dates to watch",
                 dateAlerts.joinToString("\n"),
+                Routes.calendar(),
             )
         }
         maybeWeeklyDigest(context, scan)
@@ -121,7 +126,10 @@ object SignalScanNotifier {
             if (hot.isNotEmpty()) add("Short pressure: " + hot.joinToString(", ") { "${it.symbol} ${it.squeeze?.uppercase()}" })
             if (belowLine.isNotEmpty()) add("Below 200-week line: " + belowLine.take(4).joinToString(", ") { it.symbol })
         }
-        AlertNotifier.notify(context, "weekly_digest".hashCode(), "Weekly watchlist digest", lines.joinToString("\n"))
+        AlertNotifier.notify(
+            context, "weekly_digest".hashCode(), "Weekly watchlist digest",
+            lines.joinToString("\n"), Routes.WATCHLIST,
+        )
         store.setLastDigestAt(now)
     }
 

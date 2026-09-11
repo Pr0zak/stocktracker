@@ -37,6 +37,7 @@ import com.stocktracker.app.data.model.CallOutcome
 import com.stocktracker.app.data.model.ClosedCallPosition
 import com.stocktracker.app.data.model.ExitTaxonomy
 import com.stocktracker.app.data.model.RealizedPnl
+import com.stocktracker.app.ui.detail.ageAgo
 import com.stocktracker.app.data.model.RiskMultiple
 import com.stocktracker.app.ui.ideas.usd
 import com.stocktracker.app.ui.theme.GainGreen
@@ -155,19 +156,25 @@ private fun CallRowItem(row: CallRow, onClick: () -> Unit) {
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             val pl = row.unrealizedPl
+            // A stale figure does not get to wear the live figure's colours. Green means "this
+            // position is up right now"; on a row whose last re-price failed, nobody knows that.
+            // The number is still worth showing — it is the last thing that was true — but in the
+            // muted ink, with its age spelled out below the row.
+            val stale = row.failed && !row.loading
+            val plColor = { up: Boolean -> if (stale) neutral else if (up) GainGreen else LossRed }
             when {
                 pl != null -> {
                     val up = pl >= 0
                     Text(
                         "${if (up) "+" else "−"}${usd(abs(pl))}",
                         fontWeight = FontWeight.Medium,
-                        color = if (up) GainGreen else LossRed,
+                        color = plColor(up),
                     )
                     row.unrealizedPlPct?.let { pct ->
                         Text(
                             "${if (pct >= 0) "▲" else "▼"} ${"%.1f".format(abs(pct))}%",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (up) GainGreen else LossRed,
+                            color = plColor(up),
                         )
                     }
                 }
@@ -181,8 +188,17 @@ private fun CallRowItem(row: CallRow, onClick: () -> Unit) {
         }
     }
     if (row.failed && !row.loading) {
+        // Name the age, not just the failure. "Showing last known" left the reader to guess whether
+        // that meant a minute ago or last Tuesday — on a decaying contract those are different
+        // positions. Where the quote carries no usable stamp the line says so rather than inventing
+        // a reassuring one.
+        val age = ageAgo(row.quote?.asOf)
         Text(
-            "Couldn't re-price — showing last known / not available.",
+            when {
+                row.unrealizedPl == null -> "Couldn't re-price — no P/L for this contract yet."
+                age != null -> "Couldn't re-price — the P/L above is from $age."
+                else -> "Couldn't re-price — the P/L above is the last one we got, age unknown."
+            },
             style = MaterialTheme.typography.labelSmall,
             color = neutral,
         )
@@ -242,14 +258,28 @@ private fun CallPositionDetailDialog(
                 val pl = row.unrealizedPl
                 if (pl != null) {
                     val up = pl >= 0
+                    val stale = row.failed && !row.loading
                     Text(
                         "${if (up) "+" else "−"}${usd(abs(pl))}" +
                             (row.unrealizedPlPct?.let { " (${if (it >= 0) "+" else "−"}${"%.1f".format(abs(it))}%)" } ?: ""),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (up) GainGreen else LossRed,
+                        color = if (stale) neutral else if (up) GainGreen else LossRed,
                     )
-                    Text("Unrealized P/L", style = MaterialTheme.typography.labelSmall, color = neutral)
+                    // The age rides with the number even on a SUCCESSFUL re-price. This dialog is
+                    // the screen someone opens to decide whether to close a position, and an option
+                    // premium ten minutes old is a different premium. Saying so costs one line.
+                    val age = ageAgo(row.quote?.asOf)
+                    Text(
+                        "Unrealized P/L" + when {
+                            stale && age != null -> " · not re-priced, this is from $age"
+                            stale -> " · not re-priced, age unknown"
+                            age != null -> " · priced $age"
+                            else -> ""
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = neutral,
+                    )
                 } else {
                     Text("P/L unavailable", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(

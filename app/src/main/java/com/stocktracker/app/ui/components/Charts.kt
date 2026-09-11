@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -408,8 +409,36 @@ fun PriceChart(
             // bottom-left at the end. Three of them can co-occur — a zoomed 3Y chart in candle mode
             // with a Bollinger band below zero — and each drawing itself into the same corner would
             // overprint the others into an unreadable pile.
-            val plotNotes = ArrayList<String>(3)
+            val plotNotes = ArrayList<String>(4)
             val logOk = logScaleUsable(min, max, logScale)
+            // These two are settled here, not at the point they are noticed further down, because
+            // the cost label and the low marker both measure the note band to get out of its way.
+            // Appending after they have measured it makes that measurement a guess, and a note
+            // added late lands on top of a label that had already stepped aside for a shorter band.
+            //
+            // A refused log scale says why: silently drawing a linear axis under a control labelled
+            // LOG is the same defect as any other confident wrong answer on this screen.
+            if (logScale && !logOk) {
+                plotNotes += "log scale needs positive values — a drawn level reaches ${valueFormatter(min)}"
+            }
+            // Zoom is otherwise a one-way door: nothing on screen says how to get back out of it.
+            if (zoomable && winSize.floatValue < 1f) plotNotes += "double-tap to reset zoom"
+
+            // Rectangles already spoken for by a labelled chip.
+            //
+            // The y-axis ticks are drawn last and had no idea what was under them. On a window whose
+            // highest bar sits near the right edge — which is most windows on a stock that just made
+            // a high — the high marker's chip and the topmost tick are at the same height AND the
+            // same corner, and they carry the SAME number, because the top tick is the window max
+            // and so is the marker. The result was "$234.76" printed through itself.
+            val claimedRects = ArrayList<Rect>(6)
+            fun claim(x: Float, y: Float, w: Float, h: Float) {
+                claimedRects += Rect(x, y, x + w, y + h)
+            }
+            // Values a chip has already put on screen. Separate from the rectangles: two labels can
+            // be nowhere near each other and still be the same number twice, which is its own kind
+            // of wrong.
+            val claimedYs = ArrayList<Float>(4)
             val lnMin = if (logOk) ln(min) else 0.0
             val lnSpan = if (logOk) (ln(max) - lnMin).takeIf { it > 0.0 } ?: 1.0 else 1.0
             fun y(v: Double) =
@@ -571,12 +600,44 @@ fun PriceChart(
                     )
                     val top = minOf(y(o), y(c))
                     val bot = maxOf(y(o), y(c))
-                    drawRect(
-                        bodyColor,
-                        topLeft = Offset(cx - bodyW / 2f, top),
-                        // A true doji has zero body height and would otherwise vanish entirely.
-                        size = Size(bodyW, (bot - top).coerceAtLeast(wickW)),
-                    )
+                    // Hollow up, filled down — the convention every trading platform uses, and worth
+                    // the branch here because it says "up" a second time without using hue. Roughly
+                    // one man in twelve cannot separate this green from this red.
+                    //
+                    // The outline is ONE PHYSICAL PIXEL, and the gates below are in pixels too,
+                    // because that is the unit the question is actually asked in. A 1dp stroke
+                    // straddling the edges of an 8px body covers the body at 2.75x density, and
+                    // "hollow" then renders as filled — a distinction that carries no information is
+                    // worse than none, because it looks like one. (Measured, on this emulator, at
+                    // 212 bars in landscape: 1dp outline, 7.9px body, indistinguishable from solid.)
+                    //
+                    // Four pixels is the floor: a 1px rule each side and 2px of ground between them.
+                    // Since the candle gate upstream already requires 3dp per bar, in practice every
+                    // candle this app draws clears it — and where it does not, the hues still differ
+                    // in LIGHTNESS as well as hue (GainGreen 10.24:1 on the card, LossRed 5.33:1),
+                    // so hue is never the only channel either way.
+                    val h0 = bot - top
+                    val outlineW = 1f
+                    if (rising && bodyW >= 4f && h0 > 3f) {
+                        // Inset by half the stroke: a stroke straddles the path, so an un-inset
+                        // outline would make every up body a stroke-width wider than every down one.
+                        drawRect(
+                            bodyColor,
+                            topLeft = Offset(cx - bodyW / 2f + outlineW / 2f, top + outlineW / 2f),
+                            size = Size(bodyW - outlineW, h0 - outlineW),
+                            style = Stroke(width = outlineW),
+                        )
+                    } else {
+                        // Falling bars, narrow bars, and any body too short to hold an outline — a
+                        // near-doji drawn hollow is just a fatter wick, so it goes solid and keeps
+                        // its hue rather than reading as a rounding artefact.
+                        drawRect(
+                            bodyColor,
+                            topLeft = Offset(cx - bodyW / 2f, top),
+                            // A true doji has zero body height and would otherwise vanish entirely.
+                            size = Size(bodyW, h0.coerceAtLeast(wickW)),
+                        )
+                    }
                 }
             }
 
@@ -671,6 +732,8 @@ fun PriceChart(
                     cornerRadius = CornerRadius(4f, 4f),
                 )
                 drawText(costLabel, topLeft = Offset(lx, ly))
+                claim(lx - 3f, ly - 1f, tw + 6f, th + 2f)
+                claimedYs += cy
             }
 
             // 200-week line — amber dashed reference so you can see price cross it on long ranges.
@@ -699,6 +762,8 @@ fun PriceChart(
                     cornerRadius = CornerRadius(4f, 4f),
                 )
                 drawText(lbl, topLeft = Offset(4f, ly2))
+                claim(1f, ly2 - 1f, tw2 + 6f, th2 + 2f)
+                claimedYs += ly200
             }
 
             // High / low markers over the visible extremes.
@@ -720,6 +785,13 @@ fun PriceChart(
                     var ly = if (above) cy - th - pad else cy + pad
                     if (ly < 0f) ly = cy + pad
                     if (ly > plotBottom - th) ly = cy - th - pad
+                    // The low marker lands in the bottom strip, which the plot notes own — and the
+                    // notes are drawn after this, so they win. "$189.80" was printing underneath
+                    // "443 bars — too many to draw as candles", which made a nonsense of both.
+                    if (plotNotes.isNotEmpty()) {
+                        val noteBandTop = plotBottom - plotNotes.size * (th + 3f) - 3f
+                        if (ly + th > noteBandTop) ly = (noteBandTop - th - 3f).coerceAtLeast(0f)
+                    }
                     drawRoundRect(
                         color = surface.copy(alpha = 0.78f),
                         topLeft = Offset(lx - 3f, ly - 1f),
@@ -727,6 +799,8 @@ fun PriceChart(
                         cornerRadius = CornerRadius(4f, 4f),
                     )
                     drawText(layout, topLeft = Offset(lx, ly))
+                    claim(lx - 3f, ly - 1f, tw + 6f, th + 2f)
+                    claimedYs += cy
                     drawCircle(dotColor, radius = 3.dp.toPx(), center = Offset(cx, cy))
                     drawCircle(surface, radius = 3.dp.toPx(), center = Offset(cx, cy), style = Stroke(1.2.dp.toPx()))
                 }
@@ -756,6 +830,7 @@ fun PriceChart(
                     val ty = plotBottom - th - 2f
                     drawRoundRect(surface.copy(alpha = 0.82f), topLeft = Offset(tx - 2f, ty - 1f), size = Size(tw + 4f, th + 2f), cornerRadius = CornerRadius(3f, 3f))
                     drawText(tag, topLeft = Offset(tx, ty))
+                    claim(tx - 2f, ty - 1f, tw + 4f, th + 2f)
                 }
             }
 
@@ -779,12 +854,17 @@ fun PriceChart(
                 val nTicks = 4
                 // Levels that already carry their own labelled chip; a tick landing on one would
                 // print the same number twice, or worse, a slightly different one.
-                val claimed = listOfNotNull(costLine, sma200wLine).map { y(it) }
+                val nearDp = 10.dp.toPx()
                 axisTickValues(min, max, logOk, nTicks).forEach { v ->
                     val ty = y(v)
-                    if (claimed.any { abs(it - ty) < 10.dp.toPx() }) return@forEach
+                    if (claimedYs.any { abs(it - ty) < nearDp }) return@forEach
                     val lay = textMeasurer.measure(valueFormatter(v), tickStyle)
                     val ly = (ty - lay.size.height / 2f).coerceIn(0f, plotBottom - lay.size.height)
+                    val tickRect = Rect(
+                        size.width - lay.size.width - 4f, ly - 1f,
+                        size.width, ly + lay.size.height + 1f,
+                    )
+                    if (claimedRects.any { it.overlaps(tickRect) }) return@forEach
                     drawLine(
                         muted.copy(alpha = 0.12f),
                         Offset(0f, ty), Offset(size.width - lay.size.width - 6f, ty),
@@ -793,14 +873,6 @@ fun PriceChart(
                     drawText(lay, topLeft = Offset(size.width - lay.size.width - 2f, ly))
                 }
             }
-
-            // A refused log scale says why. Silently drawing a linear axis under a control labelled
-            // LOG is the same defect as any other confident wrong answer on this screen.
-            if (logScale && !logOk) {
-                plotNotes += "log scale needs positive values — a drawn level reaches ${valueFormatter(min)}"
-            }
-            // Zoom is otherwise a one-way door: nothing on screen says how to get back out of it.
-            if (zoomable && winSize.floatValue < 1f) plotNotes += "double-tap to reset zoom"
 
             run {
                 // Each note gets a surface-coloured plate behind it. The notes share the bottom-left
@@ -893,6 +965,18 @@ fun PriceChart(
 
                 sp.histogram?.let { h ->
                     val zeroY = y(0.0.coerceIn(lo, hi))
+                    // A solid zero line, drawn under the bars.
+                    //
+                    // Whether a MACD bar is above or below zero is the whole reading, and it was
+                    // carried by a dashed guide at 30% alpha plus the green/red of the bar itself.
+                    // Drop the hue — which is what red-green colour blindness does — and the sign
+                    // rested on a line you could barely see. Position is only a channel if the
+                    // reference for it is visible.
+                    drawLine(
+                        muted.copy(alpha = 0.8f),
+                        Offset(0f, zeroY), Offset(size.width, zeroY),
+                        strokeWidth = 1.dp.toPx(),
+                    )
                     val bw = (stepX * 0.6f).coerceIn(1f, 5.dp.toPx())
                     for (k in startIdx..endIdx) {
                         val v = h.getOrNull(k) ?: continue

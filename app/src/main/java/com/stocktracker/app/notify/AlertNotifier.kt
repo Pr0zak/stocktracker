@@ -16,6 +16,16 @@ import com.stocktracker.app.R
 
 object AlertNotifier {
 
+    /**
+     * Carries the nav route a notification wants opened. Read once by MainActivity.
+     *
+     * The value is a route string built by [com.stocktracker.app.ui.Routes] — the same strings the
+     * nav graph registers and every in-app tap navigates to. Deliberately not a parallel scheme of
+     * deep-link URIs: a second table is a table that can disagree with the first one.
+     */
+    const val EXTRA_ROUTE = "com.stocktracker.app.NOTIFICATION_ROUTE"
+
+
     private const val CHANNEL_ID = "price_alerts"
     private const val MARKET_CHANNEL_ID = "market_summary"
     private const val BRIEF_CHANNEL_ID = "ai_daily_brief"
@@ -77,20 +87,20 @@ object AlertNotifier {
     }
 
     /** Post a price-alert notification (high-importance channel). */
-    fun notify(context: Context, id: Int, title: String, text: String): Boolean =
-        post(context, CHANNEL_ID, NotificationCompat.PRIORITY_HIGH, id, title, text)
+    fun notify(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, CHANNEL_ID, NotificationCompat.PRIORITY_HIGH, id, title, text, route)
 
     /** Post a market-summary notification (its own default-importance channel). */
-    fun notifyMarket(context: Context, id: Int, title: String, text: String): Boolean =
-        post(context, MARKET_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
+    fun notifyMarket(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, MARKET_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
 
     /** Post the AI morning brief (its own default-importance channel). */
-    fun notifyBrief(context: Context, id: Int, title: String, text: String): Boolean =
-        post(context, BRIEF_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
+    fun notifyBrief(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, BRIEF_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
 
     /** Post a sandbox paper-trade notification (its own default-importance channel). */
-    fun notifySandbox(context: Context, id: Int, title: String, text: String): Boolean =
-        post(context, SANDBOX_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text)
+    fun notifySandbox(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, SANDBOX_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
 
     /**
      * Post one notification. Returns TRUE only when it was actually handed to the system.
@@ -109,6 +119,8 @@ object AlertNotifier {
         id: Int,
         title: String,
         text: String,
+        /** Where the tap lands, from [com.stocktracker.app.ui.Routes]. Null opens wherever the app was. */
+        route: String?,
     ): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -125,6 +137,11 @@ object AlertNotifier {
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            // The whole point of the deep link. Without it every notification in this app — a
+            // price alert naming a ticker, a sandbox trade, a dip list — opened on whatever screen
+            // the app was last left on, and the user had to go find the thing they had just been
+            // told about.
+            route?.let { putExtra(EXTRA_ROUTE, it) }
         }
         val pending = PendingIntent.getActivity(
             context, id, intent,

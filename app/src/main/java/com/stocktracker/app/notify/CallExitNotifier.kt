@@ -3,6 +3,7 @@ package com.stocktracker.app.notify
 import android.content.Context
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.Routes
 import kotlinx.coroutines.flow.first
 
 /**
@@ -50,7 +51,10 @@ object CallExitNotifier {
             // Notify each NEWLY-true alert (fired.add is false when the key was already present).
             for (alert in alerts) {
                 if (fired.add(alert.key)) {
-                    AlertNotifier.notify(context, alert.key.hashCode(), alert.title, alert.message)
+                    // My Calls lives on Portfolio — an exit warning is only actionable there.
+                    AlertNotifier.notify(
+                        context, alert.key.hashCode(), alert.title, alert.message, Routes.PORTFOLIO,
+                    )
                 }
             }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.MarketHolidays
+import com.stocktracker.app.ui.Routes
 import kotlinx.coroutines.flow.first
 import java.time.DayOfWeek
 import java.time.ZoneId
@@ -57,6 +58,7 @@ object AiDailyBriefNotifier {
             "ai_daily_brief".hashCode(),
             title.ifEmpty { "Morning brief" },
             body,
+            Routes.WATCHLIST,
         )
         settings.setLastDailyBriefDate(dateStr)
     }
@@ -74,7 +76,9 @@ object AiDailyBriefNotifier {
         val title = brief.title.trim()
         val body = brief.body.trim()
         if (title.isEmpty() && body.isEmpty()) return "The brief came back empty."
-        AlertNotifier.notifyBrief(context, "ai_daily_brief".hashCode(), title.ifEmpty { "Morning brief" }, body)
+        AlertNotifier.notifyBrief(
+            context, "ai_daily_brief".hashCode(), title.ifEmpty { "Morning brief" }, body, Routes.WATCHLIST,
+        )
         return null
     }
 }

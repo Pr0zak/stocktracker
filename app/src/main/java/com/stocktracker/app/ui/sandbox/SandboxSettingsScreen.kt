@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -65,7 +68,7 @@ import androidx.compose.ui.text.style.TextAlign
  * Danger zone — with live visual feedback (goal-progress bar, allocation-style meters) so the effect of
  * a change is immediately obvious.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SandboxSettingsScreen(onBack: () -> Unit) {
     val vm: SandboxViewModel = sandboxViewModel()
@@ -373,19 +376,38 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     )
                     if (s.exclusions.isNotEmpty()) {
                         Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                            s.exclusions.take(8).forEach { t ->
-                                Row(
+                        // Every exclusion, wrapped.
+                        //
+                        // This was `take(8)` inside a single non-wrapping Row, which failed twice
+                        // over. The ninth ticker you excluded was not drawn at all — invisible, and
+                        // so un-removable, under a helper line that says "tap a ticker to remove
+                        // it". And the eight that did draw ran off the right edge on a phone long
+                        // before the cap was reached, so the real limit was nearer four. A list of
+                        // the names the AI must never buy is not a place to silently drop entries.
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            s.exclusions.forEach { t ->
+                                Box(
+                                    // 48dp of target around a 28dp chip: the chip stays small, the
+                                    // tap area is the one Material asks for.
                                     modifier = Modifier
-                                        .background(RED.copy(alpha = 0.14f), RoundedCornerShape(50))
-                                        .clickable { vm.removeExclusion(t) }
-                                        .padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                        .heightIn(min = 48.dp)
+                                        .clickable { vm.removeExclusion(t) },
+                                    contentAlignment = Alignment.Center,
                                 ) {
-                                    Text(t, style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold, color = RED)
-                                    Icon(Icons.Filled.Close, contentDescription = "Remove $t",
-                                        tint = RED, modifier = Modifier.size(14.dp).padding(start = 4.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .background(RED.copy(alpha = 0.14f), RoundedCornerShape(50))
+                                            .padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(t, style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold, color = RED)
+                                        Icon(Icons.Filled.Close, contentDescription = "Remove $t",
+                                            tint = RED, modifier = Modifier.size(14.dp).padding(start = 4.dp))
+                                    }
                                 }
                             }
                         }

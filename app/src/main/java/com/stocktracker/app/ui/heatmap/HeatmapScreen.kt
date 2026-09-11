@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -50,8 +51,11 @@ import com.stocktracker.app.util.TreemapItem
 import kotlin.math.abs
 import com.stocktracker.app.ui.theme.DividerDark
 import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.ui.theme.HeatGainFar
+import com.stocktracker.app.ui.theme.HeatLossFar
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.theme.SurfaceDark
 
 /** Market green / loss red, as used everywhere else in the app. */
 private val GAIN = GainGreen
@@ -84,11 +88,29 @@ private fun colourFor(t: HeatmapTile): Color = when (t.scale) {
             // the byte — a 4% drift and a 40% collapse looked identical. A log curve keeps the
             // common 0-3% range well spread while still separating the extremes, and never fully
             // saturates.
-            val mag = kotlin.math.ln(1.0 + abs(p) / 1.6) / kotlin.math.ln(1.0 + 25.0 / 1.6)
-            ramp(if (p > 0) GAIN else LOSS, 0.22f + mag.toFloat().coerceIn(0f, 1f) * 0.62f)
+            val mag = (kotlin.math.ln(1.0 + abs(p) / 1.6) / kotlin.math.ln(1.0 + 25.0 / 1.6))
+                .toFloat().coerceIn(0f, 1f)
+            // Magnitude buys hue as well as lightness — see HeatGainFar in the theme for the
+            // measurements. Lightness alone cannot carry sign, because lightness is already spoken
+            // for by size of move: it is exactly what let a small gain and a large loss land on the
+            // same colour for a protanope.
+            val base = if (p > 0) lerp(GAIN, HeatGainFar, mag * 0.75f)
+                       else lerp(LOSS, HeatLossFar, mag * 0.55f)
+            ramp(base, 0.22f + mag * 0.62f)
         }
     }
 }
+
+/**
+ * Ink chosen per tile, because a fixed white fails on most of this map.
+ *
+ * Every label here was `Color.White` regardless of what it sat on. Measured: white on a +2% tile
+ * (`#5AD496`) is 1.86:1, and on the biggest risers 1.52:1 — against 4.5:1 for AA body text. The
+ * tiles you most want to read were the least readable ones. Picking the ink from the tile's own
+ * luminance puts every tile on this map at 4.56:1 or better.
+ */
+private fun inkFor(fill: Color): Color =
+    if (fill.luminance() > 0.32f) SurfaceDark else Color.White
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -309,6 +331,23 @@ private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
     }
 }
 
+/**
+ * Which way, for a tile with no room to say it in digits.
+ *
+ * The signed percentage is only drawn on tiles above roughly 2,000 square dp. Everything smaller
+ * carried its direction in hue alone — which is precisely the reader this ramp cannot serve. An
+ * arrow is one glyph, needs no colour, and cannot be mistaken for part of a ticker.
+ *
+ * Empty on the signal scale: amber there means "this system flagged it", not "it went up", and an
+ * arrow would assert a direction the number does not carry.
+ */
+private fun HeatmapTile.direction(): String = when {
+    scale == "signal" -> ""
+    value > 0.05 -> "\u25B2"
+    value < -0.05 -> "\u25BC"
+    else -> ""
+}
+
 /** One stock rectangle. Shared by the grouped and flat layouts so labelling degrades identically. */
 @Composable
 private fun TileBox(
@@ -342,36 +381,39 @@ private fun TileBox(
             // to prevent — which is how GOOGL rendered as GOOG at 200%.
             wDp.value >= text.length * sp * fs * 0.62f + 6f
         val symSp = (shortDp.value * 0.30f).coerceIn(MIN_LABEL_SP, 20f)
+        val ink = inkFor(colourFor(t))
+        val dir = t.direction()
         if (shortDp.value >= 20f * fs && wDp.value >= 34f * fs && fits(t.symbol, symSp)) {
+            val showsPct = areaDp > 2000f * fs * fs
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    t.symbol,
-                    fontSize = symSp.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
-                    maxLines = 1,
-                )
-                if (areaDp > 2000f * fs * fs) {
+                // The arrow rides beside the ticker only when the signed percentage is NOT drawn
+                // below it. With the number present it would be saying the same thing twice; with
+                // the number absent it is the only thing saying it at all. It costs two characters
+                // of width in the fit test — one for the glyph, one for the gap — and if that does
+                // not fit, the ticker wins and the colour carries the direction alone.
+                TileSymbol(t.symbol, dir.takeIf { !showsPct && fits("$it  ${t.symbol}", symSp) }, symSp, ink)
+                if (showsPct) {
                     Text(
                         t.label(),
                         fontSize = (shortDp.value * 0.17f).coerceIn(MIN_LABEL_SP, 13f).sp,
                         fontFamily = FontFamily.Monospace,
-                        color = Color.White.copy(alpha = 0.9f),
+                        color = ink.copy(alpha = 0.9f),
                         maxLines = 1,
                     )
                 }
             }
-        } else if (shortDp.value >= 14f * fs && fits(t.symbol, MIN_LABEL_SP)) {
+        } else if (shortDp.value >= 14f * fs) {
             // Only tickers that fit WHOLE — truncating a ticker renames it (GOOGL -> GOOG is a
-            // different real security), so a label either fits or is not drawn.
-            Text(
-                t.symbol,
-                fontSize = MIN_LABEL_SP.sp,
-                fontFamily = FontFamily.Monospace,
-                color = Color.White,
-                maxLines = 1,
-            )
+            // different real security), so a label either fits or is not drawn. Where not even the
+            // ticker fits, the arrow still does, and direction is the more useful of the two to
+            // keep: you can tap a tile to find out what it is, but not which way it went.
+            when {
+                fits("$dir  ${t.symbol}", MIN_LABEL_SP) ->
+                    TileSymbol(t.symbol, dir.ifEmpty { null }, MIN_LABEL_SP, ink)
+                fits(t.symbol, MIN_LABEL_SP) -> TileSymbol(t.symbol, null, MIN_LABEL_SP, ink)
+                dir.isNotEmpty() ->
+                    Text(dir, fontSize = MIN_LABEL_SP.sp, color = ink, maxLines = 1)
+            }
         }
     }
 }
@@ -430,22 +472,20 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
             // was papering over. Multiply it back in or this guard permits the clip it exists
             // to prevent — which is how GOOGL rendered as GOOG at 200%.
             wDp.value >= text.length * sp * fs * 0.62f + 6f
+                val ink = inkFor(colourFor(t))
+                val dir = t.direction()
                 if (shortDp.value >= 22f * fs && wDp.value >= 40f * fs && fits(t.symbol, symSp)) {
+                    val showsPct = areaDp > 2600f * fs * fs
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            t.symbol,
-                            fontSize = symSp.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
-                            maxLines = 1,
-                        )
-                        if (areaDp > 2600f * fs * fs) {
+                        // The arrow appears only where the signed percentage does not — see the
+                        // note on the same branch in TileBox.
+                        TileSymbol(t.symbol, dir.takeIf { !showsPct && fits("$it  ${t.symbol}", symSp) }, symSp, ink)
+                        if (showsPct) {
                             Text(
                                 t.label(),
                                 fontSize = (shortDp.value * 0.17f).coerceIn(MIN_LABEL_SP, 13f).sp,
                                 fontFamily = FontFamily.Monospace,
-                                color = Color.White.copy(alpha = 0.9f),
+                                color = ink.copy(alpha = 0.9f),
                                 maxLines = 1,
                             )
                         }
@@ -453,7 +493,7 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                             Text(
                                 t.name,
                                 fontSize = MIN_LABEL_SP.sp,
-                                color = Color.White.copy(alpha = 0.66f),
+                                color = ink.copy(alpha = 0.66f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center,
@@ -461,18 +501,19 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                             )
                         }
                     }
-                } else if (shortDp.value >= 14f * fs && fits(t.symbol, MIN_LABEL_SP)) {
+                } else if (shortDp.value >= 14f * fs) {
                     // Only tickers that fit WHOLE. take(4) turned GOOGL into "GOOG" — a different
                     // real security, which is on this very map. Truncating a ticker does not
                     // abbreviate it, it renames it; the invariant above says a label either fits or
-                    // is not drawn, and this branch was breaking it.
-                    Text(
-                        t.symbol,
-                        fontSize = MIN_LABEL_SP.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
+                    // is not drawn, and this branch was breaking it. Where the ticker cannot fit at
+                    // all the arrow still can, and it is the more useful of the two to keep.
+                    when {
+                        fits("$dir  ${t.symbol}", MIN_LABEL_SP) ->
+                            TileSymbol(t.symbol, dir.ifEmpty { null }, MIN_LABEL_SP, ink)
+                        fits(t.symbol, MIN_LABEL_SP) -> TileSymbol(t.symbol, null, MIN_LABEL_SP, ink)
+                        dir.isNotEmpty() ->
+                            Text(dir, fontSize = MIN_LABEL_SP.sp, color = ink, maxLines = 1)
+                    }
                 }
                 // Below ~11dp a tile carries colour only — a label there would be unreadable and a
                 // truncated one is worse than none.
@@ -485,4 +526,35 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
 private fun HeatmapTile.label(): String = when (scale) {
     "signal" -> pctOff52wHigh?.let { "${it.toInt()}%" } ?: ""
     else -> (if (value > 0) "+" else "") + String.format("%.1f", value) + "%"
+}
+
+/**
+ * A ticker, optionally preceded by its direction arrow.
+ *
+ * The arrow is deliberately NOT in the monospace family the ticker uses: Android's monospace face
+ * does not carry the geometric-shapes block on every device, and a missing glyph would render as a
+ * tofu box sitting where a direction ought to be. The default family has it, and being a shade
+ * smaller keeps it reading as a mark rather than a letter of the symbol.
+ */
+@Composable
+private fun TileSymbol(symbol: String, dir: String?, sp: Float, ink: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (!dir.isNullOrEmpty()) {
+            Text(
+                dir,
+                fontSize = (sp * 0.8f).sp,
+                color = ink,
+                maxLines = 1,
+                modifier = Modifier.padding(end = 2.dp),
+            )
+        }
+        Text(
+            symbol,
+            fontSize = sp.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+            color = ink,
+            maxLines = 1,
+        )
+    }
 }

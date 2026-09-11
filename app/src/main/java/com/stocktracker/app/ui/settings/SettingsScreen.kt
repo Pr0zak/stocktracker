@@ -65,10 +65,12 @@ import com.stocktracker.app.update.rememberUpdateController
 import com.stocktracker.app.widget.WidgetRefreshScheduler
 import kotlinx.coroutines.launch
 import com.stocktracker.app.ui.theme.Signal
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.layout.heightIn
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onOpenMethodology: () -> Unit = {}) {
+fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit = {}) {
     val settings = ServiceLocator.settingsStore
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -139,6 +141,32 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}) {
                         settings.setHideZeroCents(it)
                         WidgetRefreshScheduler.refreshNow(context) // reflect on placed widgets
                     }
+                }
+            }
+
+            SettingsSection("Home screen") {
+                // The widget gallery used to hold a permanent tab — a fifth of this app's
+                // navigation — for a job you do once. This is where a one-time setup step lives.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenWidgets() }
+                        .heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Home-screen widgets", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Pick a layout and place it on your home screen",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

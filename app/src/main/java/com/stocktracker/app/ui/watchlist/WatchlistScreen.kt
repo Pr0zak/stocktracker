@@ -160,7 +160,11 @@ fun WatchlistScreen(
         if (groupBySector && selected in listOf(TAB_STOCKS, TAB_CRYPTO)) selected = TAB_ALL
     }
     // Collapsed by default — the holdings are why the screen exists.
-    var contextOpen by rememberSaveable { mutableStateOf(false) }
+    // Persisted, not remembered. Collapsed-by-default is the right default; collapsing again on
+    // every cold start is not, because two of the things inside this strip — the dip list and the
+    // VIX detail — had no other way in, so a user who opened it yesterday had to rediscover that it
+    // opens at all.
+    val contextOpen by ServiceLocator.settingsStore.contextStripOpen.collectAsState(initial = false)
     var showNewListDialog by remember { mutableStateOf(false) }
     var newListName by remember { mutableStateOf("") }
     var confirmDeleteGroup by remember { mutableStateOf<String?>(null) }
@@ -198,18 +202,10 @@ fun WatchlistScreen(
             TopAppBar(
                 title = { Text("StockTracker") },
                 actions = {
-                    IconButton(onClick = { vm.openMarketNow() }) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = "Market now — AI overview")
-                    }
-                    IconButton(onClick = onOpenHeatmap) {
-                        Icon(Icons.Filled.GridView, contentDescription = "Heat map")
-                    }
-                    IconButton(onClick = onOpenMarketScan) {
-                        Icon(Icons.Filled.Leaderboard, contentDescription = "Market scan")
-                    }
-                    IconButton(onClick = onOpenCalendar) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = "Catalyst calendar")
-                    }
+                    // Five unlabelled glyphs became one icon and one menu. The heat map, the market
+                    // scan and the catalyst calendar moved to the Markets tab, where they have
+                    // names; what is left here is the refresh, which is conventional, and the two
+                    // things that are genuinely about YOUR list rather than the market's.
                     IconButton(onClick = { vm.refresh() }, enabled = !state.refreshing) {
                         if (state.refreshing) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -217,6 +213,20 @@ fun WatchlistScreen(
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh prices")
                         }
                     }
+                    com.stocktracker.app.ui.components.LabeledOverflow(
+                        listOf(
+                            com.stocktracker.app.ui.components.OverflowAction(
+                                label = "Market now — AI overview",
+                                icon = Icons.Default.AutoAwesome,
+                                onClick = { vm.openMarketNow() },
+                            ),
+                            com.stocktracker.app.ui.components.OverflowAction(
+                                label = "Add a ticker",
+                                icon = Icons.Default.Add,
+                                onClick = onAdd,
+                            ),
+                        ),
+                    )
                 },
             )
         },
@@ -354,7 +364,11 @@ fun WatchlistScreen(
                     item(key = "hdr:context") {
                         MarketContext(
                             expanded = contextOpen,
-                            onToggle = { contextOpen = !contextOpen },
+                            onToggle = {
+                                scope.launch {
+                                    ServiceLocator.settingsStore.setContextStripOpen(!contextOpen)
+                                }
+                            },
                             marketState = marketState,
                             regime = reg,
                             vix = vix,

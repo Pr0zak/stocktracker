@@ -58,14 +58,18 @@ private sealed class TopDest(val route: String, val label: String, val icon: Ima
     // width its five labels can take, and the journal is something you visit after a decision rather
     // than a place you live.
     data object Journal : TopDest("journal", "Verdict journal", Icons.AutoMirrored.Filled.MenuBook)
+    // The Widgets gallery gave up its tab. Its job is a one-time pin of a home-screen widget, and
+    // it held a fifth of the app's permanent navigation to do it — while Market scan, Heat map, the
+    // catalyst calendar, the dip radar and the VIX detail had no labelled entrance at all.
     data object Widgets : TopDest("widgets", "Widgets", Icons.Filled.Widgets)
+    data object Markets : TopDest("markets", "Markets", Icons.Filled.Leaderboard)
     data object Settings : TopDest("settings", "Settings", Icons.Filled.Settings)
 }
 
 // Ideas is deliberately NOT a top-level tab — it's reached from Portfolio ("Find new"), since deploying
 // cash into new names is a portfolio action. Keeping it out also keeps the bar to five readable labels.
 private val topDestinations =
-    listOf(TopDest.Watchlist, TopDest.Portfolio, TopDest.Sandbox, TopDest.Widgets, TopDest.Settings)
+    listOf(TopDest.Watchlist, TopDest.Portfolio, TopDest.Markets, TopDest.Sandbox, TopDest.Settings)
 
 private fun detailRoute(asset: Asset): String {
     val name = Uri.encode(asset.displayName)
@@ -78,7 +82,23 @@ fun StockTrackerRoot() {
     val nav = rememberNavController()
     val backStackEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = topDestinations.any { it.route == currentRoute }
+    // The bar used to vanish on all ten pushed screens, so a hub-grade destination — the market
+    // scan, the heat map, the dip list — was a dead end you could only leave backwards. These are
+    // spokes of a tab, not modal tasks, so the bar stays and the tab they belong to stays lit.
+    val spokeParent: Map<String, TopDest> = mapOf(
+        TopDest.MarketScan.route to TopDest.Markets,
+        TopDest.Heatmap.route to TopDest.Markets,
+        "dips" to TopDest.Markets,
+        "vix" to TopDest.Markets,
+        TopDest.Ideas.route to TopDest.Portfolio,
+        TopDest.Journal.route to TopDest.Portfolio,
+    )
+    // Calendar is a spoke too, but it is also opened per-asset from a ticker's overflow, where it
+    // IS a modal task. Only the market-wide form (no symbol argument) keeps the bar.
+    val isMarketCalendar = currentRoute == "calendar?symbol={symbol}" &&
+        backStackEntry?.arguments?.getString("symbol").orEmpty().isBlank()
+    val parentTab = spokeParent[currentRoute] ?: if (isMarketCalendar) TopDest.Markets else null
+    val showBottomBar = topDestinations.any { it.route == currentRoute } || parentTab != null
 
     // Launch-time update check (silent — only surfaces a dialog if a newer release exists).
     val updater = rememberUpdateController()
@@ -95,7 +115,7 @@ fun StockTrackerRoot() {
                 NavigationBar {
                     topDestinations.forEach { dest ->
                         NavigationBarItem(
-                            selected = currentRoute == dest.route,
+                            selected = currentRoute == dest.route || parentTab == dest,
                             onClick = {
                                 nav.navigate(dest.route) {
                                     popUpTo(TopDest.Watchlist.route) { saveState = true }
@@ -187,9 +207,22 @@ fun StockTrackerRoot() {
             composable("sandbox_settings") {
                 com.stocktracker.app.ui.sandbox.SandboxSettingsScreen(onBack = { nav.popBackStack() })
             }
+            // Still reachable, just not with a tab: Settings → Home-screen widgets.
             composable(TopDest.Widgets.route) { WidgetGalleryScreen() }
+            composable(TopDest.Markets.route) {
+                com.stocktracker.app.ui.markets.MarketsScreen(
+                    onOpenScan = { nav.navigate(TopDest.MarketScan.route) },
+                    onOpenHeatmap = { nav.navigate(TopDest.Heatmap.route) },
+                    onOpenCalendar = { nav.navigate("calendar") },
+                    onOpenDips = { nav.navigate("dips") },
+                    onOpenVix = { nav.navigate("vix") },
+                )
+            }
             composable(TopDest.Settings.route) {
-                SettingsScreen(onOpenMethodology = { nav.navigate("methodology") })
+                SettingsScreen(
+                    onOpenMethodology = { nav.navigate("methodology") },
+                    onOpenWidgets = { nav.navigate(TopDest.Widgets.route) },
+                )
             }
             composable("methodology") {
                 com.stocktracker.app.ui.settings.MethodologyScreen(onBack = { nav.popBackStack() })

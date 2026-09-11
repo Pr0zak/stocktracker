@@ -30,6 +30,7 @@ class SettingsStore(private val context: Context) {
     private val showVolumeKey = booleanPreferencesKey("show_volume")
     private val showVixKey = booleanPreferencesKey("show_vix")
     private val showGateKey = booleanPreferencesKey("show_gate")
+    private val contextOpenKey = booleanPreferencesKey("context_strip_open")
     private val chartIndicatorsKey = stringPreferencesKey("chart_indicators")
     private val chartCandlesKey = booleanPreferencesKey("chart_candles")
     private val chartLogScaleKey = booleanPreferencesKey("chart_log_scale")
@@ -175,6 +176,17 @@ class SettingsStore(private val context: Context) {
      * arithmetic over prices the app already pulls — no model call, no key — and it is the only
      * card that answers the market question with numbers you can check.
      */
+    /**
+     * Whether the watchlist's market-context strip is expanded.
+     *
+     * This was `remember`, so it collapsed on every cold start. The strip is where the dip radar,
+     * the gate and the VIX gauge live; a user who opened it yesterday had to rediscover that it
+     * opens at all, and two of those screens had no other entrance.
+     */
+    val contextStripOpen: Flow<Boolean> = context.dataStore.data.map { it[contextOpenKey] ?: false }
+
+    suspend fun setContextStripOpen(v: Boolean) = context.dataStore.edit { it[contextOpenKey] = v }
+
     val showGate: Flow<Boolean> = context.dataStore.data.map { it[showGateKey] ?: true }
 
     /** User-defined watchlist names (in display order). Empty = only the built-in All/Stocks/Crypto. */

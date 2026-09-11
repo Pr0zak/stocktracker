@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Balance
@@ -54,6 +56,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.calls.MyCallsSection
 import com.stocktracker.app.ui.components.ChartLineOverlay
@@ -69,10 +72,15 @@ import com.stocktracker.app.util.asPercentChange
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PortfolioScreen(onOpenIdeas: () -> Unit = {}, onOpenJournal: () -> Unit = {}) {
+fun PortfolioScreen(
+    onOpenIdeas: () -> Unit = {},
+    onOpenJournal: () -> Unit = {},
+    onOpenDetail: (Asset) -> Unit = {},
+) {
     val vm: PortfolioViewModel = viewModel()
     val state by vm.state.collectAsState()
     val hideZeroCents by ServiceLocator.settingsStore.hideZeroCents.collectAsState(initial = false)
+    val openSymbol = com.stocktracker.app.ui.rememberOpenSymbol(onOpenDetail)
     var percentMode by remember { mutableStateOf(false) }
 
     if (state.review.open) {
@@ -80,6 +88,7 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}, onOpenJournal: () -> Unit = {}
             ui = state.review,
             onRefresh = { vm.loadReview(force = true) },
             onDismiss = { vm.dismissReview() },
+            onOpenSymbol = { vm.dismissReview(); openSymbol(it) },
         )
     }
     if (state.rebalance.open) {
@@ -88,6 +97,7 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}, onOpenJournal: () -> Unit = {}
             onRefresh = { vm.loadRebalance(force = true) },
             onTarget = { vm.setRebalanceTarget(it) },
             onDismiss = { vm.dismissRebalance() },
+            onOpenSymbol = { vm.dismissRebalance(); openSymbol(it) },
         )
     }
     Scaffold(
@@ -325,7 +335,13 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}, onOpenJournal: () -> Unit = {}
             sortedHoldings.forEach { h ->
                 val pct = if (state.totalValue > 0) h.value / state.totalValue * 100.0 else 0.0
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    // A holding could not open the asset it names: acting on a position meant a tab
+                    // switch, a visual hunt through the watchlist, and a long scroll. The route it
+                    // needs has existed all along.
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable { onOpenDetail(h.asset) },
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -359,6 +375,11 @@ fun PortfolioScreen(onOpenIdeas: () -> Unit = {}, onOpenJournal: () -> Unit = {}
                             )
                         }
                     }
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
@@ -418,6 +439,7 @@ private fun PortfolioReviewDialog(
     ui: PortfolioReviewUi,
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
+    onOpenSymbol: (String) -> Unit = {},
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val amber = Color(0xFFB0872B)
@@ -501,7 +523,14 @@ private fun PortfolioReviewDialog(
                                     else -> neutral
                                 }
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                    // An explicit "TRIM UNH" used to be inert text: you memorised the
+                                    // symbol and went looking for it. Tapping the verdict now opens
+                                    // the name it is about.
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .clickable { onOpenSymbol(a.symbol) }
+                                        .padding(top = 6.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.Top,
                                 ) {
@@ -513,7 +542,16 @@ private fun PortfolioReviewDialog(
                                         Text(a.action.uppercase(), style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold, color = ac)
                                     }
-                                    Text("${a.symbol} — ${a.reason}", style = MaterialTheme.typography.bodySmall)
+                                    Text(
+                                        "${a.symbol} — ${a.reason}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = neutral,
+                                    )
                                 }
                             }
                         }
@@ -545,6 +583,7 @@ private fun RebalancePlanDialog(
     onRefresh: () -> Unit,
     onTarget: (Int) -> Unit,
     onDismiss: () -> Unit,
+    onOpenSymbol: (String) -> Unit = {},
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val amber = Color(0xFFB0872B)
@@ -623,7 +662,13 @@ private fun RebalancePlanDialog(
                                 else -> neutral
                             }
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                // These are the numbers that get typed into a broker, so the row
+                                // opens the name it is telling you to trade.
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable { onOpenSymbol(m.symbol) }
+                                    .padding(top = 6.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.Top,
                             ) {
@@ -635,7 +680,7 @@ private fun RebalancePlanDialog(
                                     Text(m.action.uppercase(), style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold, color = ac)
                                 }
-                                Column {
+                                Column(Modifier.weight(1f)) {
                                     val head = if (m.action.equals("hold", true)) {
                                         "${m.symbol} — hold"
                                     } else {
@@ -644,6 +689,11 @@ private fun RebalancePlanDialog(
                                     Text(head, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                     Text(m.reason, style = MaterialTheme.typography.bodySmall, color = neutral)
                                 }
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = neutral,
+                                )
                             }
                         }
                         Spacer(Modifier.height(10.dp))

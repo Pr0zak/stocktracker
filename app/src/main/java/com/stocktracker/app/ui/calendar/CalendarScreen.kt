@@ -1,6 +1,7 @@
 package com.stocktracker.app.ui.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,7 +55,12 @@ private sealed interface CalState {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarScreen(onBack: () -> Unit, symbol: String? = null) {
+fun CalendarScreen(
+    onBack: () -> Unit,
+    symbol: String? = null,
+    onOpenDetail: (com.stocktracker.app.data.model.Asset) -> Unit = {},
+) {
+    val openSymbol = com.stocktracker.app.ui.rememberOpenSymbol(onOpenDetail)
     // Keyed on `reload` as well as `symbol` so the retry below can actually re-run the fetch — the
     // screen is entirely backend-dependent and previously had no way to try again at all.
     var reload by remember { mutableIntStateOf(0) }
@@ -108,7 +115,7 @@ fun CalendarScreen(onBack: () -> Unit, symbol: String? = null) {
                 if (s.resp.events.isEmpty()) {
                     item { Text("No upcoming events found.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
-                items(s.resp.events) { e -> EventRow(e) }
+                items(s.resp.events) { e -> EventRow(e, onOpenSymbol = openSymbol) }
                 // Two ways this list can be less than the whole truth, and both used to be invisible.
                 if (s.resp.isTruncated) {
                     item { TruncationNote(s.resp) }
@@ -175,17 +182,23 @@ private fun relativeDay(iso: String): String = runCatching {
 }.getOrDefault("")
 
 @Composable
-private fun EventRow(e: CalendarEvent) {
+private fun EventRow(e: CalendarEvent, onOpenSymbol: (String) -> Unit = {}) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val kindColor = when (e.kind) {
         "earnings" -> Color(0xFF16A34A)
         "opex" -> MaterialTheme.colorScheme.primary
         else -> neutral // si_settlement / si_publication
     }
+    val sym = e.symbol
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+            .then(
+                // Market-wide rows (OPEX, short-interest dates) name no symbol, so they stay inert
+                // rather than looking like a door that goes nowhere.
+                if (sym != null) Modifier.clickable { onOpenSymbol(sym) } else Modifier,
+            )
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -212,5 +225,12 @@ private fun EventRow(e: CalendarEvent) {
             )
         }
         Text(e.label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        if (sym != null) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = neutral,
+            )
+        }
     }
 }

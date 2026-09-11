@@ -139,18 +139,21 @@ fun StockTrackerRoot() {
                 arguments = listOf(navArgument("symbol") { type = NavType.StringType; defaultValue = "" }),
             ) { entry ->
                 val sym = entry.arguments?.getString("symbol").orEmpty().ifBlank { null }
-                CalendarScreen(onBack = { nav.popBackStack() }, symbol = sym)
+                CalendarScreen(
+                    onBack = { nav.popBackStack() },
+                    symbol = sym,
+                    onOpenDetail = { nav.navigate(detailRoute(it)) },
+                )
             }
             composable(TopDest.Portfolio.route) {
                 PortfolioScreen(
-                    onOpenIdeas = {
-                        nav.navigate(TopDest.Ideas.route) {
-                            popUpTo(TopDest.Watchlist.route) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
+                    // Ideas is a PUSHED route reached from Portfolio, not a tab being switched to.
+                    // It used to navigate with the tab options — popUpTo(Watchlist) + restoreState —
+                    // which meant back from Ideas landed on the Watchlist, stranding the user
+                    // mid-task on a screen with no bottom bar to get out of.
+                    onOpenIdeas = { nav.navigate(TopDest.Ideas.route) },
                     onOpenJournal = { nav.navigate(TopDest.Journal.route) },
+                    onOpenDetail = { nav.navigate(detailRoute(it)) },
                 )
             }
             composable(TopDest.Journal.route) {
@@ -211,6 +214,13 @@ fun StockTrackerRoot() {
                 DetailScreen(
                     asset = asset,
                     onBack = { nav.popBackStack() },
+                    onOpenCalls = {
+                        nav.navigate(TopDest.Portfolio.route) {
+                            popUpTo(TopDest.Watchlist.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
                     onOpenCalendar = {
                         // Crypto calendars use the backend's Yahoo-form symbol (BTC → BTC-USD).
                         val calSym = if (asset.type == AssetType.CRYPTO) "${asset.symbol}-USD" else asset.symbol

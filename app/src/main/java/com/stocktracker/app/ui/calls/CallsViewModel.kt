@@ -37,9 +37,16 @@ data class CallRow(
     val unrealizedPlPct: Double?
         get() = unrealizedPl?.let { if (position.costBasis != 0.0) it / position.costBasis * 100.0 else null }
 
-    /** Days to expiry — from the live quote, else computed from the stored expiry (so it shows offline). */
+    /**
+     * Days to expiry — from the live quote, else computed from the stored expiry (so it shows offline).
+     *
+     * A STALE quote is not used for this. Every other field a quote carries is a measurement of a
+     * moment, and an hour-old measurement is an hour-old measurement; days-to-expiry is a countdown,
+     * so an hour-old one is simply wrong, and on the day of expiry it is wrong in the direction that
+     * matters. The local arithmetic below cannot go stale, so a failed re-price falls through to it.
+     */
     val dte: Int
-        get() = quote?.dte?.roundToInt()
+        get() = quote?.dte?.takeIf { !failed }?.roundToInt()
             // Ceiling, not floor. expiryTs is stored at midnight, so flooring the remaining
             // milliseconds read a full day short for all but the first moments of each day — firing
             // "expires tomorrow" alerts a day early and showing 0 DTE on a contract with a day left.

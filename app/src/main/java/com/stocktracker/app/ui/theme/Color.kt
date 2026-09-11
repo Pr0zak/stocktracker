@@ -78,6 +78,38 @@ val CryptoAccent = Color(0xFFF7A928)
 val EtfAccent = Color(0xFF14B8A6)
 
 // ---------------------------------------------------------------------------------------------
+// Heat-map ramp ends — where hue has to do more work than it can
+// ---------------------------------------------------------------------------------------------
+
+/*
+ * A heat map is the one screen in this app where colour is the ONLY thing carrying the number. A
+ * row has a signed figure beside its green or red; a tile under about 40dp has nothing but its
+ * fill. That makes red-green colour vision deficiency — roughly one man in twelve — a correctness
+ * problem here rather than a comfort one.
+ *
+ * Measured on the shipping ramp, simulating protanopia (Viénot 1999) and comparing in CIELAB: a
+ * +1% gain rendered as `#A5A57C` and a -15% loss as `#979769`. That is a ΔE of 6.2 — for adjacent
+ * tiles at a glance, the same colour. The map was not merely uninformative for those readers; a
+ * big faller read as a riser.
+ *
+ * The fix is to spend magnitude on hue as well as lightness, pulling the two arms apart along the
+ * blue-yellow axis, which is the axis both protanopes and deuteranopes keep. Gains drift green ->
+ * teal -> cyan; losses drift red -> orange. Small moves keep the ordinary green and red, because
+ * near zero the two genuinely do mean nearly the same thing. The worst gain/loss pair is now ΔE
+ * 15.2 under protanopia and 57 under deuteranopia, and the pairs that matter most — a big riser
+ * against a big faller — sit at 46 and 93.
+ *
+ * These are ramp ENDS, not row colours. Nothing outside the heat map should use them: a cyan
+ * "price" would say nothing to anyone.
+ */
+
+/** The far end of the gain arm — reached only by a move of about +25%. */
+val HeatGainFar = Color(0xFF2FC8E8)
+
+/** The far end of the loss arm. Kept clear of [Signal] amber: ΔE 31 apart at full magnitude. */
+val HeatLossFar = Color(0xFFF0742E)
+
+// ---------------------------------------------------------------------------------------------
 // The traffic-light trio, now aliases rather than a third family
 // ---------------------------------------------------------------------------------------------
 

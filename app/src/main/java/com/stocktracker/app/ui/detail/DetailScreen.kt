@@ -2440,23 +2440,46 @@ private fun SeasonalityCard(s: SeasonalityBlock) {
         if (open) {
             val months = s.months.filter { it.avgPct != null }
             val maxAbs = months.maxOfOrNull { kotlin.math.abs(it.avgPct ?: 0.0) } ?: 1.0
-            Row(
-                modifier = Modifier.fillMaxWidth().height(60.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                months.forEach { m ->
-                    val v = m.avgPct ?: 0.0
-                    val frac = (kotlin.math.abs(v) / maxAbs).toFloat().coerceIn(0.06f, 1f)
-                    val isCur = cur != null && m.month == cur.month
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
+            // Bars hang off a zero line instead of all standing on the floor.
+            //
+            // Before this, a month averaging -4.2% and a month averaging +4.2% drew as the SAME
+            // bar: same height, same position, bottom-aligned, distinguished only by being green
+            // or red. For the roughly one man in twelve who cannot separate those two hues that
+            // chart carried no direction at all — twelve bars, none of which said which way. And
+            // for everyone else a tall bar still read as "big" before it read as "big down".
+            //
+            // Direction is now position, which needs no colour, and the hues stay as the second
+            // channel rather than the only one.
+            Box(modifier = Modifier.fillMaxWidth().height(96.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    months.forEach { m ->
+                        val v = m.avgPct ?: 0.0
+                        val frac = (kotlin.math.abs(v) / maxAbs).toFloat().coerceIn(0.06f, 1f)
+                        val isCur = cur != null && m.month == cur.month
+                        val bar = Modifier
+                            .fillMaxWidth()
                             .fillMaxHeight(frac)
                             .background(if (v >= 0) green else red, RoundedCornerShape(2.dp))
-                            .then(if (isCur) Modifier.border(1.5.dp, neutral, RoundedCornerShape(2.dp)) else Modifier),
-                    )
+                            .then(if (isCur) Modifier.border(1.5.dp, neutral, RoundedCornerShape(2.dp)) else Modifier)
+                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            Box(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                contentAlignment = Alignment.BottomCenter,
+                            ) { if (v >= 0) Box(bar) }
+                            Box(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                contentAlignment = Alignment.TopCenter,
+                            ) { if (v < 0) Box(bar) }
+                        }
+                    }
                 }
+                HorizontalDivider(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = MaterialTheme.colorScheme.outline,
+                )
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                 months.forEach { m ->
@@ -3412,17 +3435,25 @@ private fun EditPositionSheet(
  * generated an hour ago during the session — these are strikes, premiums and break-evens that the
  * user copies onto a broker ticket, and options prices move fast.
  */
-internal fun pricedAgo(asOf: String?): String? {
+internal fun pricedAgo(asOf: String?): String? =
+    ageAgo(asOf)?.let { if (it == "just now") "priced just now" else "priced $it" }
+
+/**
+ * The bare age — "just now", "12 min ago", "3h ago", "2d ago" — for callers that need it in a
+ * sentence of their own rather than after the word "priced". Null when the stamp is missing or
+ * unparseable, which is the whole point: a figure whose age is unknown must not be given one.
+ */
+internal fun ageAgo(asOf: String?): String? {
     if (asOf.isNullOrBlank()) return null
     val ts = runCatching { java.time.Instant.parse(asOf).toEpochMilli() }
         .getOrElse { runCatching { (asOf.toDouble() * 1000).toLong() }.getOrNull() } ?: return null
     val mins = (System.currentTimeMillis() - ts) / 60_000
     return when {
         mins < 0 -> null
-        mins < 2 -> "priced just now"
-        mins < 60 -> "priced $mins min ago"
-        mins < 60 * 24 -> "priced ${mins / 60}h ago"
-        else -> "priced ${mins / (60 * 24)}d ago"
+        mins < 2 -> "just now"
+        mins < 60 -> "$mins min ago"
+        mins < 60 * 24 -> "${mins / 60}h ago"
+        else -> "${mins / (60 * 24)}d ago"
     }
 }
 

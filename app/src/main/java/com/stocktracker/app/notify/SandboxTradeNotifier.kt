@@ -4,6 +4,7 @@ import android.content.Context
 import com.stocktracker.app.data.remote.SandboxTrade
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.Routes
 import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 
@@ -70,7 +71,7 @@ object SandboxTradeNotifier {
         val id = ("sandbox_trades:" + newest.toLong()).hashCode()
         // Only advance the watermark when the notification actually reached the system. Recording a
         // delivery that never happened is how alerts silently disappear.
-        if (AlertNotifier.notifySandbox(context, id, title, body)) {
+        if (AlertNotifier.notifySandbox(context, id, title, body, Routes.SANDBOX)) {
             settings.setLastSandboxTradeTs(newest)
         }
     }

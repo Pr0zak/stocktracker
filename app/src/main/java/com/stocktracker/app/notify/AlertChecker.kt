@@ -5,6 +5,7 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.portfolio.STALE_QUOTE_MS
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.app.ui.Routes
 import kotlinx.coroutines.flow.first
 
 /** Evaluates each watchlist asset's alert thresholds and posts notifications on fresh crossings. */
@@ -39,7 +40,8 @@ object AlertChecker {
                 val key = "${asset.id}:$name"
                 if (triggered) {
                     if (fired.add(key)) {
-                        AlertNotifier.notify(context, key.hashCode(), title, subtitle)
+                        // The notification names a ticker; the tap opens that ticker.
+                        AlertNotifier.notify(context, key.hashCode(), title, subtitle, Routes.detail(asset))
                         changed = true
                     }
                 } else {
@@ -86,6 +88,7 @@ object AlertChecker {
                                     context, key.hashCode(),
                                     "${asset.symbol} ${cond.label.replaceFirstChar { it.lowercase() }}",
                                     subtitle,
+                                    Routes.detail(asset),
                                 )
                                 changed = true
                             }
@@ -101,6 +104,7 @@ object AlertChecker {
                                     context, warnKey.hashCode(),
                                     "${asset.symbol}: alert could not be checked",
                                     "${cond.label} — ${result.reason}",
+                                    Routes.detail(asset),
                                 )
                                 changed = true
                             }

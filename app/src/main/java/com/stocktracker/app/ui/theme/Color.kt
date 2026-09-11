@@ -180,20 +180,68 @@ val CategoricalRamp = listOf(
 )
 
 /**
- * Indicator and multi-series line colours, moved here verbatim rather than re-hued.
+ * Dated event markers — an ex-dividend date, a halving — as a vertical dashed rule plus a tag.
  *
- * Centralising them is this release's job; deciding whether they are actually distinguishable from
- * each other is a separate one, and doing both in a single mechanical pass is how two lines on the
- * same chart end up the same colour. These are the values that shipped — unreviewed, and marked as
- * such so the next pass knows where to look.
+ * One colour for both, because only one kind is ever on screen: dividends are an equity thing and
+ * halvings are a Bitcoin thing. It used to be two entries out of the series palette, and one of them
+ * (the halving marker, `#8B5CF6`) sat ΔE 0.5 from the EMA21 overlay under protanopia and ΔE 10 in
+ * ordinary vision — the two lines a crypto chart draws on top of each other were the same colour.
+ */
+val EventMarker = Color(0xFFF06AA0)   // 30.9 from SMA20 and EMA21 at worst, across both CVD sims
+
+/**
+ * Indicator and multi-series line colours — now measured rather than inherited.
+ *
+ * Centralising them was the previous release's job; this is the judging pass, and the first thing it
+ * found was that eight mutually distinguishable line colours DO NOT EXIST in the space this app has
+ * left itself. Green, red, amber, teal and grey already mean something here, and under dichromacy
+ * blue, violet and magenta collapse toward one another, so a search over every hue outside the
+ * reserved ones tops out at a minimum pairwise ΔE of about 15 — and only by reaching colours far
+ * louder than anything else on these screens.
+ *
+ * So the guarantee is deliberately not global. It is per group of colours that can SHARE A PLOT:
+ *
+ *  - The price-chart overlays — SMA20 [0], EMA21 [2], plus [EventMarker], against the fixed
+ *    meanings of SMA50 amber, Bollinger grey, VWAP teal and the green/red price line. Worst pair
+ *    among the three chosen here: ΔE 30.9, versus ΔE 0.5 before.
+ *  - The sandbox arms — see [ArmSeries].
+ *  - Everything else ([1], [3], [4]) is alone in its own pane (ATR, the cycle card's accent), where
+ *    the only requirement is legibility on the ground it sits on.
+ *
+ * Every value clears 3:1 against both the card and the plot background, which the old [5] (2.94:1)
+ * and [6] (3.06:1) did not.
  */
 val ChartSeries = listOf(
-    Color(0xFF60A5FA),
-    Color(0xFF8B5CF6),
-    Color(0xFFA855F7),
-    Color(0xFF6366F1),
-    Color(0xFFEC4899),
-    Color(0xFF2563EB),
-    Color(0xFF9333EA),
-    Color(0xFF0891B2),
+    Color(0xFF3B8FE0),   // [0] SMA20, RSI, MACD, %K      4.67:1 on card
+    Color(0xFF9FD8E8),   // [1] cycle-card accent        10.15:1
+    Color(0xFFE3D3FF),   // [2] EMA21 — separated from [0] by LIGHTNESS, which survives dichromacy
+    Color(0xFF5F7FD8),   // [3] spare                     4.16:1
+    Color(0xFFC9A0F0),   // [4] ATR, alone in its pane    6.30:1
+    Color(0xFF4299F0),   // [5] see ArmSeries             5.31:1
+    Color(0xFFCFC6FA),   // [6]                           9.89:1
+    Color(0xFF4D7FB2),   // [7]                           3.77:1
+)
+
+/**
+ * One colour per sandbox arm.
+ *
+ * Its own list, and not green or red, because on that chart those two mean DIRECTION: the selected
+ * arm is drawn as the main price series and takes GainGreen or LossRed from whether it ended above
+ * where it started. An arm permanently painted green while its own "vs S&P" figure reads red is the
+ * same defect as a donut slice in the ink that means "this went down".
+ *
+ * Six is past what colour alone can carry here — a search over the whole non-reserved hue space,
+ * checked against deuteranope and protanope simulations, tops out at a minimum pairwise ΔE of 21.6,
+ * and this is that set. It is a real improvement on the 15.8 it replaces, and it is still not enough
+ * for six lines on one plot: the legend under the chart, which names every arm beside its swatch, is
+ * doing at least as much work as the hues are. Labelling each line at its right-hand end is the
+ * finish, and it is not done.
+ */
+val ArmSeries = listOf(
+    Color(0xFF4299F0),
+    Color(0xFFF1D0DE),
+    Color(0xFF136DEC),
+    Color(0xFFCFC6FA),
+    Color(0xFFD926AC),
+    Color(0xFF4D7FB2),
 )

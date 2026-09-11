@@ -105,7 +105,14 @@ fun StockTrackerRoot(
     // from a deep-linked detail screen lands on the watchlist rather than closing the app.
     LaunchedEffect(pendingRoute) {
         val route = pendingRoute ?: return@LaunchedEffect
-        runCatching { nav.navigate(route) { launchSingleTop = true } }
+        // launchSingleTop matches on the DESTINATION, not on the filled route, and every ticker in
+        // the app shares one parameterised `detail/{type}/{symbol}` destination. With it set, a
+        // notification about NVDA tapped while BTC's detail screen happened to be open did nothing
+        // at all — the navigation was swallowed as "already here". So it is used only for the
+        // routes where it does what it sounds like: the fixed ones, where it stops repeated taps
+        // stacking duplicate copies of the same screen.
+        val parameterised = route.startsWith("detail/") || route.startsWith("calendar")
+        runCatching { nav.navigate(route) { launchSingleTop = !parameterised } }
         onRouteConsumed()
     }
 

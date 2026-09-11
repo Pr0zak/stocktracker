@@ -169,6 +169,7 @@ import com.stocktracker.app.ui.theme.EtfAccent
 import com.stocktracker.app.ui.theme.Signal
 import com.stocktracker.app.ui.theme.CategoricalRamp
 import com.stocktracker.app.ui.theme.ChartSeries
+import com.stocktracker.app.ui.theme.EventMarker
 import androidx.compose.ui.text.style.TextDecoration
 import com.stocktracker.app.ui.theme.NumberSmall
 import androidx.compose.foundation.layout.heightIn
@@ -351,7 +352,7 @@ fun DetailScreen(
             val chartHeight = 200.dp + 18.dp + 64.dp * indicatorResult.subPanes.size
 
             // Ex-dividend markers (any mode) + S&P 500 comparison line (% mode only).
-            val divMarkers = if (divEnabled) dividends.map { ChartMarker(it.first, ChartSeries[3], "Div") } else emptyList()
+            val divMarkers = if (divEnabled) dividends.map { ChartMarker(it.first, EventMarker, "Div") } else emptyList()
             // Past FTD spike settlement days (amber) — the "did fails line up with big moves?" visual.
             val ftdMarkers = if (indicators.contains(Indicator.FTD_SPIKES.key)) {
                 (state.shortPressure.value?.ftdSpikeDates ?: emptyList()).mapNotNull { d ->
@@ -369,7 +370,7 @@ fun DetailScreen(
                     runCatching {
                         java.time.LocalDate.parse(d)
                             .atStartOfDay(java.time.ZoneOffset.UTC).plusHours(12).toInstant().toEpochMilli()
-                    }.getOrNull()?.let { ChartMarker(it, ChartSeries[1], "Halving") }
+                    }.getOrNull()?.let { ChartMarker(it, EventMarker, "Halving") }
                 }
             } else {
                 emptyList()

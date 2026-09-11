@@ -354,7 +354,7 @@ fun DetailScreen(
             val divMarkers = if (divEnabled) dividends.map { ChartMarker(it.first, ChartSeries[3], "Div") } else emptyList()
             // Past FTD spike settlement days (amber) — the "did fails line up with big moves?" visual.
             val ftdMarkers = if (indicators.contains(Indicator.FTD_SPIKES.key)) {
-                (state.shortPressure?.ftdSpikeDates ?: emptyList()).mapNotNull { d ->
+                (state.shortPressure.value?.ftdSpikeDates ?: emptyList()).mapNotNull { d ->
                     runCatching {
                         java.time.LocalDate.parse(d, java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
                             .atStartOfDay(java.time.ZoneOffset.UTC).plusHours(12).toInstant().toEpochMilli()
@@ -365,7 +365,7 @@ fun DetailScreen(
             }
             // Past BTC halving dates (visible on 3Y/ALL ranges) — the cycle anchor points.
             val halvingMarkers = if (indicators.contains(Indicator.HALVING.key)) {
-                (state.cycleInfo?.halvingDates ?: emptyList()).mapNotNull { d ->
+                (state.cycleInfo.value?.halvingDates ?: emptyList()).mapNotNull { d ->
                     runCatching {
                         java.time.LocalDate.parse(d)
                             .atStartOfDay(java.time.ZoneOffset.UTC).plusHours(12).toInstant().toEpochMilli()
@@ -442,7 +442,7 @@ fun DetailScreen(
                         // The 200-week line drawn on the chart — long ranges only (off-scale on 1D/1W).
                         sma200wLine = if (!percentMode &&
                             state.range in setOf(ChartRange.YEAR, ChartRange.THREE_YEAR, ChartRange.ALL)
-                        ) state.stockTrend?.sma200w else null,
+                        ) state.stockTrend.value?.sma200w else null,
                         overlays = allOverlays,
                         subPanes = indicatorResult.subPanes,
                         markers = allMarkers,
@@ -691,11 +691,15 @@ fun DetailScreen(
             // ETF, where insider filings and Congress trades genuinely do not apply, that is most
             // of them. Each header renders only if something beneath it will.
             val hasRead = (!isCrypto) || state.signal != null || state.aiEnabled
-            val hasFlows = state.shortPressure != null || state.insider != null || state.congress != null
-            val hasPatterns = state.seasonality != null ||
+            // A lens earns its header when it will draw a card OR a retry row — a failed lens that
+            // silently took its header down with it would be the same disappearing act this whole
+            // change exists to stop.
+            fun shows(lens: Lens<*>) = lens.status == LensStatus.READY || lens.isFailed
+            val hasFlows = shows(state.shortPressure) || shows(state.insider) || shows(state.congress)
+            val hasPatterns = shows(state.seasonality) ||
                 (state.aiEnabled && state.asset.type == AssetType.STOCK) ||
-                state.cycleInfo != null || state.stockTrend != null ||
-                state.quality != null || state.valueTrap != null
+                shows(state.cycleInfo) || shows(state.stockTrend) ||
+                shows(state.quality) || shows(state.valueTrap)
 
             // The rollup, and then the evidence it was rolled up from.
             if (hasRead) SectionHeader("TODAY'S READ")
@@ -704,10 +708,10 @@ fun DetailScreen(
             if (!isCrypto) {
                 val snapCount = listOf(
                     state.signal != null || state.aiVerdict != null,
-                    state.stockTrend != null,
-                    state.quality?.let { it.hasAnyFlag || it.hasMetrics } == true,
-                    state.insider?.let { it.buyCount12m > 0 } == true,
-                    state.shortPressure != null,
+                    state.stockTrend.value != null,
+                    state.quality.value?.let { it.hasAnyFlag || it.hasMetrics } == true,
+                    state.insider.value?.let { it.buyCount12m > 0 } == true,
+                    state.shortPressure.value != null,
                 ).count { it }
                 if (snapCount >= 2) {
                     SnapshotCard(
@@ -715,10 +719,10 @@ fun DetailScreen(
                         verdict = state.aiVerdict,
                         aiEnabled = state.aiEnabled,
                         aiError = state.aiError,
-                        trend = state.stockTrend,
-                        quality = state.quality,
-                        insider = state.insider,
-                        shortPressure = state.shortPressure,
+                        trend = state.stockTrend.value,
+                        quality = state.quality.value,
+                        insider = state.insider.value,
+                        shortPressure = state.shortPressure.value,
                     )
                 }
             }
@@ -741,14 +745,14 @@ fun DetailScreen(
             // Who is positioned how — short interest, insiders, Congress.
             if (hasFlows) SectionHeader("SIGNALS & FLOWS")
 
-            state.shortPressure?.let { ShortPressureCard(it) }
-            state.insider?.let { InsiderBuyingCard(it) }
-            state.congress?.let { CongressCard(it) }
+            LensSlot(state.shortPressure, LensId.SHORT_PRESSURE, vm) { ShortPressureCard(it) }
+            LensSlot(state.insider, LensId.INSIDER, vm) { InsiderBuyingCard(it) }
+            LensSlot(state.congress, LensId.CONGRESS, vm) { CongressCard(it) }
 
             // What this name has done before, and what moved it.
             if (hasPatterns) SectionHeader("PATTERNS & HISTORY")
 
-            state.seasonality?.let { SeasonalityCard(it) }
+            LensSlot(state.seasonality, LensId.SEASONALITY, vm) { SeasonalityCard(it) }
             if (state.aiEnabled && state.asset.type == AssetType.STOCK) {
                 NewsMovesCard(
                     block = state.newsMoves,
@@ -759,32 +763,47 @@ fun DetailScreen(
                     onExplain = { vm.requestNewsMoves() },
                 )
             }
-            state.cycleInfo?.let { HalvingCycleCard(it) }
-            state.stockTrend?.let { StockTrendCard(it, state.touchStudy) }
-            state.quality?.let { QualityCard(it) }
-            state.valueTrap?.let { ValueTrapCard(it) }
+            LensSlot(state.cycleInfo, LensId.CYCLE, vm) { HalvingCycleCard(it) }
+            LensSlot(state.stockTrend, LensId.TREND, vm) { StockTrendCard(it, state.touchStudy) }
+            LensSlot(state.quality, LensId.QUALITY, vm) { QualityCard(it) }
+            LensSlot(state.valueTrap, LensId.VALUE_TRAP, vm) { ValueTrapCard(it) }
             // One footer, once, instead of "· tap for detail" repeated on nine cards and a
             // disclaimer restated on sixteen. The per-lens caveats that say something SPECIFIC —
             // that Congress filings lag 45 days, that a low 200-week reading is not a buy on its
             // own — stay where they are: those are not boilerplate, they are the epistemics of
             // that particular lens, and deleting them would be the opposite of this change.
-            // Absence, said out loud. An ETF has no insiders to file Form 4s and no Congressional
-            // trades reported against it; a stock has no halving cycle. Those lenses are not
-            // missing or broken — they do not exist for this instrument, and a blank space cannot
-            // tell you which of the three it is.
-            val notApplicable = if (isCrypto) {
-                listOf("Insider buying", "Congress trades", "Quality", "Value trap", "200-week line")
-            } else {
-                listOfNotNull(
-                    "Halving cycle",
-                    if (state.asset.type != AssetType.STOCK) "Insider buying" else null,
-                    if (state.asset.type != AssetType.STOCK) "Congress trades" else null,
-                )
-            }
+            // Absence, said out loud — and now read off the lenses themselves rather than from a
+            // hardcoded list that had drifted. The old list lived here and disagreed with the view
+            // model: it never mentioned seasonality or short pressure for a coin, and it had no way
+            // of knowing that an ETF files no Form 4s, because the app's AssetType has no ETF.
+            //
+            // Two separate sentences on purpose. "This does not exist for this instrument" is a
+            // permanent fact about the world; "we looked and there was nothing" is a finding about
+            // this name today, and one of them is worth re-reading next month.
+            val lenses = listOf(
+                LensId.SHORT_PRESSURE to state.shortPressure,
+                LensId.INSIDER to state.insider,
+                LensId.CONGRESS to state.congress,
+                LensId.SEASONALITY to state.seasonality,
+                LensId.QUALITY to state.quality,
+                LensId.VALUE_TRAP to state.valueTrap,
+                LensId.TREND to state.stockTrend,
+                LensId.CYCLE to state.cycleInfo,
+            )
+            val notApplicable = lenses.filter { it.second.isNotApplicable }.map { it.first.label }
+            val checkedEmpty = lenses.filter { it.second.isEmpty }.map { it.first.label }
+
             if (notApplicable.isNotEmpty()) {
                 Text(
                     "Not applicable to this " + (if (isCrypto) "coin" else "instrument") + ": " +
                         notApplicable.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (checkedEmpty.isNotEmpty()) {
+                Text(
+                    "Checked, nothing to show: " + checkedEmpty.joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1294,6 +1313,49 @@ private data class SnapFactor(
  * chrome — same surface, same pill, same chevron — so nothing told you where one concern ended
  * and the next began. Four headers is not a redesign; it is punctuation.
  */
+/**
+ * One lens's place on the screen — the card, or an honest account of why there isn't one.
+ *
+ * READY draws the card. FAILED draws a retry row, because "we could not look" is the only one of
+ * these states a tap can change. Everything else draws nothing HERE and is named in a footer
+ * instead: a per-card "nothing to show" line for eight quiet lenses would be most of the screen.
+ */
+@Composable
+private fun <T> LensSlot(
+    lens: Lens<T>,
+    id: LensId,
+    vm: DetailViewModel,
+    content: @Composable (T) -> Unit,
+) {
+    when {
+        lens.status == LensStatus.READY -> lens.value?.let { content(it) }
+        lens.isFailed -> LensRetryRow(id) { vm.loadLenses(only = id) }
+        else -> Unit
+    }
+}
+
+/** A lens that could not be fetched, saying so, with the one control that can help. */
+@Composable
+private fun LensRetryRow(id: LensId, onRetry: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(id.label, style = MaterialTheme.typography.labelLarge)
+            Text(
+                "Couldn't load this one. Nothing else on the screen is affected.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onRetry) { Text("Retry") }
+    }
+}
+
 @Composable
 private fun SectionHeader(title: String) {
     Row(

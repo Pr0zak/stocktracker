@@ -70,6 +70,19 @@ object WidgetRefresh {
         TickerWidget().update(context, glanceId)
     }
 
+    /**
+     * Redraw every placed widget without fetching anything.
+     *
+     * Appearance-only changes go through here rather than through [WidgetRefreshScheduler.refreshNow],
+     * which enqueues a worker that re-quotes every symbol and runs all six notifiers. Moving a colour
+     * slider is not a reason to hit the network, and the quotes already on screen are still correct.
+     */
+    suspend fun repaintAll(context: Context) {
+        runCatching { TickerWidget().updateAll(context) }
+        runCatching { WatchlistWidget().updateAll(context) }
+        runCatching { PortfolioWidget().updateAll(context) }
+    }
+
     suspend fun refreshAllTickers(context: Context) {
         GlanceAppWidgetManager(context).getGlanceIds(TickerWidget::class.java)
             .forEach { refreshTicker(context, it, force = false) }

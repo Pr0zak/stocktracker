@@ -3,7 +3,11 @@ package com.stocktracker.app.ui.settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.size
@@ -19,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -30,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -67,6 +73,18 @@ import kotlinx.coroutines.launch
 import com.stocktracker.app.ui.theme.Signal
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.stocktracker.app.ui.theme.OnSurfaceDark
+import com.stocktracker.app.widget.WidgetBackground
+import com.stocktracker.app.widget.WidgetRefresh
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,6 +93,9 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val refresh by settings.defaultRefreshMinutes.collectAsState(initial = 15)
+    val widgetBgArgb by settings.widgetBackgroundArgb.collectAsState(initial = WidgetBackground.DEFAULT_ARGB)
+    val widgetBgTransparency by settings.widgetBackgroundTransparency
+        .collectAsState(initial = WidgetBackground.DEFAULT_TRANSPARENCY)
     val savedKey by settings.finnhubApiKey.collectAsState(initial = "")
     val hideZeroCents by settings.hideZeroCents.collectAsState(initial = false)
     val showExtendedHours by settings.showExtendedHours.collectAsState(initial = false)
@@ -275,6 +296,23 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                     }
                 }
                 HelperText("Android refreshes home-screen widgets at most every 15 minutes.")
+
+                WidgetBackgroundSetting(
+                    colorArgb = widgetBgArgb,
+                    transparencyPct = widgetBgTransparency,
+                    onColorChange = { argb ->
+                        scope.launch {
+                            settings.setWidgetBackgroundArgb(argb)
+                            WidgetRefresh.repaintAll(context)
+                        }
+                    },
+                    onTransparencyChange = { pct ->
+                        scope.launch {
+                            settings.setWidgetBackgroundTransparency(pct)
+                            WidgetRefresh.repaintAll(context)
+                        }
+                    },
+                )
             }
 
             SettingsSection("Data") {
@@ -600,6 +638,158 @@ private fun LabeledChips(label: String, chips: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, style = MaterialTheme.typography.bodyLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { chips() }
+    }
+}
+
+/**
+ * Card colour and transparency for every home-screen widget.
+ *
+ * The preview sits on a checkerboard rather than on the settings surface, because transparency is
+ * the one property of this control that cannot be judged against an opaque backdrop: at 40% over a
+ * flat panel the card simply looks like a slightly different colour, which is the wrong reading.
+ */
+@Composable
+private fun WidgetBackgroundSetting(
+    colorArgb: Long,
+    transparencyPct: Int,
+    onColorChange: (Long) -> Unit,
+    onTransparencyChange: (Int) -> Unit,
+) {
+    // The slider writes to DataStore and repaints every placed widget, so it commits on release
+    // rather than on every frame of the drag. Keyed on the stored value so a change from anywhere
+    // else still lands here.
+    var draft by remember(transparencyPct) { mutableStateOf(transparencyPct.toFloat()) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Background", style = MaterialTheme.typography.bodyLarge)
+
+        WidgetBackgroundPreview(colorArgb = colorArgb, transparencyPct = draft.roundToInt())
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            WidgetBackground.COLOR_CHOICES.forEach { (name, argb) ->
+                val selected = argb == colorArgb
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .semantics { contentDescription = name }
+                        .selectable(
+                            selected = selected,
+                            role = Role.RadioButton,
+                            onClick = { onColorChange(argb) },
+                        )
+                        .background(Color(argb.toInt()), CircleShape)
+                        .border(
+                            width = if (selected) 3.dp else 1.dp,
+                            // Every swatch is dark by design, so without an outline the near-black
+                            // ones are indistinguishable from each other and from the panel.
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            },
+                            shape = CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (selected) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Transparency", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "${draft.roundToInt()}%",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Slider(
+                value = draft,
+                onValueChange = { draft = it },
+                onValueChangeFinished = { onTransparencyChange(draft.roundToInt()) },
+                valueRange = 0f..100f,
+                steps = 19, // 5% stops
+                modifier = Modifier.semantics {
+                    contentDescription = "Widget background transparency"
+                },
+            )
+        }
+
+        HelperText(
+            "0% is solid, 100% shows only the text. Applies to all three widgets. " +
+                "The widget's text stays light, so a mostly-transparent card over a pale " +
+                "wallpaper will be hard to read.",
+        )
+    }
+}
+
+/** The chosen card over a checkerboard, so the transparency is visible rather than implied. */
+@Composable
+private fun WidgetBackgroundPreview(colorArgb: Long, transparencyPct: Int) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(132.dp)
+            .clip(RoundedCornerShape(12.dp)),
+    ) {
+        Checkerboard(Modifier.fillMaxSize())
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(10.dp)
+                .background(
+                    Color(WidgetBackground.argbWith(colorArgb, transparencyPct)),
+                    RoundedCornerShape(20.dp),
+                )
+                .padding(12.dp),
+        ) {
+            Text("AAPL", color = Color(0xFFB4A0FF), fontWeight = FontWeight.Bold)
+            Text(
+                "$229.14",
+                color = OnSurfaceDark,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text("\u25b2 +1.20%", color = GainGreen, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun Checkerboard(modifier: Modifier) {
+    val light = Color(0xFF3C3C44)
+    val dark = Color(0xFF2A2A31)
+    Canvas(modifier) {
+        val cell = 10.dp.toPx()
+        var y = 0f
+        var row = 0
+        while (y < size.height) {
+            var x = 0f
+            var col = 0
+            while (x < size.width) {
+                drawRect(
+                    color = if ((row + col) % 2 == 0) light else dark,
+                    topLeft = Offset(x, y),
+                    size = Size(min(cell, size.width - x), min(cell, size.height - y)),
+                )
+                x += cell
+                col++
+            }
+            y += cell
+            row++
+        }
     }
 }
 

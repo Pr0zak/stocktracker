@@ -16,7 +16,6 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.provideContent
-import androidx.glance.background
 import androidx.glance.LocalContext
 import androidx.glance.currentState
 import androidx.glance.layout.Alignment
@@ -34,7 +33,6 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.stocktracker.app.MainActivity
-import com.stocktracker.app.R
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.ui.theme.GainGreen
@@ -53,6 +51,7 @@ class TickerWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: android.content.Context, id: GlanceId) {
+        val (backgroundArgb, backgroundTransparency) = WidgetBackground.current()
         provideContent {
             val prefs = currentState<Preferences>()
             TickerContent(
@@ -62,6 +61,8 @@ class TickerWidget : GlanceAppWidget() {
                 error = prefs[TickerWidgetState.ERROR],
                 lastSuccessMs = prefs[TickerWidgetState.LAST_SUCCESS] ?: 0L,
                 hideZeroCents = prefs[TickerWidgetState.HIDE_ZERO_CENTS] ?: false,
+                backgroundArgb = backgroundArgb,
+                backgroundTransparency = backgroundTransparency,
             )
         }
     }
@@ -87,6 +88,8 @@ private fun TickerContent(
     error: String?,
     lastSuccessMs: Long = 0L,
     hideZeroCents: Boolean,
+    backgroundArgb: Long = WidgetBackground.DEFAULT_ARGB,
+    backgroundTransparency: Int = WidgetBackground.DEFAULT_TRANSPARENCY,
 ) {
     val context = LocalContext.current
     val accent = Color(config.accentArgb.toInt())
@@ -96,7 +99,7 @@ private fun TickerContent(
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ImageProvider(R.drawable.widget_background))
+            .widgetBackground(backgroundArgb, backgroundTransparency)
             .padding(12.dp)
             .clickable(actionStartActivity(Intent(context, MainActivity::class.java))),
         verticalAlignment = Alignment.Top,

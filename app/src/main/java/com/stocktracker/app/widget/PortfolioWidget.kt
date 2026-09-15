@@ -8,14 +8,12 @@ import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.Preferences
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
-import androidx.glance.ImageProvider
 import androidx.glance.LocalContext
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.provideContent
-import androidx.glance.background
 import androidx.glance.currentState
 import androidx.glance.layout.Column
 import androidx.glance.layout.Spacer
@@ -27,7 +25,6 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.stocktracker.app.MainActivity
-import com.stocktracker.app.R
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
@@ -46,6 +43,7 @@ class PortfolioWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: android.content.Context, id: GlanceId) {
+        val (backgroundArgb, backgroundTransparency) = WidgetBackground.current()
         provideContent {
             val prefs = currentState<Preferences>()
             PortfolioContent(
@@ -53,18 +51,27 @@ class PortfolioWidget : GlanceAppWidget() {
                 loaded = prefs.contains(PortfolioWidgetState.SUMMARY),
                 error = prefs[PortfolioWidgetState.ERROR],
                 hideZeroCents = prefs[PortfolioWidgetState.HIDE_ZERO_CENTS] ?: false,
+                backgroundArgb = backgroundArgb,
+                backgroundTransparency = backgroundTransparency,
             )
         }
     }
 }
 
 @Composable
-private fun PortfolioContent(summary: PortfolioSummary?, loaded: Boolean, error: String?, hideZeroCents: Boolean) {
+private fun PortfolioContent(
+    summary: PortfolioSummary?,
+    loaded: Boolean,
+    error: String?,
+    hideZeroCents: Boolean,
+    backgroundArgb: Long = WidgetBackground.DEFAULT_ARGB,
+    backgroundTransparency: Int = WidgetBackground.DEFAULT_TRANSPARENCY,
+) {
     val context = LocalContext.current
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ImageProvider(R.drawable.widget_background))
+            .widgetBackground(backgroundArgb, backgroundTransparency)
             .padding(14.dp)
             .clickable(actionStartActivity(Intent(context, MainActivity::class.java))),
     ) {

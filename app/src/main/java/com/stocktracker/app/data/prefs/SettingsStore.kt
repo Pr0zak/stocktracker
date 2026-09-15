@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.stocktracker.app.data.remote.Http
+import com.stocktracker.app.widget.WidgetBackground
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
@@ -23,6 +24,8 @@ class SettingsStore(private val context: Context) {
     private val refreshKey = intPreferencesKey("default_refresh_minutes")
     private val finnhubKeyKey = stringPreferencesKey("finnhub_api_key")
     private val hideZeroCentsKey = booleanPreferencesKey("hide_zero_cents")
+    private val widgetBgArgbKey = longPreferencesKey("widget_bg_argb")
+    private val widgetBgTransparencyKey = intPreferencesKey("widget_bg_transparency")
     private val groupBySectorKey = booleanPreferencesKey("watchlist_group_by_sector")
     private val collapsedVerticalsKey = stringSetPreferencesKey("watchlist_collapsed_verticals")
     private val extendedHoursKey = booleanPreferencesKey("show_extended_hours")
@@ -199,7 +202,27 @@ class SettingsStore(private val context: Context) {
 
     val defaultRefreshMinutes: Flow<Int> = context.dataStore.data.map { it[refreshKey] ?: 15 }
 
+    /** Card colour behind every home-screen widget. See [WidgetBackground] for why the palette is all dark. */
+    val widgetBackgroundArgb: Flow<Long> = context.dataStore.data.map {
+        it[widgetBgArgbKey] ?: WidgetBackground.DEFAULT_ARGB
+    }
+
+    /**
+     * How much of the wallpaper shows through that card, as a percentage: 0 is solid, 100 invisible.
+     *
+     * Stored in the same sense the slider shows, so the stored number and the displayed number are
+     * the same number. The conversion to an alpha channel happens once, in [WidgetBackground].
+     */
+    val widgetBackgroundTransparency: Flow<Int> = context.dataStore.data.map {
+        (it[widgetBgTransparencyKey] ?: WidgetBackground.DEFAULT_TRANSPARENCY).coerceIn(0, 100)
+    }
+
     suspend fun setDefaultRefreshMinutes(minutes: Int) = context.dataStore.edit { it[refreshKey] = minutes }
+
+    suspend fun setWidgetBackgroundArgb(argb: Long) = context.dataStore.edit { it[widgetBgArgbKey] = argb }
+
+    suspend fun setWidgetBackgroundTransparency(pct: Int) =
+        context.dataStore.edit { it[widgetBgTransparencyKey] = pct.coerceIn(0, 100) }
     suspend fun setFinnhubApiKey(key: String) = context.dataStore.edit { it[finnhubKeyKey] = key.trim() }
     suspend fun setHideZeroCents(enabled: Boolean) = context.dataStore.edit { it[hideZeroCentsKey] = enabled }
 

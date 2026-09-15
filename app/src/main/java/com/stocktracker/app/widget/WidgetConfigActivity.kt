@@ -42,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,7 +71,6 @@ import com.stocktracker.app.util.Formatting
 import kotlinx.coroutines.launch
 import com.stocktracker.app.ui.theme.OnSurfaceDark
 import com.stocktracker.app.ui.theme.OnSurfaceVariantDark
-import com.stocktracker.app.ui.theme.SurfaceContainerDark
 
 class WidgetConfigActivity : ComponentActivity() {
 
@@ -142,6 +142,14 @@ private fun WidgetConfigScreen(
     var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
 
+    // The preview used to paint a fixed dark card regardless of the app-wide background setting, so
+    // once that setting was anything else the preview was showing a widget the user was not about
+    // to get. Background is not configured here -- it lives in Settings and applies to all widgets.
+    val backgroundArgb by ServiceLocator.settingsStore.widgetBackgroundArgb
+        .collectAsState(initial = WidgetBackground.DEFAULT_ARGB)
+    val backgroundTransparency by ServiceLocator.settingsStore.widgetBackgroundTransparency
+        .collectAsState(initial = WidgetBackground.DEFAULT_TRANSPARENCY)
+
     LaunchedEffect(query) {
         if (query.isBlank()) {
             results = emptyList()
@@ -183,7 +191,7 @@ private fun WidgetConfigScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { WidgetPreview(config) }
+            item { WidgetPreview(config, backgroundArgb, backgroundTransparency) }
 
             item {
                 OutlinedTextField(
@@ -266,7 +274,11 @@ private fun WidgetConfigScreen(
 }
 
 @Composable
-private fun WidgetPreview(config: TickerWidgetConfig) {
+private fun WidgetPreview(
+    config: TickerWidgetConfig,
+    backgroundArgb: Long = WidgetBackground.DEFAULT_ARGB,
+    backgroundTransparency: Int = WidgetBackground.DEFAULT_TRANSPARENCY,
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -275,7 +287,10 @@ private fun WidgetPreview(config: TickerWidgetConfig) {
     ) {
         Column(
             modifier = Modifier
-                .background(SurfaceContainerDark, RoundedCornerShape(20.dp))
+                .background(
+                    Color(WidgetBackground.argbWith(backgroundArgb, backgroundTransparency)),
+                    RoundedCornerShape(20.dp),
+                )
                 .padding(16.dp)
                 .width(150.dp),
         ) {

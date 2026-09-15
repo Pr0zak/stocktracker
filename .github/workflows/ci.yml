@@ -16,7 +16,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # `packages` is pinned to drop the legacy `tools` package, which is this action's
+      # default and which Google removed from the SDK repository in September 2026:
+      # sdkmanager then fails with "Failed to find package 'tools'" and exits 1, taking the
+      # whole job with it. Everything actually needed is installed by the next step.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
       - name: Install SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"

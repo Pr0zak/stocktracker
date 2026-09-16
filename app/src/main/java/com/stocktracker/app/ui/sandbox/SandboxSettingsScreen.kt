@@ -193,14 +193,42 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     Helper("A deposit also buys the S&P benchmark on the same day, so the comparison stays fair.")
 
                     Spacer(Modifier.height(10.dp))
-                    Label("Recurring monthly deposit (DCA)")
+                    Label("Recurring deposit (DCA)")
                     ChipRow(listOf(0.0, 100.0, 250.0, 500.0), s.monthlyDeposit, { vm.setMonthlyDeposit(it) }) {
                         if (it == 0.0) "Off" else "$" + it.toInt()
                     }
+                    if (s.monthlyDeposit > 0) {
+                        Spacer(Modifier.height(8.dp))
+                        Label("How often")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Anything the server has not set reads as monthly, so one chip is always
+                            // lit — an unrecognised value must not leave the row looking unset.
+                            val twice = s.depositFrequency == "semimonthly"
+                            listOf("monthly" to "Once a month", "semimonthly" to "Twice a month")
+                                .forEach { (key, lbl) ->
+                                    FilterChip(
+                                        selected = if (key == "semimonthly") twice else !twice,
+                                        onClick = { vm.setDepositFrequency(key) },
+                                        label = { Text(lbl) },
+                                    )
+                                }
+                        }
+                    }
+                    // The amount is per DEPOSIT, not per month, so the twice-monthly line spells out
+                    // the monthly total: picking "Twice a month" doubles what goes in, and that must
+                    // never be something the user discovers from the ledger a fortnight later.
                     Helper(
-                        if (s.monthlyDeposit > 0)
-                            "Adds $${s.monthlyDeposit.toInt()} on the first tick of each month."
-                        else "Off — funds are added manually.",
+                        when {
+                            s.monthlyDeposit <= 0.0 -> "Off — funds are added manually."
+                            // The total is the SHOWN instalment doubled, not the raw amount doubled
+                            // — two truncations of the same number can differ by a dollar, and a
+                            // sentence whose own arithmetic disagrees reads as a bug in the ledger.
+                            s.depositFrequency == "semimonthly" ->
+                                "Adds $${s.monthlyDeposit.toInt()} at the start of the month and " +
+                                    "$${s.monthlyDeposit.toInt()} on the 15th — " +
+                                    "$${s.monthlyDeposit.toInt() * 2} a month."
+                            else -> "Adds $${s.monthlyDeposit.toInt()} on the first tick of each month."
+                        },
                     )
                 }
             }

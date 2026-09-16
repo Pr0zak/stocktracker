@@ -1190,6 +1190,10 @@ data class SandboxSettings(
     @SerialName("goal_amount") val goalAmount: Double? = null,
     @SerialName("goal_date") val goalDate: String? = null,
     @SerialName("monthly_deposit") val monthlyDeposit: Double = 0.0,
+    /** How often [monthlyDeposit] is paid in: "monthly" (first tick of the month) or "semimonthly"
+     *  (first tick of the month AND the first tick on or after the 15th). The amount is PER
+     *  INSTALMENT either way, so twice-monthly at $250 contributes $500 a month. */
+    @SerialName("deposit_frequency") val depositFrequency: String = "monthly",
     @SerialName("max_position_pct") val maxPositionPct: Double = 20.0,
     @SerialName("cash_floor_pct") val cashFloorPct: Double = 10.0,
     @SerialName("allow_crypto") val allowCrypto: Boolean = false,
@@ -1366,6 +1370,7 @@ data class SandboxSettingsPatch(
     @SerialName("goal_amount") val goalAmount: Double? = null,
     @SerialName("goal_date") val goalDate: String? = null,
     @SerialName("monthly_deposit") val monthlyDeposit: Double? = null,
+    @SerialName("deposit_frequency") val depositFrequency: String? = null,
     @SerialName("max_position_pct") val maxPositionPct: Double? = null,
     @SerialName("cash_floor_pct") val cashFloorPct: Double? = null,
     @SerialName("allow_crypto") val allowCrypto: Boolean? = null,

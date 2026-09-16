@@ -216,6 +216,13 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
         patchSettings(SandboxSettingsPatch(monthlyDeposit = amount),
             note = if (amount > 0) "Recurring deposit set" else "Recurring deposit off")
 
+    /** Once a month, or twice (the 1st and the 15th). The amount set above is what goes in EACH
+     *  time, so switching to twice-monthly doubles the monthly contribution rather than splitting
+     *  it — the screen states the resulting monthly total so the change is never silent. */
+    fun setDepositFrequency(frequency: String) =
+        patchSettings(SandboxSettingsPatch(depositFrequency = frequency),
+            note = if (frequency == "semimonthly") "Depositing twice a month" else "Depositing once a month")
+
     fun setExclusions(list: List<String>) =
         patchSettings(SandboxSettingsPatch(exclusions = list), note = "Exclusions updated")
 

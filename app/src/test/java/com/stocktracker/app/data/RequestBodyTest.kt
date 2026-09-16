@@ -63,6 +63,18 @@ class RequestBodyTest {
     }
 
     @Test
+    fun `switching the deposit back to once a month actually sends deposit_frequency`() {
+        // Same trap as account_type: if depositFrequency were declared `String = "monthly"` rather
+        // than nullable, picking "Once a month" would serialize to {} and the account would stay on
+        // twice-monthly — a 2x funding difference the user would only find in the ledger.
+        val monthly = Http.json.encodeToString(SandboxSettingsPatch(depositFrequency = "monthly"))
+        assertTrue("deposit_frequency was dropped, so twice-monthly can never be turned off: $monthly",
+            monthly.contains("deposit_frequency"))
+        val twice = Http.json.encodeToString(SandboxSettingsPatch(depositFrequency = "semimonthly"))
+        assertTrue(twice.contains("semimonthly"))
+    }
+
+    @Test
     fun `a patch still omits fields the caller did not set`() {
         // The whole point of a patch is partial update — this must NOT become "send everything".
         val body = Http.json.encodeToString(SandboxSettingsPatch(accountType = "margin"))

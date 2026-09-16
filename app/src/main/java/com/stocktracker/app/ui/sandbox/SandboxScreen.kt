@@ -917,9 +917,14 @@ private fun SettingsSummary(st: SandboxState, onOpen: () -> Unit) {
             ).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
         )
+        // Per MONTH, not per deposit — a twice-monthly $250 account contributes $500, and a summary
+        // line that said "+$250/mo" would understate it by half.
+        // Truncate the instalment BEFORE doubling, so this agrees to the dollar with the settings
+        // screen's "$X and $X — $2X a month" line rather than rounding its own way.
+        val perMonth = s.monthlyDeposit.toInt() * (if (s.depositFrequency == "semimonthly") 2 else 1)
         Text(
             listOfNotNull(
-                if (s.monthlyDeposit > 0) "+$${s.monthlyDeposit.toInt()}/mo" else null,
+                if (s.monthlyDeposit > 0) "+$${perMonth}/mo" else null,
                 if (s.exclusions.isNotEmpty()) "excludes ${s.exclusions.joinToString(",")}" else null,
                 if (!s.allowCrypto) "no crypto" else null,
                 if (!s.allowEtf) "no ETFs" else null,

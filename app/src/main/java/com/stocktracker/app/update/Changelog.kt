@@ -22,6 +22,7 @@ object Changelog {
             "New: holdings remember when you bought them, so a sale can warn you if it's short-term",
             "New: import your holdings from a Fidelity positions export instead of typing them in",
             "New: watchlist widgets can each show a different list, sort and \u0024/%",
+            "New: an access token field for the signals service, if your backend asks for one",
         ),
         "1.6.0" to listOf(
             "New: choose whether the sandbox's recurring deposit lands once or twice a month",

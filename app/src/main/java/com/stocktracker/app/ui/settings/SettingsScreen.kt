@@ -138,6 +138,9 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
     var showKey by remember { mutableStateOf(false) }
     var signalsUrlField by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedSignalsUrl) { if (signalsUrlField == null) signalsUrlField = savedSignalsUrl }
+    val savedSignalsToken by settings.signalsApiToken.collectAsState(initial = "")
+    var signalsTokenField by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(savedSignalsToken) { if (signalsTokenField == null) signalsTokenField = savedSignalsToken }
     // A pending OPS-3 removal-guard refusal from "Sync now" — non-null shows the confirm/cancel
     // dialog below. Cleared on either choice; never auto-retried with replace=true.
     var syncRefusal by remember { mutableStateOf<WatchlistSyncRefusal?>(null) }
@@ -437,6 +440,29 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // SEC-2. The backend requires this on every route that changes something or
+                    // that hands back the watchlist or the paper book; without it those calls come
+                    // back 401 while plain market data still works, which would otherwise look
+                    // like a half-broken backend rather than a missing setting.
+                    OutlinedTextField(
+                        value = signalsTokenField ?: "",
+                        onValueChange = { signalsTokenField = it },
+                        label = { Text("Access token") },
+                        supportingText = {
+                            Text(
+                                if (savedSignalsToken.isBlank()) {
+                                    "Leave empty if your backend doesn't ask for one. " +
+                                        "Newer backends require it \u2014 use the value in /opt/signals/.env"
+                                } else {
+                                    "Must match SIGNALS_API_TOKEN on the backend"
+                                },
+                            )
+                        },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     // The diagnosis belongs HERE, not in the banner. The banner is deliberately one
                     // terse line above real content, but SignalsHealth.lastError already distinguishes
                     // "host not found - check the URL" from "connection refused - is the service
@@ -488,8 +514,13 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { scope.launch { settings.setSignalsApiUrl(signalsUrlField.orEmpty()) } }) {
-                            Text("Save URL")
+                        Button(onClick = {
+                            scope.launch {
+                                settings.setSignalsApiUrl(signalsUrlField.orEmpty())
+                                settings.setSignalsApiToken(signalsTokenField.orEmpty())
+                            }
+                        }) {
+                            Text("Save")
                         }
                         if (savedSignalsUrl.isNotBlank()) {
                             OutlinedButton(onClick = {

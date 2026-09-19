@@ -103,7 +103,7 @@ object Http {
      *  also trips [url]'s host breaker (see [throwIfBreakerOpen]) so subsequent calls elsewhere fail
      *  fast instead of piling into the same rate limit.
      *  [slow] switches to the long-timeout client for analyst (LLM) endpoints. */
-    suspend fun getString(url: String, slow: Boolean = false): String = withContext(Dispatchers.IO) {
+    suspend fun getString(url: String, slow: Boolean = false, bearer: String? = null): String = withContext(Dispatchers.IO) {
         throwIfBreakerOpen(url)
         var lastError: IOException? = null
         repeat(RetryPolicy.MAX_ATTEMPTS) { attempt ->
@@ -111,6 +111,10 @@ object Http {
                 .url(url)
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", "application/json, text/csv, */*")
+                // Only ever set by the self-hosted signals caller. Yahoo, Finnhub and CoinGecko
+                // share this client, and sending the user's backend token to a third party would
+                // be a leak, so the default is null and the header is simply absent.
+                .apply { if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer") }
                 .build()
             var retryAfterHeader: String? = null
             (if (slow) slowClient else client).newCall(request).execute().use { response ->
@@ -144,10 +148,11 @@ object Http {
 
     /** POST a JSON [body] to [url] and return the response body. Throws [HttpStatusException] on non-2xx.
      *  [slow] switches to the long-timeout client for analyst (LLM) endpoints. */
-    suspend fun postJson(url: String, body: String, slow: Boolean = false): String = withContext(Dispatchers.IO) {
+    suspend fun postJson(url: String, body: String, slow: Boolean = false, bearer: String? = null): String = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", USER_AGENT)
+            .apply { if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer") }
             .post(body.toRequestBody("application/json".toMediaType()))
             .build()
         (if (slow) slowClient else client).newCall(request).execute().use { response ->

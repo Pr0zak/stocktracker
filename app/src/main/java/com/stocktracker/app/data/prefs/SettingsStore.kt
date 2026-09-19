@@ -42,6 +42,16 @@ class SettingsStore(private val context: Context) {
     private val chartLogScaleKey = booleanPreferencesKey("chart_log_scale")
     private val watchlistGroupsKey = stringPreferencesKey("watchlist_groups")
     private val signalsApiUrlKey = stringPreferencesKey("signals_api_url")
+
+    /**
+     * Shared secret for the self-hosted signals backend (SEC-2).
+     *
+     * The backend requires it on every route that mutates anything or that discloses the watchlist
+     * or the paper book. Empty means "not configured", which is the correct state for anyone whose
+     * backend predates the requirement — their requests simply go out without the header, and the
+     * backend they are talking to does not ask for one.
+     */
+    private val signalsApiTokenKey = stringPreferencesKey("signals_api_token")
     private val installIdKey = stringPreferencesKey("install_id")
     private val lastScanNotifiedKey = longPreferencesKey("last_scan_notified_at")
     private val investableCashKey = doublePreferencesKey("investable_cash")
@@ -70,6 +80,7 @@ class SettingsStore(private val context: Context) {
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
+    val signalsApiToken: Flow<String> = context.dataStore.data.map { it[signalsApiTokenKey] ?: "" }
 
     /**
      * This install's stable OPS-3 id — see [InstallId] for what it is and isn't. Generated on first
@@ -313,6 +324,9 @@ class SettingsStore(private val context: Context) {
         it[watchlistGroupsKey] = Http.json.encodeToString(groups)
     }
     suspend fun setSignalsApiUrl(url: String) = context.dataStore.edit { it[signalsApiUrlKey] = url.trim().trimEnd('/') }
+
+    suspend fun setSignalsApiToken(token: String) =
+        context.dataStore.edit { it[signalsApiTokenKey] = token.trim() }
 
     // --- Raw accessors for com.stocktracker.app.data.BackupManager only ---
     //

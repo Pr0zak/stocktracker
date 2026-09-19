@@ -250,11 +250,11 @@ class SignalsApiService {
      *  gate on the AI switch. Crypto holdings must be sent as <SYM>-USD. Null on a blank URL / no holdings. */
     suspend fun rebalance(
         baseUrl: String, cash: Double, maxPositionPct: Int, holdings: List<HoldingSync>, deep: Boolean = false,
-        refresh: Boolean = false,
+        refresh: Boolean = false, taxableAccount: Boolean = true,
     ): RebalanceResponse? {
         if (baseUrl.isBlank() || holdings.isEmpty()) return null
         val body = Http.json.encodeToString(
-            RebalanceRequestBody(cash, deep, refresh, maxPositionPct.toDouble(), holdings),
+            RebalanceRequestBody(cash, deep, refresh, maxPositionPct.toDouble(), holdings, taxableAccount),
         )
         return Http.json.decodeFromString<RebalanceResponse>(
             sPost("${baseUrl.trimEnd('/')}/portfolio/rebalance", body, slow = true),
@@ -1635,6 +1635,17 @@ data class HoldingSync(
     val symbol: String,
     val shares: Double,
     @SerialName("avg_cost") val avgCost: Double,
+    /**
+     * MONEY-1: one ISO `yyyy-mm-dd` acquisition date per purchase lot behind this holding, in
+     * [com.stocktracker.app.data.model.Asset.lots] order. A position bought in several pieces has
+     * several holding periods, so this is a LIST rather than one flattened date — collapsing it to a
+     * single date would misreport which shares are still short-term. A `null` entry is a lot whose
+     * date the app never recorded (most commonly a pre-MONEY-2 migrated position); the backend
+     * treats even ONE unknown entry as "can't tell" for the whole holding rather than guessing from
+     * the lots it can see. Left at its default `null` (omitted, not an empty list) for a holding
+     * with no lot data at all.
+     */
+    @SerialName("opened_at") val openedAt: List<String?>? = null,
 )
 
 /** POST /portfolio/rebalance — a concrete sized rebalance plan (Theme C). */
@@ -1646,6 +1657,13 @@ data class RebalanceRequestBody(
     val refresh: Boolean,
     @SerialName("max_position_pct") val maxPositionPct: Double,
     val holdings: List<HoldingSync>,
+    /**
+     * MONEY-1. No default, same reason as [refresh] above: `Http.json` drops a field equal to its
+     * class default, and `true` (a taxable account) is overwhelmingly the common case — declaring it
+     * `Boolean = true` would mean flipping the Settings switch back ON after trying "tax-advantaged"
+     * silently stopped sending anything, and the server would keep skipping the annotation forever.
+     */
+    @SerialName("taxable_account") val taxableAccount: Boolean,
 )
 
 @Serializable

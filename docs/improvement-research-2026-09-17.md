@@ -16,7 +16,7 @@ and most of them are a matter of wiring a value that already exists to a rendere
 
 ---
 
-## Status — 28 of 43 built, 0 deployed
+## Status — 32 of 43 built, 0 deployed
 
 Tracked as **#F51** in `docs/TODO.md`; this table, that section, and the published page are kept
 in step — when one changes, all three change. "Status" is `open` → `built` (code written, suites
@@ -38,7 +38,7 @@ is the release that carried the fix; a rejected item says so instead.
 | NOTIF-1 | M | built | — |
 | SEC-2 | M | built | — |
 | CI-1 | S | built | — |
-| CI-2 | M | open | — |
+| CI-2 | M | built | — |
 | CI-3 | S | built | — |
 | OPS-5 | S | built | — |
 | OPS-6 | S | built | — |
@@ -46,8 +46,8 @@ is the release that carried the fix; a rejected item says so instead.
 | DATA-5 | M | built | — |
 | DATA-6 | M | open | — |
 | DATA-7 | S | built | — |
-| DATA-8 | M | open | — |
-| MONEY-2 | L | open | — |
+| DATA-8 | M | built | — |
+| MONEY-2 | L | built | — |
 | MONEY-1 | M | open | — |
 | MONEY-3 | M | open | — |
 | MONEY-4 | S | open | — |
@@ -63,7 +63,7 @@ is the release that carried the fix; a rejected item says so instead.
 | PLAT-2 | S | built | — |
 | PLAT-3 | S | built | — |
 | PLAT-4 | M | open | — |
-| PLAT-5 | S | open | — |
+| PLAT-5 | S | built | — |
 | DATA-9 | S | open | — |
 | DATA-10 | S | built | — |
 | DATA-11 | S | built | — |

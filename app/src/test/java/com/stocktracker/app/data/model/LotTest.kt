@@ -79,6 +79,61 @@ class LotTest {
         assertEquals("2025-03-15", asset.lots[1].acquiredDateIso)
     }
 
+    // ------------------------------------------------------------- disposal lots (MONEY-3, negative shares)
+
+    @Test fun `a disposal removes shares at the pool's average cost, not at its own price`() {
+        // 200 sh @ $50 avg, then 100 called away at a $60 strike (a covered call assigned). The 100
+        // sh left must still average $50 -- NOT $40, which is what blending the $60 strike into the
+        // weighted average like an acquisition would produce (the worked example from the class doc).
+        val asset = stock(
+            Lot(shares = 100.0, costPerShare = 50.0, acquiredDateIso = "2024-01-01"),
+            Lot(shares = 100.0, costPerShare = 50.0, acquiredDateIso = "2024-02-01"),
+            Lot(shares = -100.0, costPerShare = 60.0, acquiredDateIso = "2026-09-19"), // called away
+        )
+        assertEquals(100.0, asset.shares!!, 0.0001)
+        assertEquals(50.0, asset.avgCost!!, 0.0001)
+    }
+
+    @Test fun `a disposal at a mixed-cost pool still preserves the surviving average`() {
+        // 10 sh @ 100 + 30 sh @ 140 = avg 130 (the existing weighted-average test above). Dispose 20
+        // of the 40 sh at some unrelated strike -- the remaining 20 sh must still average 130.
+        val asset = stock(
+            Lot(shares = 10.0, costPerShare = 100.0, acquiredDateIso = "2024-01-01"),
+            Lot(shares = 30.0, costPerShare = 140.0, acquiredDateIso = "2024-06-01"),
+            Lot(shares = -20.0, costPerShare = 999.0, acquiredDateIso = "2026-09-19"),
+        )
+        assertEquals(20.0, asset.shares!!, 0.0001)
+        assertEquals(130.0, asset.avgCost!!, 0.0001)
+    }
+
+    @Test fun `a disposal that fully closes the position leaves no shares and no avgCost`() {
+        val asset = stock(
+            Lot(shares = 100.0, costPerShare = 50.0, acquiredDateIso = "2024-01-01"),
+            Lot(shares = -100.0, costPerShare = 60.0, acquiredDateIso = "2026-09-19"),
+        )
+        assertEquals(0.0, asset.shares!!, 0.0001)
+        assertNull(asset.avgCost)
+    }
+
+    @Test fun `a disposal against a pool with an unknown-cost lot still poisons the average`() {
+        // The disposal itself never supplies a cost -- but an unrelated unpriced acquisition lot must
+        // still poison the average the same way it always has (any-unknown-cost rule).
+        val asset = stock(
+            Lot(shares = 100.0, costPerShare = null, acquiredDateIso = "2024-01-01"), // unknown-cost lot
+            Lot(shares = 100.0, costPerShare = 50.0, acquiredDateIso = "2024-02-01"),
+            Lot(shares = -50.0, costPerShare = 60.0, acquiredDateIso = "2026-09-19"),
+        )
+        assertEquals(150.0, asset.shares!!, 0.0001)
+        assertNull(asset.avgCost)
+    }
+
+    @Test fun `an assigned short put appends a positive lot at strike minus premium, same as any acquisition`() {
+        // Mirrors markExercised's shape (strike + premium paid) but for a credit instead of a debit.
+        val asset = stock(Lot(shares = 100.0, costPerShare = 100.0 - 2.50, acquiredDateIso = "2026-09-19"))
+        assertEquals(100.0, asset.shares!!, 0.0001)
+        assertEquals(97.50, asset.avgCost!!, 0.0001)
+    }
+
     // -------------------------------------------------------------------- migration on decode
 
     @Test fun `an Asset persisted in the pre-MONEY-2 shape loads as one lot with a null date`() {

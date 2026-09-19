@@ -137,4 +137,32 @@ class DataFreshnessTest {
         assertFalse(freshnessOf(ago(MOVING_STALE_MS), now, MarketPhase.REGULAR, zone).stale)
         assertTrue(freshnessOf(ago(MOVING_STALE_MS + 1), now, MarketPhase.REGULAR, zone).stale)
     }
+
+    // ------------------------------------------------------------------ readingAgeLabel (DATA-9)
+
+    @Test
+    fun `a fresh reading discloses nothing`() {
+        assertNull(readingAgeLabel(ago(10_000), now, failed = false))
+    }
+
+    @Test
+    fun `a reading past the disclosure window says its age`() {
+        val label = readingAgeLabel(ago(RESTORED_DISCLOSURE_AFTER_MS + 60_000), now, failed = false)
+        assertEquals("as of 46m ago", label)
+    }
+
+    @Test
+    fun `exactly at the disclosure boundary is not yet worth disclosing`() {
+        assertNull(readingAgeLabel(ago(RESTORED_DISCLOSURE_AFTER_MS), now, failed = false))
+    }
+
+    @Test
+    fun `a failure wins over age, even moments after the last success`() {
+        assertEquals("Update failed", readingAgeLabel(ago(1_000), now, failed = true))
+    }
+
+    @Test
+    fun `never having fetched anything discloses an age of nothing, not a fabricated one`() {
+        assertNull(readingAgeLabel(0L, now, failed = false))
+    }
 }

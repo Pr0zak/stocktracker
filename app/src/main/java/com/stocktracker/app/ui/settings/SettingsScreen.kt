@@ -71,7 +71,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stocktracker.app.BuildConfig
 import com.stocktracker.app.data.BackupManager
+import com.stocktracker.app.data.FidelityImportManager
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.notify.AlertDelivery
 import com.stocktracker.app.notify.AlertDeliveryStatus
@@ -122,6 +124,7 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
     val showVolume by settings.showVolume.collectAsState(initial = false)
     val savedSignalsUrl by settings.signalsApiUrl.collectAsState(initial = "")
     val aiOn by settings.aiAnalystEnabled.collectAsState(initial = true)
+    val taxableAccount by settings.taxableAccount.collectAsState(initial = true)
     val marketSummary by settings.marketSummaryEnabled.collectAsState(initial = true)
     val marketSummaryAfterHours by settings.marketSummaryAfterHours.collectAsState(initial = true)
     val marketSummaryMarketWide by settings.marketSummaryMarketWide.collectAsState(initial = false)
@@ -166,6 +169,30 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
             when (val result = BackupManager.readForImport(context, uri)) {
                 is BackupManager.ReadResult.Ready -> pendingImport = result
                 is BackupManager.ReadResult.Failed -> importErrorMessage = result.message
+            }
+        }
+    }
+
+    // MONEY-6: importing a Fidelity Positions CSV. Same read/confirm/commit split as the backup
+    // restore above — picking a file only ever parses it (safe to cancel), nothing is written until
+    // [pendingCsvImport]'s preview has been shown and explicitly confirmed.
+    var pendingCsvImport by remember { mutableStateOf<FidelityImportManager.ImportPreview?>(null) }
+    var csvImportErrorMessage by remember { mutableStateOf<String?>(null) }
+    var csvImportInProgress by remember { mutableStateOf(false) }
+    var lastCsvImport by remember { mutableStateOf<FidelityImportManager.CommitResult.Success?>(null) }
+    var csvUndoInProgress by remember { mutableStateOf(false) }
+    var applyCsvCashTotal by remember { mutableStateOf(false) }
+
+    val csvImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            csvImportErrorMessage = null
+            lastCsvImport = null
+            applyCsvCashTotal = false
+            when (val result = FidelityImportManager.readForImport(context, uri)) {
+                is FidelityImportManager.ReadResult.Ready -> pendingCsvImport = result.preview
+                is FidelityImportManager.ReadResult.Failed -> csvImportErrorMessage = result.message
             }
         }
     }
@@ -500,6 +527,13 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                         "detail screen. Your watchlist auto-syncs there about every 15 min — tap “Sync now” " +
                         "to push it immediately. Leave blank to keep it off. Decision support only — not advice.",
                 )
+                SwitchRow(
+                    "Taxable brokerage account",
+                    "The rebalance plan weighs short- vs long-term capital gains on sells (real dates on " +
+                        "your holdings, MONEY-1). Turn off for an IRA/401(k) or other tax-advantaged account, " +
+                        "where holding period doesn't matter.",
+                    taxableAccount,
+                ) { scope.launch { settings.setTaxableAccount(it) } }
             }
 
             SettingsSection("Backup") {
@@ -586,6 +620,183 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                         }) { Text("Replace my data") }
                     },
                     dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("Cancel") } },
+                )
+            }
+
+            SettingsSection("Import from broker") {
+                HelperText(
+                    "Import a Fidelity \"Positions\" CSV export. A Positions export reports a running " +
+                        "total and average cost per symbol — not individual purchases — so every symbol " +
+                        "lands as ONE lot with no purchase date. That means a tax-aware rebalance can't " +
+                        "tell short-term from long-term for anything imported this way.",
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            csvImportLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "*/*"))
+                        },
+                        enabled = !csvImportInProgress,
+                    ) { Text(if (csvImportInProgress) "Importing…" else "Import Fidelity CSV") }
+                }
+                csvImportErrorMessage?.let { message ->
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                lastCsvImport?.let { success ->
+                    Text(
+                        "Imported ${success.rowsImported} symbol" +
+                            "${if (success.rowsImported == 1) "" else "s"} from the CSV.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    TextButton(
+                        onClick = {
+                            csvUndoInProgress = true
+                            ServiceLocator.applicationScope.launch {
+                                FidelityImportManager.undo(context, success.undo)
+                                withContext(Dispatchers.Main) {
+                                    csvUndoInProgress = false
+                                    lastCsvImport = null
+                                    Toast.makeText(context, "CSV import undone.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        enabled = !csvUndoInProgress,
+                    ) { Text(if (csvUndoInProgress) "Undoing…" else "Undo this import") }
+                }
+            }
+            pendingCsvImport?.let { preview ->
+                AlertDialog(
+                    onDismissRequest = { pendingCsvImport = null },
+                    title = { Text("Import this CSV?") },
+                    text = {
+                        Column(
+                            modifier = Modifier
+                                .heightIn(max = 420.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                "${preview.newCount} new symbol${if (preview.newCount == 1) "" else "s"}, " +
+                                    "${preview.replaceCount} existing symbol" +
+                                    "${if (preview.replaceCount == 1) "" else "s"} will have shares/cost " +
+                                    "REPLACED, ${preview.skipped.size} row" +
+                                    "${if (preview.skipped.size == 1) "" else "s"} skipped.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            if (preview.currentWatchlistCorrupted) {
+                                Text(
+                                    "Note: your current watchlist is unreadable right now. This import " +
+                                        "replaces it entirely with what's in the CSV — whatever might " +
+                                        "have been recoverable in the old data will be gone.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                            if (preview.newCount > 0) {
+                                Text(
+                                    "New",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                preview.rows.filter { it.isNew }.forEach { row ->
+                                    Text(
+                                        "${row.symbol} — ${Formatting.shares(row.newShares)} sh @ " +
+                                            (row.newAvgCost?.let { Formatting.price(it) } ?: "unknown cost") +
+                                            "  (${row.accountLabels.joinToString(", ")})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                            if (preview.replaceCount > 0) {
+                                Text(
+                                    "Replace",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                preview.rows.filter { !it.isNew }.forEach { row ->
+                                    val was = row.existingAsset?.shares
+                                    Text(
+                                        "${row.symbol} — was ${was?.let { Formatting.shares(it) } ?: "0"} sh, " +
+                                            "now ${Formatting.shares(row.newShares)} sh @ " +
+                                            (row.newAvgCost?.let { Formatting.price(it) } ?: "unknown cost"),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    if (row.willDiscardDatedLots) {
+                                        Text(
+                                            "  discards ${row.discardedDatedLotCount} dated lot" +
+                                                "${if (row.discardedDatedLotCount == 1) "" else "s"} — " +
+                                                "purchase-date history for this symbol will be lost.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
+                                }
+                            }
+                            if (preview.skipped.isNotEmpty()) {
+                                Text(
+                                    "Skipped",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                preview.skipped.forEach { s ->
+                                    Text("• ${s.reason}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            if (preview.cash.isNotEmpty()) {
+                                Text(
+                                    "Cash detected",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                preview.cash.forEach { c ->
+                                    val guess = when (c.accountTaxGuess) {
+                                        FidelityImportManager.AccountTaxGuess.TAX_ADVANTAGED -> " (looks tax-advantaged)"
+                                        FidelityImportManager.AccountTaxGuess.TAXABLE -> " (looks taxable)"
+                                        FidelityImportManager.AccountTaxGuess.UNKNOWN -> ""
+                                    }
+                                    Text(
+                                        "${c.accountLabel}: " +
+                                            (c.amount?.let { Formatting.price(it) } ?: "amount unknown") + guess,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { applyCsvCashTotal = !applyCsvCashTotal },
+                                ) {
+                                    Switch(checked = applyCsvCashTotal, onCheckedChange = { applyCsvCashTotal = it })
+                                    Text(
+                                        "Also set investable cash to ${Formatting.price(preview.totalCash)} " +
+                                            "(this app tracks one cash total, not one per account)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val toCommit = preview
+                            val applyCash = applyCsvCashTotal
+                            pendingCsvImport = null
+                            csvImportInProgress = true
+                            ServiceLocator.applicationScope.launch {
+                                val result = FidelityImportManager.commitImport(context, toCommit, applyCash)
+                                withContext(Dispatchers.Main) {
+                                    csvImportInProgress = false
+                                    when (result) {
+                                        is FidelityImportManager.CommitResult.Success -> {
+                                            lastCsvImport = result
+                                            Toast.makeText(context, "CSV imported.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        is FidelityImportManager.CommitResult.Failed ->
+                                            csvImportErrorMessage = result.message
+                                    }
+                                }
+                            }
+                        }) { Text("Import") }
+                    },
+                    dismissButton = { TextButton(onClick = { pendingCsvImport = null }) { Text("Cancel") } },
                 )
             }
 

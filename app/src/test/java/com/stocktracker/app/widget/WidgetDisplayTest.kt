@@ -1,6 +1,12 @@
 package com.stocktracker.app.widget
 
+import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.preferencesOf
+import com.stocktracker.app.data.model.Asset
+import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.remote.Http
+import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -253,5 +259,157 @@ class WidgetDisplayTest {
         val stale = WatchlistRow("A", "A", 1.0, 1.0, asOfEpochMs = now - 3_600_000L)
         assertEquals(false, watchlistRowIsStale(fresh, now, staleAfterMs = 60_000L))
         assertTrue(watchlistRowIsStale(stale, now, staleAfterMs = 60_000L))
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Watchlist widget per-instance configuration (WGT-5)
+    // ---------------------------------------------------------------------------------------
+
+    private fun asset(symbol: String, type: AssetType = AssetType.STOCK, groups: List<String> = emptyList()) =
+        Asset(symbol = symbol, type = type, displayName = symbol, groups = groups)
+
+    @Test
+    fun `an unconfigured watchlist widget defaults to the whole list, manual order, percent`() {
+        val default = WatchlistWidgetConfig()
+        assertEquals(WatchlistWidgetConfig.LIST_ALL, default.listName)
+        assertEquals(WatchlistSortOrder.MANUAL, default.sortOrder)
+        assertEquals(WatchlistValueMode.PERCENT, default.valueMode)
+        assertEquals(15, default.refreshMinutes)
+        // Same fallback as TickerWidgetState.readConfig -- a widget with nothing stored yet (placed
+        // before WGT-5, or a CONFIG value that fails to parse) gets sensible defaults, not a crash
+        // or a blank widget.
+        assertEquals(default, WatchlistWidgetState.readConfig(emptyPreferences()))
+    }
+
+    @Test
+    fun `two configured instances decode independently -- config does not bleed across widgets`() {
+        val cryptoInstance = WatchlistWidgetConfig(
+            listName = WatchlistWidgetConfig.LIST_CRYPTO,
+            sortOrder = WatchlistSortOrder.ALPHABETICAL,
+            valueMode = WatchlistValueMode.DOLLAR,
+            refreshMinutes = 60,
+        )
+        val namedListInstance = WatchlistWidgetConfig(listName = "Retirement", sortOrder = WatchlistSortOrder.CHANGE_DESC)
+
+        val prefsA = preferencesOf(WatchlistWidgetState.CONFIG to Http.json.encodeToString(cryptoInstance))
+        val prefsB = preferencesOf(WatchlistWidgetState.CONFIG to Http.json.encodeToString(namedListInstance))
+
+        // Each instance's own Glance state decodes back to exactly its own config -- reading one
+        // instance's prefs must never see the other's, which is the shape of the original bug (one
+        // shared write clobbering every placed widget).
+        assertEquals(cryptoInstance, WatchlistWidgetState.readConfig(prefsA))
+        assertEquals(namedListInstance, WatchlistWidgetState.readConfig(prefsB))
+        assertTrue(WatchlistWidgetState.readConfig(prefsA) != WatchlistWidgetState.readConfig(prefsB))
+    }
+
+    @Test
+    fun `filtering to All keeps every asset regardless of type or group`() {
+        val assets = listOf(asset("AAPL"), asset("BTC", AssetType.CRYPTO), asset("MSFT", groups = listOf("Tech")))
+        assertEquals(assets, filterWatchlistAssets(assets, WatchlistWidgetConfig.LIST_ALL))
+    }
+
+    @Test
+    fun `filtering to Stocks or Crypto splits by asset type`() {
+        val aapl = asset("AAPL")
+        val btc = asset("BTC", AssetType.CRYPTO)
+        val assets = listOf(aapl, btc)
+        assertEquals(listOf(aapl), filterWatchlistAssets(assets, WatchlistWidgetConfig.LIST_STOCKS))
+        assertEquals(listOf(btc), filterWatchlistAssets(assets, WatchlistWidgetConfig.LIST_CRYPTO))
+    }
+
+    @Test
+    fun `filtering to a named list keeps only assets tagged with that group`() {
+        val tagged = asset("MSFT", groups = listOf("Tech", "Retirement"))
+        val untagged = asset("F")
+        val assets = listOf(tagged, untagged)
+        assertEquals(listOf(tagged), filterWatchlistAssets(assets, "Retirement"))
+    }
+
+    @Test
+    fun `a named list the user has since deleted or renamed filters to nothing, not to All`() {
+        val assets = listOf(asset("AAPL"), asset("BTC", AssetType.CRYPTO))
+        assertEquals(emptyList<Asset>(), filterWatchlistAssets(assets, "No Longer Exists"))
+    }
+
+    private fun row(symbol: String, changePercent: Double, changeAbs: Double = 0.0) =
+        WatchlistRow(symbol = symbol, name = symbol, price = 1.0, changePercent = changePercent, changeAbs = changeAbs)
+
+    @Test
+    fun `manual sort order leaves the fetch order untouched`() {
+        val rows = listOf(row("C", -1.0), row("A", 2.0), row("B", 0.0))
+        assertEquals(rows, sortWatchlistRows(rows, WatchlistSortOrder.MANUAL))
+    }
+
+    @Test
+    fun `alphabetical sort ignores case`() {
+        val rows = listOf(row("msft", 1.0), row("AAPL", 1.0), row("Ford", 1.0))
+        assertEquals(listOf("AAPL", "Ford", "msft"), sortWatchlistRows(rows, WatchlistSortOrder.ALPHABETICAL).map { it.symbol })
+    }
+
+    @Test
+    fun `change-desc sorts top gainers first, change-asc sorts top losers first`() {
+        val rows = listOf(row("A", 1.0), row("B", -5.0), row("C", 3.0))
+        assertEquals(listOf("C", "A", "B"), sortWatchlistRows(rows, WatchlistSortOrder.CHANGE_DESC).map { it.symbol })
+        assertEquals(listOf("B", "A", "C"), sortWatchlistRows(rows, WatchlistSortOrder.CHANGE_ASC).map { it.symbol })
+    }
+
+    @Test
+    fun `the change column honors the dollar-vs-percent toggle`() {
+        val up = row("A", changePercent = 1.20, changeAbs = 2.71)
+        val down = row("B", changePercent = -0.50, changeAbs = -1.10)
+        assertEquals("▲ +1.20%", watchlistChangeText(up, WatchlistValueMode.PERCENT, hideZeroCents = false))
+        assertEquals("▲ +2.71", watchlistChangeText(up, WatchlistValueMode.DOLLAR, hideZeroCents = false))
+        assertEquals("▼ -0.50%", watchlistChangeText(down, WatchlistValueMode.PERCENT, hideZeroCents = false))
+        assertEquals("▼ -1.10", watchlistChangeText(down, WatchlistValueMode.DOLLAR, hideZeroCents = false))
+    }
+
+    @Test
+    fun `the All list draws no subtitle, any other list draws its own name`() {
+        assertNull(watchlistListLabel(WatchlistWidgetConfig.LIST_ALL))
+        assertEquals("Crypto", watchlistListLabel(WatchlistWidgetConfig.LIST_CRYPTO))
+        assertEquals("Retirement", watchlistListLabel("Retirement"))
+    }
+
+    @Test
+    fun `a scoped instance's subtitle eats into the row budget the same way the footer does`() {
+        val heightDp = WATCHLIST_HEADER_DP + WATCHLIST_ROW_DP * 6
+        assertEquals(6, watchlistRowBudget(heightDp, reserveFooter = false, showSubtitle = false))
+        assertEquals(5, watchlistRowBudget(heightDp, reserveFooter = false, showSubtitle = true))
+        // Reserving both the subtitle and the footer eats even further into the row count.
+        val heightForBoth = WATCHLIST_HEADER_DP + WATCHLIST_SUBTITLE_DP + WATCHLIST_FOOTER_DP + WATCHLIST_ROW_DP * 6
+        assertEquals(6, watchlistRowBudget(heightForBoth, reserveFooter = true, showSubtitle = true))
+    }
+
+    @Test
+    fun `a full list scoped to a named list still draws no footer, just the subtitle`() {
+        val heightDp = WATCHLIST_HEADER_DP + WATCHLIST_SUBTITLE_DP + WATCHLIST_ROW_DP * 4
+        val d = watchlistDisplay(
+            rows(4), expectedCount = 4, error = null, loaded = true, heightDp = heightDp, listLabel = "Crypto",
+        )
+        val r = d as WatchlistDisplay.Rows
+        assertEquals(4, r.visible.size)
+        assertNull(r.footerLabel)
+    }
+
+    @Test
+    fun `an empty named list is disclosed as empty, not as an invitation to add tickers`() {
+        val d = watchlistDisplay(emptyList(), expectedCount = 0, error = null, loaded = true, heightDp = 300f, listLabel = "Retirement")
+        assertEquals(WatchlistDisplay.Message("No tickers in \"Retirement\""), d)
+    }
+
+    @Test
+    fun `omitting listLabel keeps the original unscoped behaviour unchanged`() {
+        val heightDp = WATCHLIST_HEADER_DP + WATCHLIST_ROW_DP * 6
+        assertEquals(6, watchlistRowBudget(heightDp, reserveFooter = false))
+        val d = watchlistDisplay(emptyList(), expectedCount = 0, error = null, loaded = true, heightDp = 300f)
+        assertEquals(WatchlistDisplay.Message("Add tickers in the app"), d)
+    }
+
+    @Test
+    fun `an instance's staleness repaint is driven by its own last-success timestamp`() {
+        val now = 1_000_000L
+        assertEquals(false, shouldRepaintWatchlistForStaleness(0L, now))
+        assertEquals(false, shouldRepaintWatchlistForStaleness(now - 30_000L, now, staleAfterMs = 60_000L))
+        assertTrue(shouldRepaintWatchlistForStaleness(now - 90_000L, now, staleAfterMs = 60_000L))
     }
 }

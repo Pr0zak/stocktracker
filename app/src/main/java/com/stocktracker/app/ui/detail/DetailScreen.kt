@@ -115,6 +115,8 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.calls.CallDraft
 import com.stocktracker.app.ui.calls.CallEntryDialog
 import com.stocktracker.app.ui.calls.callDraftFrom
+import com.stocktracker.app.ui.calls.coveredCallDraftFrom
+import com.stocktracker.app.ui.calls.putDraftFrom
 import com.stocktracker.app.data.model.PairedStat
 import com.stocktracker.app.signals.BacktestResult
 import com.stocktracker.app.signals.winRatePair
@@ -221,6 +223,29 @@ fun DetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingLotOverwrite = null }) { Text("Keep purchases") }
+            },
+        )
+    }
+    // MONEY-4: a stock split detected since one or more of this holding's dated lots were bought.
+    // Never applied silently — the user confirms before any share count/cost is rewritten.
+    state.splitPrompt?.let { split ->
+        AlertDialog(
+            onDismissRequest = { vm.dismissSplitPrompt() },
+            title = { Text("Split detected: ${split.label}") },
+            text = {
+                Text(
+                    "${asset.symbol} has split ${split.label} since this position was bought. Adjusting " +
+                        "updates your recorded shares from ${Formatting.shares(split.sharesBefore)} to " +
+                        "${Formatting.shares(split.sharesAfter)} and divides cost per share by the same " +
+                        "ratio — your real position and total cost basis are unchanged, only how they're " +
+                        "recorded. Purchase dates are kept exactly as they are.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.confirmSplitAdjustment() }) { Text("Adjust") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.dismissSplitPrompt() }) { Text("Not now") }
             },
         )
     }
@@ -710,11 +735,15 @@ fun DetailScreen(
                     loading = state.putsLoading,
                     error = state.putsError,
                     onSuggest = { cash, style -> vm.requestPuts(cash, style) },
+                    onTrack = { draft -> callDraft = draft },
                 )
 
-                // OC-8 wheel · income side: "Sell covered calls" — only once the user holds ≥100 shares
-                // of THIS symbol (one contract covers 100). Share count comes from the holdings store.
-                val heldShares = state.shares?.toInt() ?: 0
+                // OC-8 wheel · income side: "Sell covered calls" — only once the user holds ≥100 FREE
+                // shares of THIS symbol (one contract covers 100). Raw share count comes from the
+                // holdings store; MONEY-3 subtracts shares already promised away by an OPEN short call
+                // on this symbol, so a shown-and-sold covered call can't be offered again against the
+                // same 100 shares on the next visit.
+                val heldShares = (state.shares?.toInt() ?: 0) - state.sharesCommittedToShortCalls
                 if (heldShares >= 100) {
                     CoveredCallCard(
                         symbol = asset.symbol,
@@ -723,6 +752,7 @@ fun DetailScreen(
                         loading = state.coveredCallLoading,
                         error = state.coveredCallError,
                         onSuggest = { target -> vm.requestCoveredCall(heldShares, target) },
+                        onTrack = { draft -> callDraft = draft },
                     )
                 }
                 } // if (optionsOpen)
@@ -3265,10 +3295,12 @@ private fun HoldingsAndAlertsSection(
             }
             Text(line, style = MaterialTheme.typography.labelMedium, color = neutral)
             if (avgCost != null && avgCost > 0.0) {
+                // MONEY-5: price movement only, on shares still held — no dividends, nothing sold.
+                // Same fix as the Portfolio screen's headline figure; "total return" claimed both.
                 val gain = shares * (quote.price - avgCost)
                 val gUp = gain >= 0.0
                 Text(
-                    "${Formatting.change(gain, hideZeroCents)} total return",
+                    "${Formatting.change(gain, hideZeroCents)} unrealized gain (price only)",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     color = if (gUp) GainGreen else LossRed,
@@ -3994,6 +4026,7 @@ private fun CashSecuredPutCard(
     loading: Boolean,
     error: String?,
     onSuggest: (Double, String) -> Unit,
+    onTrack: (CallDraft) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val context = LocalContext.current
@@ -4074,6 +4107,7 @@ private fun CashSecuredPutCard(
                         clipboard.setText(AnnotatedString(primary.orderTicket))
                         Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
                     },
+                    onTrack = { onTrack(putDraftFrom(symbol, puts, primary)) },
                 )
                 val others = puts.candidates.filter { it !== primary }
                 if (others.isNotEmpty()) {
@@ -4130,6 +4164,7 @@ private fun PutCandidateBlock(
     puts: PutsResponse,
     c: PutCandidate,
     onCopy: () -> Unit,
+    onTrack: () -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val n = c.contracts ?: 1
@@ -4201,8 +4236,15 @@ private fun PutCandidateBlock(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
         )
     }
-    OutlinedButton(onClick = onCopy, enabled = c.orderTicket.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-        Text("Copy order ticket")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = onCopy, enabled = c.orderTicket.isNotBlank(), modifier = Modifier.weight(1f)) {
+            Text("Copy order ticket")
+        }
+        // "Track this" (MONEY-3) — hand the shown suggestion to the OC-3 tracker as a SOLD put
+        // (you still sell it on Fidelity yourself).
+        Button(onClick = onTrack, modifier = Modifier.weight(1f)) {
+            Text("Track this")
+        }
     }
 }
 
@@ -4249,6 +4291,7 @@ private fun CoveredCallCard(
     loading: Boolean,
     error: String?,
     onSuggest: (Double?) -> Unit,
+    onTrack: (CallDraft) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val context = LocalContext.current
@@ -4358,14 +4401,24 @@ private fun CoveredCallCard(
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                 )
             }
-            OutlinedButton(
-                onClick = {
-                    clipboard.setText(AnnotatedString(c.orderTicket))
-                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                },
-                enabled = c.orderTicket.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Copy order ticket") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = {
+                        clipboard.setText(AnnotatedString(c.orderTicket))
+                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = c.orderTicket.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Copy order ticket") }
+                // "Track this" (MONEY-3) — hand the shown suggestion to the OC-3 tracker as a SOLD
+                // call (you still sell it on Fidelity yourself). This is the same tracker that
+                // [sharesCommittedToShortCalls] reads back to keep the next visit from offering these
+                // same shares again.
+                Button(
+                    onClick = { onTrack(coveredCallDraftFrom(symbol, sharesHeld, coveredCall, c)) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Track this") }
+            }
         }
 
         coveredCall?.warnings?.forEach { w ->

@@ -46,6 +46,7 @@ class SettingsStore(private val context: Context) {
     private val lastScanNotifiedKey = longPreferencesKey("last_scan_notified_at")
     private val investableCashKey = doublePreferencesKey("investable_cash")
     private val aiAnalystEnabledKey = booleanPreferencesKey("ai_analyst_enabled")
+    private val taxableAccountKey = booleanPreferencesKey("taxable_account")
     private val lastDigestKey = longPreferencesKey("last_weekly_digest_at")
     private val marketSummaryEnabledKey = booleanPreferencesKey("market_summary_enabled")
     private val marketSummaryAfterHoursKey = booleanPreferencesKey("market_summary_after_hours")
@@ -129,6 +130,16 @@ class SettingsStore(private val context: Context) {
      *  without losing the configured service URL. The server's nightly scan is unaffected. */
     val aiAnalystEnabled: Flow<Boolean> = context.dataStore.data.map { it[aiAnalystEnabledKey] ?: true }
     suspend fun setAiAnalystEnabled(enabled: Boolean) = context.dataStore.edit { it[aiAnalystEnabledKey] = enabled }
+
+    /**
+     * MONEY-1: is the portfolio being rebalanced a TAXABLE brokerage account? Default true, so an
+     * install that has never touched this screen still gets the capital-gains weighing the backend
+     * has always been able to do — the alternative default (off) would silently hide it from most
+     * people, who ARE in a taxable account. Off for an IRA/401(k)/etc., where holding period is
+     * meaningless and the rebalance dialog must not pretend it matters.
+     */
+    val taxableAccount: Flow<Boolean> = context.dataStore.data.map { it[taxableAccountKey] ?: true }
+    suspend fun setTaxableAccount(taxable: Boolean) = context.dataStore.edit { it[taxableAccountKey] = taxable }
 
     /** epoch-ms of the last weekly watchlist digest we posted (0 = never). */
     val lastDigestAt: Flow<Long> = context.dataStore.data.map { it[lastDigestKey] ?: 0L }

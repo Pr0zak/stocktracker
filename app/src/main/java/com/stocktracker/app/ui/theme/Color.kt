@@ -245,3 +245,19 @@ val ArmSeries = listOf(
     Color(0xFFD926AC),
     Color(0xFF4D7FB2),
 )
+
+// ---------------------------------------------------------------------------------------------
+// Chrome — neither semantic nor system, and deliberately not reused as either
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The two squares of the transparency checkerboard behind a widget preview.
+ *
+ * These are the "no colour here" pattern every image editor uses, so they say nothing about the
+ * market and nothing about the app's confidence in its data. They live here rather than inline in
+ * the settings screen because the CI check that forbids colour literals outside this file is right:
+ * a colour defined at its call site is a colour nobody can find later. Do not use them for
+ * anything that carries meaning.
+ */
+val CheckerLight = Color(0xFF3C3C44)
+val CheckerDark = Color(0xFF2A2A31)

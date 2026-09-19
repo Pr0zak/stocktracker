@@ -74,6 +74,9 @@ import com.stocktracker.app.data.BackupManager
 import com.stocktracker.app.data.FidelityImportManager
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.app.ui.theme.Indigo
+import com.stocktracker.app.ui.theme.CheckerLight
+import com.stocktracker.app.ui.theme.CheckerDark
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.notify.AlertDelivery
 import com.stocktracker.app.notify.AlertDeliveryStatus
@@ -1228,7 +1231,7 @@ private fun WidgetBackgroundPreview(colorArgb: Long, transparencyPct: Int) {
                 )
                 .padding(12.dp),
         ) {
-            Text("AAPL", color = Color(0xFFB4A0FF), fontWeight = FontWeight.Bold)
+            Text("AAPL", color = Indigo, fontWeight = FontWeight.Bold)
             Text(
                 "$229.14",
                 color = OnSurfaceDark,
@@ -1242,8 +1245,8 @@ private fun WidgetBackgroundPreview(colorArgb: Long, transparencyPct: Int) {
 
 @Composable
 private fun Checkerboard(modifier: Modifier) {
-    val light = Color(0xFF3C3C44)
-    val dark = Color(0xFF2A2A31)
+    val light = CheckerLight
+    val dark = CheckerDark
     Canvas(modifier) {
         val cell = 10.dp.toPx()
         var y = 0f

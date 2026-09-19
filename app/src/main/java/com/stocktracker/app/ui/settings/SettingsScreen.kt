@@ -410,13 +410,25 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                             Text(
                                 when {
                                     health.checking -> "Checking\u2026"
+                                    // Reachable is not the same as healthy. A backend whose
+                                    // settings.json was unreadable answers every request perfectly
+                                    // while running on the wrong watchlist with no API key, so
+                                    // "Connected" alone would be a true statement that misleads.
+                                    ok && health.settingsDegraded -> when (health.settingsSource) {
+                                        "backup" -> "Connected \u2014 settings recovered from backup"
+                                        "env" -> "Connected \u2014 settings file unreadable, using defaults"
+                                        else -> "Connected \u2014 settings source ${health.settingsSource}"
+                                    }
                                     ok -> "Connected"
                                     health.state == BackendState.OFFLINE ->
                                         health.lastError ?: "Can't reach the service"
                                     else -> "Not checked yet"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                // Amber is this app's "we have an opinion about our own data"
+                                // colour; a degraded settings source is exactly that.
+                                color = if (ok && health.settingsDegraded) Signal
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f),
                             )
                             TextButton(

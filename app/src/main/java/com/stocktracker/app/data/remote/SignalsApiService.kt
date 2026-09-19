@@ -1147,6 +1147,21 @@ data class MacroCatalyst(
     @SerialName("seen_count") val seenCount: Int = 0,
 )
 
+/**
+ * GET /health's body. CI-2: nothing in the app decoded this as JSON before — [SignalsHealth] only
+ * checked the raw HTTP response for success/failure — so a rename here (e.g. `key_configured`) could
+ * ship on the backend with nothing on this side to notice. Added so the contract has a model to pin;
+ * see app/src/test/java/com/stocktracker/app/data/ContractFixtureDecodeTest.kt.
+ */
+@Serializable
+data class Health(
+    val ok: Boolean = false,
+    @SerialName("key_configured") val keyConfigured: Boolean = false,
+    @SerialName("deep_model") val deepModel: String = "",
+    @SerialName("scan_model") val scanModel: String = "",
+    @SerialName("settings_source") val settingsSource: String = "",
+)
+
 // ---- AI Sandbox models ----
 
 @Serializable

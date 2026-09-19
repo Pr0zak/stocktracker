@@ -47,9 +47,22 @@ data class SignalsHealthState(
     val lastOkAt: Long = 0L,          // epoch ms of the last success (0 = never) — for display only
     val lastError: String? = null,    // short human-readable reason for the last failure
     val checking: Boolean = false,    // a USER-initiated retry is in flight (not the background poll)
+    /**
+     * Where the backend loaded its settings from on its last probe: "file" normally, "backup" if it
+     * had to recover settings.json from its .bak, "env" if both were unreadable and it fell back to
+     * environment defaults. Null when the probe has not returned a body we could read.
+     *
+     * A backend running on env defaults answers every request perfectly and is running on the WRONG
+     * WATCHLIST with no API key — reachable and wrong, which is the state this app's rules say must
+     * never be reported as simply fine. See settingsDegraded.
+     */
+    val settingsSource: String? = null,
 ) {
     val isOffline: Boolean get() = state == BackendState.OFFLINE
     val isConfigured: Boolean get() = state != BackendState.NOT_CONFIGURED
+
+    /** Reachable, but serving from a recovered or absent settings file rather than the real one. */
+    val settingsDegraded: Boolean get() = settingsSource != null && settingsSource != "file"
 }
 
 /**
@@ -216,7 +229,18 @@ object SignalsHealth {
             }
             return when {
                 result == null -> { reportFailure(ProbeTimeout(), direct = true); false }
-                result.isSuccess -> { reportSuccess(); true }
+                result.isSuccess -> {
+                    // The body was previously discarded — only the HTTP status was read — so the
+                    // backend's own report that it is running on recovered or default settings had
+                    // nowhere to arrive. Best-effort: a body we cannot parse leaves the field null,
+                    // which reads as "unknown", never as "fine".
+                    val src = runCatching {
+                        Http.json.decodeFromString<Health>(result.getOrThrow()).settingsSource
+                    }.getOrNull()?.takeIf { it.isNotBlank() }
+                    reportSuccess()
+                    _state.update { it.copy(settingsSource = src) }
+                    true
+                }
                 else -> {
                     val e = result.exceptionOrNull()
                     reportFailure(e, direct = true)

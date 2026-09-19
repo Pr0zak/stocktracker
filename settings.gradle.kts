@@ -15,3 +15,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "stocktracker"
 include(":app")
+include(":shared")
+include(":wear")

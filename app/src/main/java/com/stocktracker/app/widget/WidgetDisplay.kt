@@ -4,6 +4,12 @@ import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.util.Formatting
+import com.stocktracker.shared.PortfolioDisplay
+import com.stocktracker.shared.TickerDisplay
+import com.stocktracker.shared.WIDGET_STALE_AFTER_MS
+import com.stocktracker.shared.portfolioDisplay
+import com.stocktracker.shared.tickerDisplay
+import com.stocktracker.shared.widgetAgeLabel
 
 /**
  * Pure label/branch decisions shared by the three home-screen widgets, pulled out of the Glance
@@ -16,49 +22,13 @@ import com.stocktracker.app.util.Formatting
  * the whole answer.
  */
 
-/** Beyond this a shown value is no longer "now" and the widget must say so. Shared by all three
- *  widgets so "how stale is too stale" means the same thing across the whole row of home screens. */
-const val WIDGET_STALE_AFTER_MS = 45L * 60 * 1000
-
-/** "3m ago" / "2h ago" / "5d ago". */
-fun widgetAgeLabel(ageMs: Long): String {
-    val mins = ageMs / 60_000
-    return when {
-        mins < 120 -> "${mins}m ago"
-        mins < 60 * 48 -> "${mins / 60}h ago"
-        else -> "${mins / (60 * 24)}d ago"
-    }
-}
-
 // -------------------------------------------------------------------------------------------
 // Ticker widget (WGT-3)
 // -------------------------------------------------------------------------------------------
-
-/** What [TickerWidget] should render, decided once from the stored values. */
-sealed class TickerDisplay {
-    /** Nothing to show at all -- never fetched, or fetched and failed with nothing cached. */
-    data class NoData(val tapToOpen: Boolean) : TickerDisplay()
-    /** A quote to show, plus the freshness line underneath it (null = nothing to disclose). */
-    data class Priced(val quote: Quote, val ageLabel: String?) : TickerDisplay()
-}
-
-fun tickerDisplay(
-    quote: Quote?,
-    error: String?,
-    nowMs: Long,
-    staleAfterMs: Long = WIDGET_STALE_AFTER_MS,
-): TickerDisplay {
-    if (quote == null) return TickerDisplay.NoData(tapToOpen = error != null)
-    val ageMs = if (quote.asOfEpochMs > 0L) nowMs - quote.asOfEpochMs else 0L
-    val ageLabel = when {
-        // An error alongside a kept quote means the number on screen is old, not that this refresh
-        // confirmed it current -- say so plainly instead of the routine "as of" phrasing.
-        error != null -> "Update failed"
-        ageMs > staleAfterMs -> "as of " + widgetAgeLabel(ageMs)
-        else -> null
-    }
-    return TickerDisplay.Priced(quote, ageLabel)
-}
+//
+// [WIDGET_STALE_AFTER_MS], [widgetAgeLabel], [TickerDisplay], and [tickerDisplay] now live in
+// `:shared` (`com.stocktracker.shared`, WGT-7) so the Wear tile/complication can call the exact
+// same functions instead of a watch-side reimplementation. Imported above.
 
 /** Whether a failed refresh may keep the previously stored quote/sparkline rather than blanking
  *  them. Only true for the SAME symbol -- otherwise a reconfigure would render the old ticker's
@@ -82,46 +52,9 @@ fun shouldRepaintForStaleness(
 // -------------------------------------------------------------------------------------------
 // Portfolio widget (WGT-1)
 // -------------------------------------------------------------------------------------------
-
-sealed class PortfolioDisplay {
-    data class Priced(
-        val summary: PortfolioSummary,
-        /** "N of M priced" -- non-null exactly when [PortfolioSummary.isPartial]. */
-        val partialLabel: String?,
-        /** "Update failed" / "as of Xh ago" / null. */
-        val ageLabel: String?,
-    ) : PortfolioDisplay()
-    data class Message(val text: String) : PortfolioDisplay()
-}
-
-fun portfolioDisplay(
-    summary: PortfolioSummary?,
-    loaded: Boolean,
-    error: String?,
-    lastSuccessMs: Long,
-    nowMs: Long,
-    staleAfterMs: Long = WIDGET_STALE_AFTER_MS,
-): PortfolioDisplay {
-    if (summary != null && summary.holdingCount > 0) {
-        // Every priced holding failed: the total is $0.00 of nothing, not a real number.
-        if (summary.missingCount >= summary.holdingCount) {
-            return PortfolioDisplay.Message("Couldn't load portfolio")
-        }
-        val partialLabel = if (summary.isPartial) {
-            "${summary.holdingCount - summary.missingCount} of ${summary.holdingCount} priced"
-        } else null
-        val ageMs = if (lastSuccessMs > 0L) nowMs - lastSuccessMs else 0L
-        val ageLabel = when {
-            error != null -> "Update failed"
-            ageMs > staleAfterMs -> "as of " + widgetAgeLabel(ageMs)
-            else -> null
-        }
-        return PortfolioDisplay.Priced(summary, partialLabel, ageLabel)
-    }
-    if (error != null) return PortfolioDisplay.Message(error)
-    if (!loaded) return PortfolioDisplay.Message("Loading…")
-    return PortfolioDisplay.Message("Set shares on a ticker to track value")
-}
+//
+// [PortfolioDisplay] and [portfolioDisplay] now live in `:shared` (WGT-7) alongside
+// [PortfolioSummary] itself, for the same reason as the ticker functions above. Imported above.
 
 // -------------------------------------------------------------------------------------------
 // Watchlist widget (WGT-2)

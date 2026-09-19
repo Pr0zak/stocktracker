@@ -13,6 +13,8 @@
 *.ap_
 *.dex
 /app/build/
+/shared/build/
+/wear/build/
 /app/release/
 
 # Signing / secrets — never commit

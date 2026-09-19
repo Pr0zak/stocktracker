@@ -70,6 +70,10 @@ android {
 }
 
 dependencies {
+    // Quote/PortfolioSummary + the tickerDisplay/portfolioDisplay/widgetAgeLabel honesty-rule
+    // functions (WGT-7) -- see :shared/build.gradle.kts for why this module exists.
+    implementation(project(":shared"))
+
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.2")
 
@@ -105,6 +109,12 @@ dependencies {
 
     // Drag-to-reorder for LazyColumn (watchlist)
     implementation("sh.calvin.reorderable:reorderable:2.4.0")
+
+    // Wear Data Layer (WGT-7) -- pushes the last-refreshed ticker/portfolio snapshot to a paired
+    // watch. The phone never receives anything back over this: it is a one-way mirror of what
+    // WidgetRefreshWorker already fetched, so the watch never becomes a second fetcher.
+    implementation("com.google.android.gms:play-services-wearable:18.2.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     // Unit tests
     testImplementation("junit:junit:4.13.2")

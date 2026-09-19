@@ -48,6 +48,11 @@ class WidgetRefreshWorker(
         step("widgets:tickers") { WidgetRefresh.refreshAllTickers(applicationContext) }
         step("widgets:watchlist") { WidgetRefresh.refreshWatchlist(applicationContext) }
         step("widgets:portfolio") { WidgetRefresh.refreshPortfolio(applicationContext) }
+        // Mirrors whatever the two widget refreshes above just wrote to a paired watch (WGT-7). Runs
+        // after them, not instead of a fetch of its own -- the watch is never a fetcher. Isolated
+        // like every other step: no watch paired, no Play Services, nothing placed yet on the phone
+        // all just mean this is a no-op, never a reason to fail any of the other steps.
+        step("wearSync") { com.stocktracker.app.wear.WearSync.push(applicationContext) }
         step("alerts") { com.stocktracker.app.notify.AlertChecker.check(applicationContext) }
         step("signalScan") { com.stocktracker.app.notify.SignalScanNotifier.check(applicationContext) }
         step("callExit") { com.stocktracker.app.notify.CallExitNotifier.check(applicationContext) }

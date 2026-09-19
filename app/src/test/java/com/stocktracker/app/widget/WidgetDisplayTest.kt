@@ -6,6 +6,11 @@ import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.remote.Http
+import com.stocktracker.shared.PortfolioDisplay
+import com.stocktracker.shared.TickerDisplay
+import com.stocktracker.shared.portfolioDisplay
+import com.stocktracker.shared.tickerDisplay
+import com.stocktracker.shared.widgetAgeLabel
 import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

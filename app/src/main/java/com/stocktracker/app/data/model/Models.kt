@@ -350,31 +350,15 @@ data class AssetAlerts(
         ).size + conditions.size
 }
 
-/** A point-in-time price snapshot. */
-@Serializable
-data class Quote(
-    val symbol: String,
-    val price: Double,
-    val change: Double,          // absolute change over the day
-    val changePercent: Double,   // percent change over the day
-    val open: Double? = null,
-    val high: Double? = null,
-    val low: Double? = null,
-    val prevClose: Double? = null,
-    val volume: Double? = null,   // stocks: shares traded today; crypto: 24h USD volume
-    val currency: String = "USD",
-    val asOfEpochMs: Long = 0L,
-    /** Yahoo classifies the symbol as an ETF (meta.instrumentType == "ETF") — drives the row accent. */
-    val isEtf: Boolean = false,
-    /** Last post-market (after-hours) price; null unless the symbol is in/after the post session. */
-    val postMarketPrice: Double? = null,
-    /** After-hours % move vs the regular-session close; null outside post-market. */
-    val postMarketChangePercent: Double? = null,
-    /** Yahoo's session tag ("REGULAR" | "POST" | "POSTPOST" | "CLOSED" | "PRE" | "PREPRE"); null if absent. */
-    val marketState: String? = null,
-) {
-    val isUp: Boolean get() = change >= 0.0
-}
+/**
+ * A point-in-time price snapshot.
+ *
+ * The class itself now lives in `:shared` (`com.stocktracker.shared.Quote`, WGT-7) so the Wear
+ * module can decode the same payload and feed it into the same `tickerDisplay` the phone widgets
+ * use, without pulling in the rest of this module. This `typealias` keeps every existing import of
+ * `com.stocktracker.app.data.model.Quote` in this app resolving to the exact same type, unchanged.
+ */
+typealias Quote = com.stocktracker.shared.Quote
 
 /** CBOE Volatility Index snapshot (^VIX). Higher = more expected volatility ("fear"). Serializable
  *  so DATA-9 can persist the last reading across a process restart (see MarketContextCache). */

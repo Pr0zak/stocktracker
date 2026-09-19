@@ -41,6 +41,8 @@ import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.OnSurfaceDark
 import com.stocktracker.app.ui.theme.OnSurfaceVariantDark
+import com.stocktracker.shared.TickerDisplay
+import com.stocktracker.shared.tickerDisplay
 
 private val OnSurface = OnSurfaceDark
 private val Muted = OnSurfaceVariantDark

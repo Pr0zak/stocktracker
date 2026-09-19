@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -83,7 +84,9 @@ import com.stocktracker.app.update.UpdateDialog
 import com.stocktracker.app.update.UpdateUiState
 import com.stocktracker.app.update.rememberUpdateController
 import com.stocktracker.app.widget.WidgetRefreshScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.stocktracker.app.ui.theme.Signal
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.heightIn
@@ -141,12 +144,29 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
             Toast.makeText(context, if (n >= 0) "Exported $n tickers" else "Export failed", Toast.LENGTH_SHORT).show()
         }
     }
+
+    // Restoring a backup is the single most destructive action in the app (DATA-8), so picking a
+    // file only ever READS and parses it (via [BackupManager.readForImport], on the screen's own
+    // scope — cancelling that loses nothing but a re-pick). Nothing is written until the user has
+    // seen concrete counts in [pendingImport]'s confirmation dialog and explicitly confirmed, and
+    // that write runs on [ServiceLocator.applicationScope] rather than [scope] so leaving this screen
+    // mid-import can't cancel it partway through.
+    var pendingImport by remember { mutableStateOf<BackupManager.ReadResult.Ready?>(null) }
+    var importErrorMessage by remember { mutableStateOf<String?>(null) }
+    var importInProgress by remember { mutableStateOf(false) }
+    var lastImport by remember { mutableStateOf<BackupManager.CommitResult.Success?>(null) }
+    var undoInProgress by remember { mutableStateOf(false) }
+
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) scope.launch {
-            val n = runCatching { BackupManager.importFrom(context, uri) }.getOrElse { -1 }
-            Toast.makeText(context, if (n >= 0) "Imported $n tickers" else "Import failed", Toast.LENGTH_SHORT).show()
+            importErrorMessage = null
+            lastImport = null
+            when (val result = BackupManager.readForImport(context, uri)) {
+                is BackupManager.ReadResult.Ready -> pendingImport = result
+                is BackupManager.ReadResult.Failed -> importErrorMessage = result.message
+            }
         }
     }
 
@@ -486,10 +506,87 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                 HelperText("Save your watchlist, holdings, cost, alerts, and lists to a file — or restore from one.")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { exportLauncher.launch("stocktracker-backup.json") }) { Text("Export") }
-                    OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) }) {
-                        Text("Import")
+                    OutlinedButton(
+                        onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) },
+                        enabled = !importInProgress,
+                    ) {
+                        Text(if (importInProgress) "Importing…" else "Import")
                     }
                 }
+                importErrorMessage?.let { message ->
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                lastImport?.let { success ->
+                    Text(
+                        "Backup restored. " + BackupManager.confirmationMessage(success.preview),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    TextButton(
+                        onClick = {
+                            undoInProgress = true
+                            ServiceLocator.applicationScope.launch {
+                                BackupManager.undo(context, success.snapshot)
+                                withContext(Dispatchers.Main) {
+                                    undoInProgress = false
+                                    lastImport = null
+                                    Toast.makeText(
+                                        context,
+                                        "Import undone — your previous data is back.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+                        },
+                        enabled = !undoInProgress,
+                    ) { Text(if (undoInProgress) "Undoing…" else "Undo this import") }
+                }
+            }
+            pendingImport?.let { ready ->
+                AlertDialog(
+                    onDismissRequest = { pendingImport = null },
+                    title = { Text("Restore this backup?") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(BackupManager.confirmationMessage(ready.preview))
+                            if (ready.corruptedNow.isNotEmpty()) {
+                                Text(
+                                    "Note: your current ${ready.corruptedNow.joinToString(" and ")} " +
+                                        "${if (ready.corruptedNow.size == 1) "is" else "are"} unreadable right " +
+                                        "now. This import replaces it; if you undo afterward, the same " +
+                                        "unreadable data comes back exactly as it is today.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Text(
+                                "You'll get an Undo button right here afterward — but only while you stay on " +
+                                    "this Settings screen; leaving it clears that option.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val data = ready.data
+                            pendingImport = null
+                            importInProgress = true
+                            ServiceLocator.applicationScope.launch {
+                                val result = BackupManager.commitImport(context, data)
+                                withContext(Dispatchers.Main) {
+                                    importInProgress = false
+                                    when (result) {
+                                        is BackupManager.CommitResult.Success -> {
+                                            lastImport = result
+                                            Toast.makeText(context, "Backup restored.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        is BackupManager.CommitResult.Failed -> importErrorMessage = result.message
+                                    }
+                                }
+                            }
+                        }) { Text("Replace my data") }
+                    },
+                    dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("Cancel") } },
+                )
             }
 
             SettingsSection("Updates") {

@@ -1,6 +1,8 @@
 package com.stocktracker.app.data.prefs
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -300,4 +302,23 @@ class SettingsStore(private val context: Context) {
         it[watchlistGroupsKey] = Http.json.encodeToString(groups)
     }
     suspend fun setSignalsApiUrl(url: String) = context.dataStore.edit { it[signalsApiUrlKey] = url.trim().trimEnd('/') }
+
+    // --- Raw accessors for com.stocktracker.app.data.BackupManager only ---
+    //
+    // A backup restore touches [watchlistGroups] and [investableCash] alongside four other stores'
+    // keys in ONE atomic DataStore transaction, and takes a raw pre-import snapshot so a bad import
+    // can be undone exactly. Both need the literal bytes/value on disk, not the decoded (and lossily
+    // defaulted) Flow above.
+
+    internal fun rawWatchlistGroups(prefs: Preferences): String? = prefs[watchlistGroupsKey]
+
+    internal fun writeRawWatchlistGroups(prefs: MutablePreferences, raw: String?) {
+        if (raw == null) prefs.remove(watchlistGroupsKey) else prefs[watchlistGroupsKey] = raw
+    }
+
+    internal fun rawInvestableCash(prefs: Preferences): Double? = prefs[investableCashKey]
+
+    internal fun writeRawInvestableCash(prefs: MutablePreferences, raw: Double?) {
+        if (raw == null) prefs.remove(investableCashKey) else prefs[investableCashKey] = raw
+    }
 }

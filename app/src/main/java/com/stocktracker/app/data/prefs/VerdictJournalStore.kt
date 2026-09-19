@@ -1,6 +1,8 @@
 package com.stocktracker.app.data.prefs
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.stocktracker.app.data.model.VerdictJournalEntry
@@ -74,6 +76,18 @@ class VerdictJournalStore(private val context: Context) {
         prefs[key] = encode(entries)
     }
 
+    /** The exact bytes on disk, or null if the key was never written. For [com.stocktracker.app.data.BackupManager]
+     *  only: a restore snapshot must capture this rather than [snapshot], because [snapshot] maps
+     *  [Stored.Unreadable] to an empty list — an undo built on that would permanently destroy
+     *  still-recoverable corrupt bytes (real trade history) instead of putting back what was really there. */
+    internal fun rawValue(prefs: Preferences): String? = prefs[key]
+
+    /** Writes [raw] verbatim — or clears the key when null — bypassing [mutate]'s corruption guard on
+     *  purpose (a restore must act on exactly what was captured). Participates in a caller-supplied
+     *  transaction so several stores can be replaced atomically in one write. */
+    internal fun writeRaw(prefs: MutablePreferences, raw: String?) {
+        if (raw == null) prefs.remove(key) else prefs[key] = raw
+    }
 
     private fun encode(list: List<VerdictJournalEntry>): String = Http.json.encodeToString(list)
 

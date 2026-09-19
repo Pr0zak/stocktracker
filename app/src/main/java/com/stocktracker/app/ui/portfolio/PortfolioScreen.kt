@@ -79,6 +79,7 @@ fun PortfolioScreen(
     onOpenIdeas: () -> Unit = {},
     onOpenJournal: () -> Unit = {},
     onOpenDetail: (Asset) -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val vm: PortfolioViewModel = viewModel()
     val state by vm.state.collectAsState()
@@ -92,6 +93,7 @@ fun PortfolioScreen(
             onRefresh = { vm.loadReview(force = true) },
             onDismiss = { vm.dismissReview() },
             onOpenSymbol = { vm.dismissReview(); openSymbol(it) },
+            onOpenSignalsSettings = onOpenSignalsSettings,
         )
     }
     if (state.rebalance.open) {
@@ -101,6 +103,7 @@ fun PortfolioScreen(
             onTarget = { vm.setRebalanceTarget(it) },
             onDismiss = { vm.dismissRebalance() },
             onOpenSymbol = { vm.dismissRebalance(); openSymbol(it) },
+            onOpenSignalsSettings = onOpenSignalsSettings,
         )
     }
     Scaffold(
@@ -471,6 +474,7 @@ private fun PortfolioReviewDialog(
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
     onOpenSymbol: (String) -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val amber = Signal
@@ -533,7 +537,15 @@ private fun PortfolioReviewDialog(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Text("Reviewing your book…")
                     }
-                    ui.error != null -> Text(ui.error, color = MaterialTheme.colorScheme.error)
+                    ui.error != null -> Column {
+                        Text(ui.error, color = MaterialTheme.colorScheme.error)
+                        if (ui.needsSetup) {
+                            TextButton(
+                                onClick = onOpenSignalsSettings,
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) { Text("Set up signals") }
+                        }
+                    }
                     r != null -> {
                         Text(r.health, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                         if (r.concentration.isNotEmpty()) {
@@ -615,6 +627,7 @@ private fun RebalancePlanDialog(
     onTarget: (Int) -> Unit,
     onDismiss: () -> Unit,
     onOpenSymbol: (String) -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val amber = Signal
@@ -681,7 +694,15 @@ private fun RebalancePlanDialog(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Text("Planning the moves…")
                     }
-                    ui.error != null -> Text(ui.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp))
+                    ui.error != null -> Column(modifier = Modifier.padding(top = 12.dp)) {
+                        Text(ui.error, color = MaterialTheme.colorScheme.error)
+                        if (ui.needsSetup) {
+                            TextButton(
+                                onClick = onOpenSignalsSettings,
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) { Text("Set up signals") }
+                        }
+                    }
                     plan != null -> {
                         Spacer(Modifier.height(8.dp))
                         Text(plan.summary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)

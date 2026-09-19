@@ -42,6 +42,9 @@ data class PortfolioReviewUi(
     val loading: Boolean = false,
     val result: PortfolioReviewResponse? = null,
     val error: String? = null,
+    // True only for the "no URL" / "AI analyst off" pair below — those are fixed in Settings, unlike
+    // a real backend failure, which a "Set up signals" button would do nothing for.
+    val needsSetup: Boolean = false,
 )
 
 /** State for the on-demand AI rebalance-plan dialog (Theme C). [targetPct] is the max single-position
@@ -52,6 +55,7 @@ data class RebalanceUi(
     val result: RebalanceResponse? = null,
     val error: String? = null,
     val targetPct: Int = 25,
+    val needsSetup: Boolean = false,
 )
 
 /** A cached quote older than this is reported as stale rather than rendered as current. */
@@ -212,7 +216,8 @@ class PortfolioViewModel : ViewModel() {
                 _state.update { st ->
                     st.copy(review = st.review.copy(loading = false,
                         error = if (base.isBlank()) "Set the Signals service URL in Settings to use this."
-                        else "The AI analyst is off — turn it on in Settings."))
+                        else "The AI analyst is off — turn it on in Settings.",
+                        needsSetup = true))
                 }
                 return@launch
             }
@@ -225,7 +230,7 @@ class PortfolioViewModel : ViewModel() {
             // the dialog's `when` puts error ahead of result, so it showed a stale error and hid a
             // perfectly good plan indefinitely. Only retry-on-error escapes that.
             if (!force && _state.value.review.result != null && _state.value.review.error == null) return@launch
-            _state.update { it.copy(review = it.review.copy(loading = true, error = null)) }
+            _state.update { it.copy(review = it.review.copy(loading = true, error = null, needsSetup = false)) }
             val syncs = syncPayload()
             val res = runCatching { signalsApi.portfolioReview(base, cashValue(), syncs, refresh = force) }
             _state.update { st ->
@@ -265,7 +270,8 @@ class PortfolioViewModel : ViewModel() {
                 _state.update { st ->
                     st.copy(rebalance = st.rebalance.copy(loading = false,
                         error = if (base.isBlank()) "Set the Signals service URL in Settings to use this."
-                        else "The AI analyst is off — turn it on in Settings."))
+                        else "The AI analyst is off — turn it on in Settings.",
+                        needsSetup = true))
                 }
                 return@launch
             }
@@ -275,7 +281,7 @@ class PortfolioViewModel : ViewModel() {
             }
             // See loadReview: a stale error must not both survive the reopen and block the retry.
             if (!force && _state.value.rebalance.result != null && _state.value.rebalance.error == null) return@launch
-            _state.update { it.copy(rebalance = it.rebalance.copy(loading = true, error = null)) }
+            _state.update { it.copy(rebalance = it.rebalance.copy(loading = true, error = null, needsSetup = false)) }
             val syncs = syncPayload()
             val target = _state.value.rebalance.targetPct
             val res = runCatching { signalsApi.rebalance(base, cashValue(), target, syncs, refresh = force) }

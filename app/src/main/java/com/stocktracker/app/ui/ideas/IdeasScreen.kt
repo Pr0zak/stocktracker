@@ -57,7 +57,11 @@ import com.stocktracker.app.ui.theme.PriceSmall
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
+fun IdeasScreen(
+    onOpenDetail: (Asset) -> Unit,
+    onBack: () -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
+) {
     val vm: IdeasViewModel = viewModel()
     val state by vm.state.collectAsState()
     val watchlist by ServiceLocator.watchlistStore.watchlist.collectAsState(initial = emptyList())
@@ -123,6 +127,7 @@ fun IdeasScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit = {}) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Button(onClick = onOpenSignalsSettings) { Text("Set up signals") }
                 return@Column
             }
 

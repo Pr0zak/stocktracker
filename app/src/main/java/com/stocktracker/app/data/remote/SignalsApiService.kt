@@ -1161,6 +1161,8 @@ data class SandboxState(
     @SerialName("last_weekly_review_date") val lastWeeklyReviewDate: String? = null,
     @SerialName("last_strategy_note") val strategyNote: SandboxStrategyNote? = null,
     @SerialName("created_at") val createdAt: Double? = null,
+    /** Symbols that could not be priced and are being valued at a fallback mark rather than a live quote. */
+    @SerialName("stale_marks") val staleMarks: List<String> = emptyList(),
 )
 
 @Serializable

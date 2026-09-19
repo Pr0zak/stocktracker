@@ -33,6 +33,8 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.stocktracker.app.MainActivity
+import com.stocktracker.app.notify.AlertNotifier
+import com.stocktracker.app.ui.Routes
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.ui.theme.GainGreen
@@ -89,7 +91,11 @@ private fun TickerContent(
             .fillMaxSize()
             .widgetBackground(backgroundArgb, backgroundTransparency)
             .padding(12.dp)
-            .clickable(actionStartActivity(Intent(context, MainActivity::class.java))),
+            .clickable(actionStartActivity(
+                Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(AlertNotifier.EXTRA_ROUTE, Routes.detail(config.toAsset())),
+            )),
         verticalAlignment = Alignment.Top,
     ) {
         if (config.showName) {

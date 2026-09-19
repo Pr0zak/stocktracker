@@ -68,7 +68,9 @@ class ChangelogTest {
     fun `recent returns releases newest first for the on-demand view`() {
         val recent = Changelog.recent()
         assertTrue("expected several releases", recent.size >= 3)
-        assertEquals("1.6.0", recent.first().first)
+        // Hardcoded on purpose: cutting a release without writing its notes should fail here as
+        // well as in the build-version guard below, and updating this line is the reminder.
+        assertEquals("1.7.0", recent.first().first)
         // Every listed release must actually have notes — an empty section would render as a bare
         // version heading with nothing under it.
         assertTrue(recent.all { it.second.isNotEmpty() })

@@ -43,7 +43,7 @@ object SignalScanNotifier {
             val n = flips.size + squeezes.size
             val title = if (n == 1) "1 signal changed overnight" else "$n signals changed overnight"
             // Per-batch id: a constant one made each new scan REPLACE an unread previous alert.
-            AlertNotifier.notify(context, ("signal_scan:" + parts.joinToString(",")).hashCode(),
+            AlertNotifier.notifyScan(context, ("signal_scan:" + parts.joinToString(",")).hashCode(),
                                  title, parts.joinToString(", "), Routes.WATCHLIST)
         }
         // 200-week-line crosses — a stance-neutral "heads up" (below the line is long-term
@@ -51,7 +51,7 @@ object SignalScanNotifier {
         val crossed = scan.crossedBelow200wma.orEmpty()
         if (crossed.isNotEmpty()) {
             val n = crossed.size
-            AlertNotifier.notify(
+            AlertNotifier.notifyScan(
                 context,
                 ("wma_cross:" + crossed.joinToString(",")).hashCode(),
                 if (n == 1) "1 name crossed below its 200-week line" else "$n names crossed below their 200-week line",
@@ -77,12 +77,12 @@ object SignalScanNotifier {
             val title = if (hasMega) "📉 Deep dip — a moment to add extra" else "Good time to add"
             // Straight to the dip list — including on a day it finds nothing, which is the day
             // its reject audit is worth reading.
-            AlertNotifier.notify(context, ("dip_alerts:" + body).hashCode(), title, body, Routes.DIPS)
+            AlertNotifier.notifyScan(context, ("dip_alerts:" + body).hashCode(), title, body, Routes.DIPS)
         }
         // Key-date warnings get their own notification so they don't drown in signal noise.
         val dateAlerts = scan.dateAlerts.orEmpty()
         if (dateAlerts.isNotEmpty()) {
-            AlertNotifier.notify(
+            AlertNotifier.notifyScan(
                 context,
                 ("date_alerts:" + dateAlerts.joinToString(",")).hashCode(),
                 "Market dates to watch",
@@ -126,7 +126,7 @@ object SignalScanNotifier {
             if (hot.isNotEmpty()) add("Short pressure: " + hot.joinToString(", ") { "${it.symbol} ${it.squeeze?.uppercase()}" })
             if (belowLine.isNotEmpty()) add("Below 200-week line: " + belowLine.take(4).joinToString(", ") { it.symbol })
         }
-        AlertNotifier.notify(
+        AlertNotifier.notifyScan(
             context, "weekly_digest".hashCode(), "Weekly watchlist digest",
             lines.joinToString("\n"), Routes.WATCHLIST,
         )

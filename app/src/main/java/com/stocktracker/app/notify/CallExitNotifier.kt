@@ -37,7 +37,7 @@ object CallExitNotifier {
             stateStore.save(fired)
             return
         }
-        AlertNotifier.ensureChannel(context)
+        AlertNotifier.ensureScanChannel(context) // NOTIF-2: exit alerts ride the scan-family channel, not price alerts
 
         for (p in positions) {
             // Re-price; soft-fail on ANY error so one gone/closed contract never crashes the worker.
@@ -48,13 +48,16 @@ object CallExitNotifier {
             val alerts = CallExitRules.evaluate(p, premium, quote?.spot, itm)
             val activeKeys = alerts.map { it.key }.toSet()
 
-            // Notify each NEWLY-true alert (fired.add is false when the key was already present).
+            // Notify each NEWLY-true alert — but (NOTIF-1) only record it in `fired` once it is actually
+            // delivered, same reasoning as AlertChecker: a blocked/muted delivery must retry next run,
+            // not be treated as sent and go silent for the rest of this crossing.
             for (alert in alerts) {
-                if (fired.add(alert.key)) {
+                if (alert.key !in fired) {
                     // My Calls lives on Portfolio — an exit warning is only actionable there.
-                    AlertNotifier.notify(
+                    val delivered = AlertNotifier.notifyScan(
                         context, alert.key.hashCode(), alert.title, alert.message, Routes.PORTFOLIO,
                     )
+                    if (delivered) fired.add(alert.key)
                 }
             }
 

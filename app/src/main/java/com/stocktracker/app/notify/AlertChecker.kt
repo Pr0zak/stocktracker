@@ -39,10 +39,21 @@ object AlertChecker {
             fun evaluate(name: String, triggered: Boolean, title: String) {
                 val key = "${asset.id}:$name"
                 if (triggered) {
-                    if (fired.add(key)) {
+                    // NOTIF-1: the key must land in `fired` ONLY when the post was actually delivered —
+                    // recording it either way (the old `fired.add(key)` gate, checked before notifying)
+                    // meant a blocked notification manager, muted channel, or revoked permission got
+                    // silently treated as "sent", and the alert then stayed silent forever (the crossing
+                    // had already happened, so it would never re-fire without a round trip back across
+                    // the threshold). Not recording it means the worst case is a retry every ~15 minutes
+                    // — the worker's normal cadence — until delivery succeeds or the condition clears;
+                    // that is a bounded retry, not a storm, because this function runs at most once per
+                    // check() per asset per condition.
+                    if (key !in fired) {
                         // The notification names a ticker; the tap opens that ticker.
-                        AlertNotifier.notify(context, key.hashCode(), title, subtitle, Routes.detail(asset))
-                        changed = true
+                        if (AlertNotifier.notify(context, key.hashCode(), title, subtitle, Routes.detail(asset))) {
+                            fired.add(key)
+                            changed = true
+                        }
                     }
                 } else {
                     if (fired.remove(key)) changed = true
@@ -83,30 +94,39 @@ object AlertChecker {
                     }
                     when (result) {
                         is ConditionResult.Triggered ->
-                            if (fired.add(key)) {
-                                AlertNotifier.notify(
+                            // See the price/percent evaluate() above — record `fired` only on an actual
+                            // delivered==true, so a blocked post retries next run instead of going silent.
+                            if (key !in fired) {
+                                val delivered = AlertNotifier.notify(
                                     context, key.hashCode(),
                                     "${asset.symbol} ${cond.label.replaceFirstChar { it.lowercase() }}",
                                     subtitle,
                                     Routes.detail(asset),
                                 )
-                                changed = true
+                                if (delivered) {
+                                    fired.add(key)
+                                    changed = true
+                                }
                             }
                         is ConditionResult.NotTriggered ->
                             if (fired.remove(key)) changed = true
                         is ConditionResult.CouldNotCheck -> {
                             // A condition that cannot be evaluated must not read as one that did not
                             // fire. Leaving the fired key in place would also re-announce it the
-                            // moment data returns, so the state is held and the user is told once.
+                            // moment data returns, so the state is held and the user is told once —
+                            // but again, only once it is actually delivered.
                             val warnKey = "$key:unchecked"
-                            if (fired.add(warnKey)) {
-                                AlertNotifier.notify(
+                            if (warnKey !in fired) {
+                                val delivered = AlertNotifier.notify(
                                     context, warnKey.hashCode(),
                                     "${asset.symbol}: alert could not be checked",
                                     "${cond.label} — ${result.reason}",
                                     Routes.detail(asset),
                                 )
-                                changed = true
+                                if (delivered) {
+                                    fired.add(warnKey)
+                                    changed = true
+                                }
                             }
                         }
                     }

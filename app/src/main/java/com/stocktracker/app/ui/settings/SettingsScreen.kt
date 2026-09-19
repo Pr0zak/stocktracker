@@ -1,5 +1,8 @@
 package com.stocktracker.app.ui.settings
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.stocktracker.app.data.remote.SignalsHealth
@@ -54,6 +59,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -64,6 +72,9 @@ import com.stocktracker.app.BuildConfig
 import com.stocktracker.app.data.BackupManager
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.notify.AlertDelivery
+import com.stocktracker.app.notify.AlertDeliveryStatus
+import com.stocktracker.app.notify.AlertNotifier
 import com.stocktracker.app.notify.SignalScanNotifier
 import com.stocktracker.app.update.UpdateDialog
 import com.stocktracker.app.update.UpdateUiState
@@ -527,26 +538,51 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
 }
 
 /**
- * Whether the background job that evaluates price alerts is actually running.
+ * Whether the background job that evaluates price alerts is actually running, AND — NOTIF-1 —
+ * whether a post it makes has any chance of reaching the user. These are independent dimensions: a
+ * worker ticking exactly on schedule with zero reported failures tells you nothing about whether
+ * every [AlertNotifier.notify] call it made was silently swallowed by a blocked app, a muted channel,
+ * or a missing permission. This composable used to only measure the first and call the result
+ * "Running normally" — which is exactly the label you'd see with alerts fully, silently dead.
  *
  * Alerts are only checked when this job runs (every ~15 min via WorkManager). Nothing in the app
- * previously said whether it had — so "my jump/drop alerts never fire" had two very different causes
- * that looked identical: no thresholds configured, or the job not running at all. Android defers or
- * kills background work aggressively under battery optimisation, and the app cannot fix that; it can
- * at least stop pretending everything is armed.
+ * previously said whether it had — so "my jump/drop alerts never fire" had three very different
+ * causes that looked identical: no thresholds configured, the job not running at all, or the job
+ * running fine and being ignored by the notification system. Android defers or kills background work
+ * aggressively under battery optimisation, and the app cannot fix that; it can at least stop
+ * pretending everything is armed.
  */
 @Composable
 private fun BackgroundRunStatus() {
+    val context = LocalContext.current
     val settings = ServiceLocator.settingsStore
     val lastRun by settings.lastBackgroundRunAt.collectAsState(initial = 0L)
     val failures by settings.lastBackgroundFailures.collectAsState(initial = "")
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
 
+    // AlertDelivery reads live OS state (permission, the app-wide notification toggle, the channel's
+    // mute state, battery-optimisation exemption) that Compose has no observable API for. None of it
+    // changes while this screen just sits open — it only changes when the user leaves for a system
+    // settings screen (one of the buttons below sends them to exactly one) and comes back — so refresh
+    // on ON_RESUME rather than polling.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var delivery by remember { mutableStateOf(AlertDeliveryStatus.OK) }
+    DisposableEffect(lifecycleOwner, context) {
+        fun refresh() { delivery = AlertDelivery.current(context) }
+        refresh()
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val now = System.currentTimeMillis()
     val ageMin = if (lastRun > 0) (now - lastRun) / 60_000 else -1
     // The job is scheduled every 15 min; Android may stretch that, so an hour is the point at which
     // it has clearly stopped rather than merely slipped.
-    val healthy = ageMin in 0..59 && failures.isBlank()
+    val workerHealthy = ageMin in 0..59 && failures.isBlank()
+    val healthy = workerHealthy && delivery == AlertDeliveryStatus.OK
     val color = when {
         lastRun <= 0 -> neutral
         healthy -> GainGreen
@@ -568,15 +604,68 @@ private fun BackgroundRunStatus() {
                         "Open the app once with a network connection to start it."
                 failures.isNotBlank() ->
                     "Last run had failures: $failures. Alerts still ran unless 'alerts' is listed."
-                !healthy ->
+                !workerHealthy ->
                     "It should run about every 15 minutes. This long a gap usually means Android is " +
-                        "deferring it — exclude StockTracker from battery optimisation to fix it."
-                else -> "Running normally. Set per-ticker thresholds on a stock's detail screen."
+                        "deferring it."
+                healthy -> "Running normally. Set per-ticker thresholds on a stock's detail screen."
+                // delivery != OK but the worker itself looks fine — the specific reason and its fix
+                // render below, not folded into this line, so "Running normally" is never shown
+                // alongside a delivery block.
+                else -> "The worker is running, but alerts may not reach you — see below."
             },
             style = MaterialTheme.typography.labelSmall,
             color = neutral,
         )
+        if (delivery != AlertDeliveryStatus.OK) {
+            DeliveryBlockedNotice(delivery)
+        }
     }
+}
+
+/**
+ * The specific reason [status] is blocking delivery, with a button straight to the system screen that
+ * fixes it. NOTIF-1 point 4: a paragraph of prose telling the user to go find a setting is not a fix;
+ * three of these four need no special permission to launch, including battery optimisation
+ * (ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) — the one this screen used to only describe in text.
+ */
+@Composable
+private fun DeliveryBlockedNotice(status: AlertDeliveryStatus) {
+    val context = LocalContext.current
+    if (status == AlertDeliveryStatus.OK) return
+    val (message, buttonLabel, intent) = when (status) {
+        AlertDeliveryStatus.PERMISSION_DENIED -> Triple(
+            "Notification permission is off — alerts cannot be delivered at all.",
+            "Grant permission",
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+        )
+        AlertDeliveryStatus.APP_BLOCKED -> Triple(
+            "Notifications are turned off for StockTracker — alerts cannot be delivered at all.",
+            "App notification settings",
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+        )
+        AlertDeliveryStatus.CHANNEL_MUTED -> Triple(
+            "The \"Price alerts\" channel is muted — other StockTracker notifications still work, " +
+                "but price alerts will not arrive.",
+            "Channel settings",
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, AlertNotifier.CHANNEL_ID),
+        )
+        AlertDeliveryStatus.BATTERY_RESTRICTED -> Triple(
+            "Battery optimisation may delay or skip the background check entirely.",
+            "Exclude from battery optimisation",
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                .setData(Uri.parse("package:${context.packageName}")),
+        )
+        AlertDeliveryStatus.OK -> return
+    }
+    Text(message, style = MaterialTheme.typography.labelSmall, color = Signal)
+    TextButton(
+        onClick = { runCatching { context.startActivity(intent) } },
+        contentPadding = PaddingValues(vertical = 4.dp, horizontal = 0.dp),
+    ) { Text(buttonLabel) }
 }
 
 /** A titled group of settings on one surfaceVariant card, with a primary-tinted eyebrow above it. */

@@ -53,14 +53,18 @@ object AiDailyBriefNotifier {
         val body = brief.body.trim()
         if (title.isEmpty() && body.isEmpty()) return // nothing worth posting; try again next tick
 
-        AlertNotifier.notifyBrief(
+        val delivered = AlertNotifier.notifyBrief(
             context,
             "ai_daily_brief".hashCode(),
             title.ifEmpty { "Morning brief" },
             body,
             Routes.WATCHLIST,
         )
-        settings.setLastDailyBriefDate(dateStr)
+        // NOTIF-1: only mark today's brief as sent if it was actually delivered — otherwise a blocked
+        // notification (permission/app/channel) burns the once-per-day dedup on a brief nobody saw, and
+        // it can't retry until tomorrow. Leaving the date unset lets the next 15-minute tick inside
+        // today's morning window try again.
+        if (delivered) settings.setLastDailyBriefDate(dateStr)
     }
 
     /**
@@ -76,9 +80,11 @@ object AiDailyBriefNotifier {
         val title = brief.title.trim()
         val body = brief.body.trim()
         if (title.isEmpty() && body.isEmpty()) return "The brief came back empty."
-        AlertNotifier.notifyBrief(
+        val delivered = AlertNotifier.notifyBrief(
             context, "ai_daily_brief".hashCode(), title.ifEmpty { "Morning brief" }, body, Routes.WATCHLIST,
         )
-        return null
+        // NOTIF-1 point 5: this used to ignore notifyBrief's result and always report success, so a
+        // blocked/muted notification made "Send a test brief now" lie about having worked.
+        return if (delivered) null else "Notifications are blocked."
     }
 }

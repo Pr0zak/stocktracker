@@ -22,7 +22,7 @@ data class TickerWidgetConfig(
     companion object {
         val ACCENT_CHOICES = listOf(
             0xFFB4A0FFL, // indigo
-            0xFF4ADE80L, // green
+            0xFF5EDD9CL, // green — GainGreen; the old 0xFF4ADE80 is the pastel INK-2 retired
             0xFF38BDF8L, // sky
             0xFFFB923CL, // orange
             0xFFF472B6L, // pink

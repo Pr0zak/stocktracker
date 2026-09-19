@@ -2,8 +2,14 @@
 <resources>
     <!-- Brand palette (see TickerBubble design system) -->
     <color name="brand_indigo">#B4A0FF</color>
-    <color name="gain_green">#4ADE80</color>
-    <color name="loss_red">#F87171</color>
+
+    <!-- gain_green (#4ADE80) and loss_red (#F87171) were removed here rather than repainted.
+         They were referenced nowhere, and they held the pastel pair INK-2 deleted for sitting
+         1.59:1 apart in luminance — the same colour to anyone without hue discrimination. A dead
+         resource carrying a retired value is a trap: the next person to want a gain colour finds
+         this name, uses it, and reintroduces the defect. Gain and loss have exactly one home now,
+         GainGreen and LossRed in ui/theme/Color.kt. -->
+
     <color name="surface_dark">#141318</color>
     <color name="surface_light">#FEF7FF</color>
 

@@ -34,3 +34,6 @@ local.env
 # Design-canvas build output. The .dc.html artboards and canvas.json are the sources and are
 # tracked; this is the ~2.6 MB page the seeder assembles from them, regenerated on every change.
 /design/canvas/stocktracker-repair-in-place.html
+
+# Scratch git worktrees for parallel agent work — never part of a commit.
+.claude/wt/

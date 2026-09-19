@@ -16,7 +16,7 @@ and most of them are a matter of wiring a value that already exists to a rendere
 
 ---
 
-## Status — 17 of 43 built, 0 deployed
+## Status — 28 of 43 built, 0 deployed
 
 Tracked as **#F51** in `docs/TODO.md`; this table, that section, and the published page are kept
 in step — when one changes, all three change. "Status" is `open` → `built` (code written, suites
@@ -35,15 +35,15 @@ is the release that carried the fix; a rejected item says so instead.
 | DATA-1 | S | built | — |
 | DATA-2 | S | built | — |
 | DATA-3 | S | built | — |
-| NOTIF-1 | M | open | — |
-| SEC-2 | M | open | — |
+| NOTIF-1 | M | built | — |
+| SEC-2 | M | built | — |
 | CI-1 | S | built | — |
 | CI-2 | M | open | — |
 | CI-3 | S | built | — |
 | OPS-5 | S | built | — |
-| OPS-6 | S | open | — |
+| OPS-6 | S | built | — |
 | DATA-4 | S | built | — |
-| DATA-5 | M | open | — |
+| DATA-5 | M | built | — |
 | DATA-6 | M | open | — |
 | DATA-7 | S | built | — |
 | DATA-8 | M | open | — |
@@ -54,20 +54,20 @@ is the release that carried the fix; a rejected item says so instead.
 | MONEY-5 | S/M | open | — |
 | MONEY-6 | M | open | — |
 | MONEY-7 | S/M/— | open | — |
-| NOTIF-2 | S | open | — |
-| WGT-4 | S | open | — |
+| NOTIF-2 | S | built | — |
+| WGT-4 | S | built | — |
 | WGT-5 | M | open | — |
-| WGT-6 | S | open | — |
+| WGT-6 | S | built | — |
 | WGT-7 | L | open | — |
 | PLAT-1 | S | built | — |
 | PLAT-2 | S | built | — |
-| PLAT-3 | S | open | — |
+| PLAT-3 | S | built | — |
 | PLAT-4 | M | open | — |
 | PLAT-5 | S | open | — |
 | DATA-9 | S | open | — |
-| DATA-10 | S | open | — |
-| DATA-11 | S | open | — |
-| DATA-12 | S | open | — |
+| DATA-10 | S | built | — |
+| DATA-11 | S | built | — |
+| DATA-12 | S | built | — |
 
 ---
 

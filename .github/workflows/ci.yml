@@ -47,6 +47,11 @@ jobs:
             exit 1
           fi
 
+      - name: Run unit tests
+        run: |
+          chmod +x ./gradlew
+          ./gradlew testDebugUnitTest --stacktrace
+
       # No FINNHUB_API_KEY here on purpose: the debug APK is a public CI artifact, so it must not
       # embed the key. Debug builds are crypto-only; the key is baked into signed releases instead.
       - name: Assemble debug APK

@@ -35,6 +35,15 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
+      # -Pversion.name=$VERSION here (same property the release build passes below) so
+      # BuildConfig.VERSION_NAME during the test run is the actual tag being released, not the
+      # "0.1.0" fallback — that's what lets ChangelogTest's "the build's own version has changelog
+      # notes" guard (CI-3) catch a release cut without an updated Changelog entry.
+      - name: Run unit tests
+        run: |
+          chmod +x ./gradlew
+          ./gradlew testDebugUnitTest -Pversion.name=$VERSION --stacktrace
+
       - name: Decode signing keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.jks
 

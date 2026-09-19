@@ -61,6 +61,7 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.calls.MyCallsSection
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.PriceChart
+import com.stocktracker.app.ui.components.priceChartDescription
 import com.stocktracker.app.ui.theme.BenchmarkGrey
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
@@ -283,6 +284,18 @@ fun PortfolioScreen(
                             else Formatting.price(it, hideZeroCents = hideZeroCents)
                         },
                         timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL) },
+                        // PLAT-4. Without this the whole chart is one silent Canvas to a screen
+                        // reader — the portfolio's own history, announced as nothing at all. The
+                        // "Portfolio" name rather than a ticker, since this curve is the book.
+                        chartDescription = priceChartDescription(
+                            symbol = "Portfolio",
+                            rangeLabel = "all time",
+                            percentMode = percentMode,
+                            currentValueText = chartPoints.lastOrNull()?.price?.let {
+                                if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
+                                else Formatting.price(it, hideZeroCents = hideZeroCents)
+                            } ?: "unknown",
+                        ),
                     )
                     else -> Text(
                         "Not enough history yet",

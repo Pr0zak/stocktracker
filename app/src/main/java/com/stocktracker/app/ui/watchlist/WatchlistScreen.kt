@@ -91,6 +91,7 @@ import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.Freshness
 import com.stocktracker.app.util.listFreshness
+import com.stocktracker.app.util.readingAgeLabel
 import com.stocktracker.app.util.staleRowCount
 import com.stocktracker.app.util.MarketClock
 import kotlinx.coroutines.delay
@@ -396,7 +397,11 @@ fun WatchlistScreen(
                     if (contextOpen) {
                         item(key = "hdr:dips") {
                             DipStripSection(
-                                stale = state.dipStale,
+                                // A same-session refresh failure names itself; short of that, a
+                                // reading merely old (restored from disk, or unrefreshed a long
+                                // while) still says its age rather than passing for current (DATA-9).
+                                stale = state.dipStale
+                                    ?: DipRadar.restoredNote(state.dipRadar, state.scanFetchedAtMs, nowMs),
                                 state = state.dipRadar,
                                 onOpenAll = onOpenDips,
                                 onRetry = { vm.reloadDips() },
@@ -416,7 +421,16 @@ fun WatchlistScreen(
                         if (showVix) {
                             vix?.let { v ->
                                 item(key = "hdr:vix") {
-                                    FearGauge(v, onClick = onOpenVix, stale = marketContext.vixFailed)
+                                    FearGauge(
+                                        v,
+                                        onClick = onOpenVix,
+                                        // DATA-9: a fetch failure still wins ("Update failed"), but a
+                                        // reading merely restored from disk (or unconfirmed a long
+                                        // while) now says its age instead of looking current.
+                                        ageLabel = readingAgeLabel(
+                                            marketContext.vixFetchedAtMs, nowMs, failed = marketContext.vixFailed,
+                                        ),
+                                    )
                                 }
                             }
                         }

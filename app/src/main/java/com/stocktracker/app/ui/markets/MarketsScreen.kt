@@ -41,6 +41,7 @@ import com.stocktracker.app.ui.components.BackendStatusBanner
 import com.stocktracker.app.ui.theme.Signal
 import com.stocktracker.app.ui.detail.ageAgo
 import com.stocktracker.app.ui.watchlist.DipRadarState
+import com.stocktracker.app.util.readingAgeLabel
 
 /**
  * The Markets hub — the one structural move in this overhaul.
@@ -193,8 +194,10 @@ private fun dipStatus(m: MarketContextStore.State): DoorStatus? = when (val s = 
 private fun vixStatus(m: MarketContextStore.State): DoorStatus? {
     val v = m.vix ?: return if (m.vixFailed) DoorStatus("Couldn't load the VIX", warn = true) else null
     val line = "${String.format("%.2f", v.value)} · ${v.zone.label.lowercase()}"
-    // A held reading whose last refresh failed says so rather than passing for the current one.
-    return if (m.vixFailed) DoorStatus("$line — last read, not current", warn = true) else DoorStatus(line)
+    // A held reading whose last refresh failed, or one merely old — restored from disk on a cold
+    // start, or unrefreshed a long while (DATA-9) — says so rather than passing for the current one.
+    val age = readingAgeLabel(m.vixFetchedAtMs, System.currentTimeMillis(), failed = m.vixFailed)
+    return if (age != null) DoorStatus("$line — $age", warn = true) else DoorStatus(line)
 }
 
 @Composable

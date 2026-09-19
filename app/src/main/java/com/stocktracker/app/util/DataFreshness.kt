@@ -128,3 +128,35 @@ fun staleRowCount(asOfEpochMsPerRow: List<Long>, nowMs: Long, phase: MarketPhase
     val limit = staleAfterMs(phase)
     return asOfEpochMsPerRow.count { it <= 0L || nowMs - it > limit }
 }
+
+/**
+ * DATA-9 — past this, a reading that has not been reconfirmed by a successful fetch this session
+ * (the nightly scan, the VIX) needs to say how old it is rather than sit on screen looking current.
+ * Same number the home-screen widgets use for the identical question (`WIDGET_STALE_AFTER_MS`), so
+ * "how stale is too stale" means the same thing whether the reading is on a widget or inside the
+ * app — not a third threshold invented for the occasion.
+ */
+const val RESTORED_DISCLOSURE_AFTER_MS: Long = 45L * 60 * 1000
+
+/**
+ * "Update failed" / "as of Xh ago" / null — the exact three-way disclosure the home-screen widgets
+ * use for a stored reading (`tickerDisplay`/`portfolioDisplay` in `widget/WidgetDisplay.kt`), reused
+ * here for in-app readings (DATA-9's dip-radar strip and VIX gauge) so a value restored from disk on
+ * a cold start — or merely unconfirmed for a long stretch — says its age in the app's one existing
+ * voice for this, rather than a second one invented for the occasion.
+ *
+ * [failed] wins over age: a refresh that just failed is worth saying so even if it happened moments
+ * after the last success. `fetchedAtMs <= 0` (never fetched at all) discloses nothing — there is no
+ * age to report, only an absence, which is a different screen's job to say.
+ */
+fun readingAgeLabel(
+    fetchedAtMs: Long,
+    nowMs: Long,
+    failed: Boolean,
+    staleAfterMs: Long = RESTORED_DISCLOSURE_AFTER_MS,
+): String? = when {
+    failed -> "Update failed"
+    fetchedAtMs <= 0L -> null
+    nowMs - fetchedAtMs > staleAfterMs -> "as of " + agePhrase((nowMs - fetchedAtMs).coerceAtLeast(0L), fetchedAtMs)
+    else -> null
+}

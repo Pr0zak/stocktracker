@@ -67,18 +67,21 @@ fun FearGauge(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     /**
-     * True when the last attempt to re-read the VIX reached nothing, so [vix] is the previous
-     * reading rather than the current one.
+     * Null when [vix] is current enough to say nothing about; otherwise "Update failed" or
+     * "as of 3h ago" (see [com.stocktracker.app.util.readingAgeLabel]) — DATA-9's disclosure for a
+     * reading that is not, or not provably, current: a failed re-read, or one restored from disk on
+     * a cold start and not yet reconfirmed this session.
      *
-     * The gauge had no way to say this, and the watchlist's poll dropped its failures silently:
-     * a number that stopped moving looked exactly like a market that stopped moving. The value is
-     * still worth showing — it is the last thing that was true — but not in the same voice as a
-     * live one.
+     * The gauge used to have no way to say this at all, and the watchlist's poll dropped its
+     * failures silently: a number that stopped moving looked exactly like a market that stopped
+     * moving. The value is still worth showing — it is the last thing that was true — but not in
+     * the same voice as a live one.
      */
-    stale: Boolean = false,
+    ageLabel: String? = null,
 ) {
     val zone = vix.zone
     val zoneColor = zone.color()
+    val stale = ageLabel != null
 
     val cardModifier = modifier.fillMaxWidth()
     val cardShape = RoundedCornerShape(20.dp)
@@ -89,7 +92,7 @@ fun FearGauge(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                if (stale) "Market Fear · VIX · last read, not current" else "Market Fear · VIX",
+                if (ageLabel != null) "Market Fear · VIX · $ageLabel" else "Market Fear · VIX",
                 style = MaterialTheme.typography.labelSmall,
                 color = if (stale) Signal else MaterialTheme.colorScheme.onSurfaceVariant,
             )

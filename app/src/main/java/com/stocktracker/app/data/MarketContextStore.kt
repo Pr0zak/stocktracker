@@ -1,6 +1,8 @@
 package com.stocktracker.app.data
 
+import android.content.Context
 import com.stocktracker.app.data.model.VixQuote
+import com.stocktracker.app.data.prefs.MarketContextCache
 import com.stocktracker.app.data.remote.ScanLatest
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
@@ -30,8 +32,15 @@ import kotlinx.coroutines.sync.withLock
  * This is the instance. It outlives any one screen (it hangs off the service locator, not a
  * view-model scope), so opening the radar after glancing at the strip costs nothing and shows the
  * same reading, and the Markets rows can say a true thing about what is behind each door.
+ *
+ * DATA-9: both the scan and the VIX used to live ONLY here, in memory — gone the moment the process
+ * died. An offline cold start therefore always began at [DipRadarState.Loading] and `vix = null`,
+ * regardless of whether the device had a perfectly good reading from thirty minutes earlier. [cache]
+ * is what survives the restart; [restore] is what seeds this store's very first state from it, and
+ * [refreshScan]/[refreshVix] write back to it on every successful fetch so the next cold start has
+ * something to restore.
  */
-class MarketContextStore(private val scope: CoroutineScope) {
+class MarketContextStore(context: Context, private val scope: CoroutineScope) {
 
     /**
      * @property scan the raw payload, kept so callers can read fields this class has no opinion
@@ -63,6 +72,53 @@ class MarketContextStore(private val scope: CoroutineScope) {
     private val signalsApi = SignalsApiService()
     private val scanLock = Mutex()
     private val vixLock = Mutex()
+    private val cache = MarketContextCache(context)
+
+    init {
+        restore()
+    }
+
+    /**
+     * DATA-9 — seed [_state] from whatever was on disk before the first real fetch has a chance to
+     * land, so a cold start renders "the scan from 3h ago" instead of "Checking the latest scan…".
+     *
+     * Guarded on [State.scanFetchedAtMs] / [State.vixFetchedAtMs] being still zero at write time: a
+     * fast real refresh (device online, disk read merely slow) must never be clobbered by a slower
+     * disk read landing after it. [MarketContextRestore.restorable] is what refuses a reading old
+     * enough that showing it — even labelled — would be showing nothing worth having.
+     */
+    private fun restore() {
+        scope.launch {
+            val persistedScan = runCatching { cache.loadScan() }.getOrNull()
+            val now = System.currentTimeMillis()
+            val scan = persistedScan?.let {
+                MarketContextRestore.restorable(it.scan, it.fetchedAtMs, now)?.let { s -> s to it.fetchedAtMs }
+            }
+            if (scan != null) {
+                _state.update { st ->
+                    if (st.scanFetchedAtMs > 0L) return@update st // a real fetch already landed
+                    val (restoredScan, fetchedAtMs) = scan
+                    st.copy(
+                        dipRadar = DipRadar.state(scan = restoredScan, error = null, configured = true),
+                        scan = restoredScan,
+                        scanFetchedAtMs = fetchedAtMs,
+                    )
+                }
+            }
+
+            val persistedVix = runCatching { cache.loadVix() }.getOrNull()
+            val vix = persistedVix?.let {
+                MarketContextRestore.restorable(it.vix, it.fetchedAtMs, now)?.let { v -> v to it.fetchedAtMs }
+            }
+            if (vix != null) {
+                _state.update { st ->
+                    if (st.vixFetchedAtMs > 0L) return@update st // a real fetch already landed
+                    val (restoredVix, fetchedAtMs) = vix
+                    st.copy(vix = restoredVix, vixFetchedAtMs = fetchedAtMs)
+                }
+            }
+        }
+    }
 
     /**
      * Fetch the nightly scan, unless a recent enough one is already held.
@@ -75,9 +131,7 @@ class MarketContextStore(private val scope: CoroutineScope) {
         scope.launch {
             scanLock.withLock {
                 val held = _state.value
-                if (held.scanFetchedAtMs > 0 &&
-                    System.currentTimeMillis() - held.scanFetchedAtMs < maxAgeMs
-                ) {
+                if (MarketContextRestore.withinTtl(held.scanFetchedAtMs, System.currentTimeMillis(), maxAgeMs)) {
                     return@withLock
                 }
                 val base = ServiceLocator.settingsStore.signalsApiUrl.first()
@@ -92,6 +146,11 @@ class MarketContextStore(private val scope: CoroutineScope) {
                     error = res.exceptionOrNull(),
                     configured = configured,
                 )
+                val landed = res.getOrNull()?.takeIf { it.hasScan }
+                // Persist BEFORE publishing so a process death right after this line can't leave the
+                // in-memory state ahead of the disk (DATA-9) — the next cold start would then restore
+                // something older than what this session actually showed.
+                if (landed != null) runCatching { cache.saveScan(landed, System.currentTimeMillis()) }
                 _state.update { st ->
                     // Keep a good scan through a blip — the rule is in DipRadar.holdThroughBlip so
                     // it stays testable and so the reasons NotConfigured and NoScan are excluded
@@ -102,7 +161,7 @@ class MarketContextStore(private val scope: CoroutineScope) {
                         dipStale = upd.stale,
                         // A failed fetch must not clear a scan we already hold and are still
                         // showing. Same reason the 200-week flags survived a blip before this.
-                        scan = res.getOrNull()?.takeIf { it.hasScan } ?: st.scan,
+                        scan = landed ?: st.scan,
                         scanFetchedAtMs = if (res.isSuccess) System.currentTimeMillis() else st.scanFetchedAtMs,
                     )
                 }
@@ -115,13 +174,13 @@ class MarketContextStore(private val scope: CoroutineScope) {
         scope.launch {
             vixLock.withLock {
                 val held = _state.value
-                if (held.vix != null &&
-                    System.currentTimeMillis() - held.vixFetchedAtMs < maxAgeMs
-                ) {
+                if (MarketContextRestore.withinTtl(held.vixFetchedAtMs, System.currentTimeMillis(), maxAgeMs)) {
                     return@withLock
                 }
                 val res = runCatching { ServiceLocator.repository.vix() }
                 val q = res.getOrNull()
+                // See refreshScan: written before the state update for the same reason.
+                if (q != null) runCatching { cache.saveVix(q, System.currentTimeMillis()) }
                 _state.update {
                     it.copy(
                         // Keep the last good reading; only the flag changes on a failure, so the

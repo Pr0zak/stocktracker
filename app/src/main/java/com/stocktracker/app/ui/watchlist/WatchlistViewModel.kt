@@ -102,6 +102,10 @@ data class WatchlistUiState(
      * last read rather than the current one.
      */
     val dipStale: String? = null,
+    /** DATA-9 — when [dipRadar] was last confirmed by a successful fetch (this session, or restored
+     *  from disk on cold start). 0 means never. Paired with [dipStale] at the call site so a reading
+     *  that is merely old — not failed — still discloses its age (see [DipRadar.restoredNote]). */
+    val scanFetchedAtMs: Long = 0L,
     val marketNow: MarketNowUi = MarketNowUi(),
     val regime: RegimeUi = RegimeUi(),
     /** SWT-13 — the five-leg gate. Free (no LLM), so it loads regardless of the AI master switch. */
@@ -367,6 +371,7 @@ class WatchlistViewModel : ViewModel() {
                         },
                         dipRadar = m.dipRadar,
                         dipStale = m.dipStale,
+                        scanFetchedAtMs = m.scanFetchedAtMs,
                     )
                 }
             }

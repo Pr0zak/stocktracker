@@ -7,6 +7,7 @@ import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.model.SearchResult
 import com.stocktracker.app.data.model.VixQuote
+import com.stocktracker.app.data.remote.ChartSnapshot
 import com.stocktracker.app.data.remote.CoinGeckoService
 import com.stocktracker.app.data.remote.CoinMarket
 import com.stocktracker.app.data.remote.FinnhubService
@@ -69,12 +70,22 @@ class MarketRepository(
      * History goes too, so the detail chart re-reads rather than redrawing the memo beside a price
      * that just changed.
      *
-     * Sparklines deliberately do NOT: they are decorative shape on a 10-minute TTL, and dropping them
-     * means a refresh that FAILS also erases the little chart it could not replace. Old shape is not
-     * wrong shape, and blanking it is a worse answer than leaving it a few minutes behind.
+     * "snap:" (DATA-6's merged quote+sparkline+52-week chart fetch, see [stockSnapshot]) is cleared
+     * for the same reason as "q:" — [quote] now reads its price FROM the snapshot, so leaving a warm
+     * one in place would let a stale snapshot serve a "fresh" quote and turn Refresh back into a
+     * suggestion for stocks specifically.
+     *
+     * Sparklines deliberately do NOT (nor does "52:"): they are decorative shape on their own TTL, and
+     * dropping them means a refresh that FAILS also erases the little chart it could not replace. Old
+     * shape is not wrong shape, and blanking it is a worse answer than leaving it a few minutes behind.
+     * Clearing "snap:" does not undo this — [sparkline] keeps its OWN "spark:" cache entry, which
+     * [cached]'s stale-while-error branch still serves if the forced re-fetch behind a cleared "snap:"
+     * fails; only [quote]'s "q:" wrapper is forced all the way through to the network.
      */
     fun invalidateQuotes() {
-        cache.keys.removeIf { it.startsWith("q:") || it.startsWith("m:") || it.startsWith("h:") }
+        cache.keys.removeIf {
+            it.startsWith("q:") || it.startsWith("m:") || it.startsWith("h:") || it.startsWith("snap:")
+        }
     }
 
     /** Treats null / empty collection / empty map as "empty" so those get only the negative TTL. */
@@ -88,12 +99,27 @@ class MarketRepository(
     suspend fun quote(asset: Asset): Quote = cached("q:${asset.id}", QUOTE_TTL) {
         when (asset.type) {
             // Yahoo (no key) is primary; fall back to Finnhub only if a key is set and Yahoo missed.
-            AssetType.STOCK -> yahoo.quote(asset.symbol)
+            AssetType.STOCK -> stockSnapshot(asset).quote
                 ?: if (finnhub.hasKey) finnhub.quote(asset.symbol)
                 else throw java.io.IOException("No quote for ${asset.symbol}")
             AssetType.CRYPTO -> coinGecko.quote(asset.coinGeckoId ?: asset.symbol.lowercase(), asset.symbol)
         }
     }
+
+    /**
+     * DATA-6 — the quote, sparkline and 52-week range for a STOCK, from ONE Yahoo chart fetch.
+     *
+     * [quote], [sparkline] and [fiftyTwoWeek] used to each ask Yahoo separately, even though the
+     * meta block behind a quote and a 52-week range is identical to the one attached to the exact
+     * chart the sparkline already downloads. A watchlist refresh that wanted all three for N
+     * symbols made ~3N requests behind the 2-permit gate in [YahooFinanceService] — three times the
+     * chances to trip [Http]'s per-host circuit breaker for no additional information. This is the
+     * one fetch the three of them now share, cached under its own key so [invalidateQuotes] can
+     * force it (quote's freshness) without touching the sparkline/52-week caches that must survive
+     * a failed forced refresh.
+     */
+    private suspend fun stockSnapshot(asset: Asset): ChartSnapshot =
+        cached("snap:${asset.id}", QUOTE_TTL) { yahoo.chartSnapshot(asset.symbol) }
 
     /** Batched crypto market data (price + change + 7d sparkline) in one call. */
     suspend fun cryptoMarkets(assets: List<Asset>): Map<String, CoinMarket> {
@@ -135,23 +161,31 @@ class MarketRepository(
         }
     }
 
-    /** 52-week high/low. Stocks use Yahoo's meta; crypto derives from 1Y history. */
     /**
      * A compact intraday series for a watchlist sparkline.
      *
-     * Shares Yahoo's chart data with [history] but caches on its own, much longer TTL: a sparkline
-     * is a SHAPE, and re-fetching it every minute for every row would roughly double the watchlist's
-     * network traffic to redraw a line that hasn't visibly changed. Returns empty on any failure —
-     * the row simply renders without one.
+     * Stocks share [stockSnapshot]'s chart fetch (DATA-6); crypto shares [history]'s. Either way this
+     * caches on its OWN, much longer TTL: a sparkline is a SHAPE, and re-fetching it every minute for
+     * every row would roughly double the watchlist's network traffic to redraw a line that hasn't
+     * visibly changed. Returns empty on any failure — the row simply renders without one.
      */
     suspend fun sparkline(asset: Asset): List<Double> =
         cached("spark:${asset.id}", SPARKLINE_TTL) {
-            runCatching { history(asset, ChartRange.DAY).map { it.price } }.getOrDefault(emptyList())
+            runCatching {
+                when (asset.type) {
+                    // Shares stockSnapshot's chart fetch with quote/fiftyTwoWeek (DATA-6) instead of
+                    // asking history() for the same DAY range a second time.
+                    AssetType.STOCK -> stockSnapshot(asset).sparkline.map { it.price }
+                    AssetType.CRYPTO -> history(asset, ChartRange.DAY).map { it.price }
+                }
+            }.getOrDefault(emptyList())
         }
 
+    /** 52-week high/low. Stocks read it off [stockSnapshot]'s meta (DATA-6); crypto derives it from
+     *  1Y history, which a single day's chart meta cannot carry. */
     suspend fun fiftyTwoWeek(asset: Asset): Pair<Double, Double>? = cached("52:${asset.id}", HISTORY_TTL) {
         when (asset.type) {
-            AssetType.STOCK -> yahoo.fiftyTwoWeek(asset.symbol)
+            AssetType.STOCK -> stockSnapshot(asset).fiftyTwoWeek
             AssetType.CRYPTO -> {
                 val year = history(asset, ChartRange.YEAR)
                 val hi = year.maxOfOrNull { it.price }
@@ -168,6 +202,14 @@ class MarketRepository(
     suspend fun dividends(asset: Asset, range: ChartRange): List<Pair<Long, Double>> =
         if (asset.type != AssetType.STOCK) emptyList()
         else cached("div:${asset.id}:$range", HISTORY_TTL) { runCatching { yahoo.dividends(asset.symbol, range) }.getOrDefault(emptyList()) }
+
+    /** Splits on/after [sinceEpochMs] (MONEY-4) — a stock's full history, not whatever chart range
+     *  happens to be showing. Empty for crypto: splits are an equity-share-count concept. */
+    suspend fun splitsSince(asset: Asset, sinceEpochMs: Long): List<com.stocktracker.app.data.remote.SplitEvent> =
+        if (asset.type != AssetType.STOCK) emptyList()
+        else cached("splits:${asset.id}:$sinceEpochMs", HISTORY_TTL) {
+            runCatching { yahoo.splitsSince(asset.symbol, sinceEpochMs) }.getOrDefault(emptyList())
+        }
 
     /** S&P 500 (^GSPC) price history for the benchmark comparison overlay. */
     suspend fun benchmark(range: ChartRange): List<PricePoint> =

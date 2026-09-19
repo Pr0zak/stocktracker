@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.8.0" to listOf(
+            "New: a Wear OS tile and complication \u2014 your phone does the fetching, the watch just shows it",
+            "New: holdings with 100+ shares are marked income-eligible on the portfolio screen",
+            "New: the morning brief now says when the day's news touches something you own",
+            "Screen readers can now use the alert switches, list tabs, heat map and charts",
+        ),
         "1.7.1" to listOf(
             "New: an access token field for the signals service, if your backend asks for one",
         ),

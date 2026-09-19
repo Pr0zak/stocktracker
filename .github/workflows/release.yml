@@ -42,7 +42,7 @@ jobs:
       - name: Run unit tests
         run: |
           chmod +x ./gradlew
-          ./gradlew testDebugUnitTest -Pversion.name=$VERSION --stacktrace
+          ./gradlew :shared:test testDebugUnitTest -Pversion.name=$VERSION --stacktrace
 
       - name: Decode signing keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.jks

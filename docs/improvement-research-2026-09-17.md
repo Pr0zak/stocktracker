@@ -16,7 +16,7 @@ and most of them are a matter of wiring a value that already exists to a rendere
 
 ---
 
-## Status — 40 of 43 built, 0 deployed
+## Status — 43 of 43 built
 
 Tracked as **#F51** in `docs/TODO.md`; this table, that section, and the published page are kept
 in step — when one changes, all three change. "Status" is `open` → `built` (code written, suites
@@ -53,16 +53,16 @@ is the release that carried the fix; a rejected item says so instead.
 | MONEY-4 | S | built | v1.7.0 |
 | MONEY-5 | S/M | built | v1.7.0 |
 | MONEY-6 | M | built | v1.7.0 |
-| MONEY-7 | S/M/— | open | — |
+| MONEY-7 | S/M/— | built | v1.8.0 |
 | NOTIF-2 | S | built | — |
 | WGT-4 | S | built | — |
 | WGT-5 | M | built | v1.7.0 |
 | WGT-6 | S | built | — |
-| WGT-7 | L | open | — |
+| WGT-7 | L | built | v1.8.0 |
 | PLAT-1 | S | built | — |
 | PLAT-2 | S | built | — |
 | PLAT-3 | S | built | — |
-| PLAT-4 | M | open | — |
+| PLAT-4 | M | built | v1.8.0 |
 | PLAT-5 | S | built | — |
 | DATA-9 | S | built | v1.7.0 |
 | DATA-10 | S | built | — |

@@ -70,7 +70,7 @@ class ChangelogTest {
         assertTrue("expected several releases", recent.size >= 3)
         // Hardcoded on purpose: cutting a release without writing its notes should fail here as
         // well as in the build-version guard below, and updating this line is the reminder.
-        assertEquals("1.7.1", recent.first().first)
+        assertEquals("1.8.0", recent.first().first)
         // Every listed release must actually have notes — an empty section would render as a bare
         // version heading with nothing under it.
         assertTrue(recent.all { it.second.isNotEmpty() })

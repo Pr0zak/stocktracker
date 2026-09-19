@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.CallPosition
 import com.stocktracker.app.data.model.ClosedCallPosition
 import com.stocktracker.app.data.model.Lot
+import com.stocktracker.app.data.model.PositionSide
+import com.stocktracker.app.data.model.asAssigned
 import com.stocktracker.app.data.model.asExercised
 import com.stocktracker.app.data.model.asExpiredWorthless
 import com.stocktracker.app.data.model.asSold
@@ -29,11 +31,21 @@ data class CallRow(
     /** Live premium per share, from the re-price. Null when we've never priced this contract. */
     val currentPrice: Double? get() = quote?.contract?.currentPrice
 
-    /** Live position value = premium × 100 × contracts. */
+    /** Live position value = premium × 100 × contracts — what it would cost to trade right now. */
     val currentValue: Double? get() = currentPrice?.let { it * 100.0 * position.contracts }
 
-    /** Unrealized P/L in dollars vs the cost basis (premium paid × 100 × contracts). */
-    val unrealizedPl: Double? get() = currentValue?.let { it - position.costBasis }
+    /**
+     * Unrealized P/L in dollars. A LONG gains as the contract's value rises above what was paid
+     * ([CallPosition.costBasis]); a SHORT gains as it FALLS below what was collected — you'd buy it
+     * back for less than the credit you took in, which is why the sign flips (MONEY-3).
+     */
+    val unrealizedPl: Double?
+        get() = currentValue?.let {
+            when (position.side) {
+                PositionSide.LONG -> it - position.costBasis
+                PositionSide.SHORT -> position.costBasis - it
+            }
+        }
 
     val unrealizedPlPct: Double?
         get() = unrealizedPl?.let { if (position.costBasis != 0.0) it / position.costBasis * 100.0 else null }
@@ -173,6 +185,45 @@ class CallsViewModel : ViewModel() {
                     acquiredDateIso = today(),
                 ),
             )
+        }
+    }
+
+    /**
+     * Assigned (MONEY-3): the SHORT-side mirror of [markExercised] — the counterparty exercised
+     * against you. Records the outcome (no option P/L — same reasoning as EXERCISED) and appends a
+     * dated [Lot] to the matching watchlist holding through the same
+     * [com.stocktracker.app.data.prefs.WatchlistStore.addLot] path every other real acquisition uses:
+     *
+     *  - a short PUT assigned BUYS 100 × contracts shares at (strike − premium collected) — a
+     *    positive lot, same shape as [markExercised]'s, mirrored because the premium was collected
+     *    instead of paid;
+     *  - a short CALL assigned SELLS 100 × contracts shares away at the strike — a NEGATIVE lot (a
+     *    disposal; see [com.stocktracker.app.data.model.Asset.avgCost] for how that folds into the
+     *    holding's average cost without corrupting it).
+     *
+     * As with [markExercised], there is no separate opt-in: assignment always turns the contract into
+     * a real share transaction at a known price, and the confirmation dialog states as much before
+     * this is ever called.
+     */
+    fun markAssigned(position: CallPosition) {
+        viewModelScope.launch {
+            closedStore.add(position.asAssigned(today()))
+            store.delete(position.id)
+            val isPut = position.type.equals("put", ignoreCase = true)
+            val lot = if (isPut) {
+                Lot(
+                    shares = 100.0 * position.contracts,
+                    costPerShare = position.strike - position.fillPrice,
+                    acquiredDateIso = today(),
+                )
+            } else {
+                Lot(
+                    shares = -100.0 * position.contracts,
+                    costPerShare = position.strike,
+                    acquiredDateIso = today(),
+                )
+            }
+            ServiceLocator.watchlistStore.addLot(position.symbol, lot)
         }
     }
 

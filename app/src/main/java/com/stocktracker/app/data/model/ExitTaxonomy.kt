@@ -58,8 +58,11 @@ object ExitTaxonomy {
         /** Expired worthless — the plan was abandoned. Its own outcome, never counted as a stop. */
         EXPIRY,
 
-        /** Exercised: no option-leg exit price exists, so there is nothing to compare to the plan. */
+        /** Exercised (LONG): no option-leg exit price exists, so there is nothing to compare to the plan. */
         EXERCISED,
+
+        /** Assigned (SHORT, MONEY-3) — the writer's mirror of [EXERCISED]; same reasoning, opposite side. */
+        ASSIGNED,
 
         /** Closed between the levels — a decision taken outside the plan. */
         DISCRETIONARY,
@@ -91,8 +94,8 @@ object ExitTaxonomy {
      * Classify one closed position.
      *
      * Order of the checks, and why:
-     *  1. EXERCISED first — there is no option-leg exit price at all, so no comparison to any level is
-     *     possible. [RiskMultiple] already treats it as unscoreable for the same reason.
+     *  1. EXERCISED / ASSIGNED first — there is no option-leg exit price at all, so no comparison to
+     *     any level is possible. [RiskMultiple] already treats both as unscoreable for the same reason.
      *  2. THE LEVELS NEXT, AHEAD OF THE EXPIRY CHECK. With neither level usable — or a SOLD close
      *     with no exit price to compare against them — the plan cannot be checked at all: UNPLANNED,
      *     however the position ended.
@@ -117,6 +120,7 @@ object ExitTaxonomy {
      */
     fun classify(position: ClosedCallPosition): ExitKind {
         if (position.outcome == CallOutcome.EXERCISED) return ExitKind.EXERCISED
+        if (position.outcome == CallOutcome.ASSIGNED) return ExitKind.ASSIGNED
 
         val target = targetPriceFromPct(position.fillPrice, position.takeProfitPct)
         val stop = RiskMultiple.stopPriceFromPct(position.fillPrice, position.stopPct)
@@ -287,6 +291,7 @@ object ExitTaxonomy {
         ExitKind.STOP -> "Stopped out"
         ExitKind.EXPIRY -> "Expired worthless"
         ExitKind.EXERCISED -> "Exercised"
+        ExitKind.ASSIGNED -> "Assigned"
         ExitKind.DISCRETIONARY -> "Closed off-plan"
         ExitKind.UNPLANNED -> "No plan recorded"
     }

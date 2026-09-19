@@ -1,10 +1,11 @@
 package com.stocktracker.app.notify
 
 import com.stocktracker.app.data.model.CallPosition
+import com.stocktracker.app.data.model.PositionSide
 import kotlin.math.roundToInt
 
 /**
- * One exit nudge about a tracked long call (OC-4): a short title, a plain-language message, and a
+ * One exit nudge about a tracked option position (OC-4): a short title, a plain-language message, and a
  * STABLE dedupe key (`positionId:TYPE`) so the periodic worker fires it once per crossing.
  */
 data class CallExitAlert(
@@ -24,11 +25,19 @@ data class CallExitAlert(
 }
 
 /**
- * PURE, unit-testable decision logic for OC-4 — tells the user WHEN to sell (or handle expiry) on a
- * manually-tracked long call from OC-3. No I/O and no Android deps, so it can be tested directly.
+ * PURE, unit-testable decision logic for OC-4 — tells the user WHEN to close (or handle expiry) a
+ * manually-tracked option position from OC-3. No I/O and no Android deps, so it can be tested directly.
  *
- * This is DECISION SUPPORT, not investment advice, and it always frames selling-to-close over letting
- * the contract auto-exercise on Fidelity. LLM-free — unaffected by the AI kill-switch.
+ * This is DECISION SUPPORT, not investment advice, and it always frames closing the option over letting
+ * it settle automatically on Fidelity. LLM-free — unaffected by the AI kill-switch.
+ *
+ * SHORT POSITIONS (MONEY-3) get the DTE-based rules (time-stop, expiry) with side-appropriate wording,
+ * but NOT the P/L-based take-profit/stop rules. [DEFAULT_TAKE_PROFIT_PCT]/[DEFAULT_STOP_PCT] apply
+ * unconditionally when a position doesn't set its own — there is no "unset" to fall through to null —
+ * and computing them against a short's premium with the long-side sign convention would fire a
+ * take-profit alert exactly when the seller is losing money. [com.stocktracker.app.data.model.RiskMultiple]
+ * draws the identical line for the same reason (see its class doc): a short is not silently
+ * sign-flipped, it is left out, until this app tracks a real stop/target convention for a credit trade.
  */
 object CallExitRules {
 
@@ -60,15 +69,20 @@ object CallExitRules {
         nowEpochMs: Long = System.currentTimeMillis(),
     ): List<CallExitAlert> {
         val alerts = mutableListOf<CallExitAlert>()
-        val label = "${position.symbol.uppercase()} \$${fmtStrike(position.strike)}C"
+        val isPut = position.type.equals("put", ignoreCase = true)
+        val isShort = position.side == PositionSide.SHORT
+        val label = "${position.symbol.uppercase()} \$${fmtStrike(position.strike)}${if (isPut) "P" else "C"}"
 
         // Ceiling — see CallsViewModel.dte. Flooring fired the expiry warning a day early.
         val dte = kotlin.math.ceil(
             (position.expiryTs * 1000L - nowEpochMs) / 86_400_000.0,
         ).toInt().coerceAtLeast(0)
 
-        // --- P/L rules (need a live premium) ---
-        val plPct = currentPremiumPerShare?.let {
+        // --- P/L rules (need a live premium). LONG ONLY — see the class doc for why a SHORT is left
+        //     out here rather than sign-flipped: DEFAULT_TAKE_PROFIT_PCT/DEFAULT_STOP_PCT apply even
+        //     when the position never set its own, and there is no side-aware convention for those
+        //     defaults yet to flip to. ---
+        val plPct = currentPremiumPerShare?.takeIf { !isShort }?.let {
             if (position.fillPrice != 0.0) (it - position.fillPrice) / position.fillPrice * 100.0 else null
         }
         if (plPct != null) {
@@ -91,23 +105,29 @@ object CallExitRules {
             }
         }
 
-        // --- Time rules (need only DTE). Expiry supersedes the softer time-stop so ≤3 DTE yields ONE
-        //     time alert, not two. ---
+        // --- Time rules (need only DTE; run for both sides). Expiry supersedes the softer time-stop
+        //     so ≤3 DTE yields ONE time alert, not two. ---
         if (dte <= EXPIRY_DTE) {
-            val itm = inTheMoney ?: spot?.let { it >= position.strike }
-            val message = when (itm) {
-                true -> "Your $label expires in ${dte}d and is in-the-money — sell to capture value, " +
+            val itm = inTheMoney ?: spot?.let { s -> if (isPut) s <= position.strike else s >= position.strike }
+            val message = when {
+                isShort && itm == true -> "Your $label expires in ${dte}d and is in-the-money — you may be " +
+                    "assigned. Consider buying to close if you don't want that. Not investment advice."
+                isShort && itm == false -> "Your $label expires in ${dte}d out-of-the-money — likely to expire " +
+                    "worthless, which means you keep the full premium. Not investment advice."
+                isShort -> "Your $label expires in ${dte}d — buy to close or let it ride to expiry. Not investment advice."
+                itm == true -> "Your $label expires in ${dte}d and is in-the-money — sell to capture value, " +
                     "or it auto-exercises on Fidelity. Not investment advice."
-                false -> "Your $label expires in ${dte}d out-of-the-money — likely to expire worthless. " +
+                itm == false -> "Your $label expires in ${dte}d out-of-the-money — likely to expire worthless. " +
                     "Consider closing. Not investment advice."
-                null -> "Your $label expires in ${dte}d — sell to close or roll before expiry. Not investment advice."
+                else -> "Your $label expires in ${dte}d — sell to close or roll before expiry. Not investment advice."
             }
             alerts += CallExitAlert(position.id, CallExitAlert.Type.EXPIRY, "$label expires in ${dte}d", message)
         } else if (dte <= TIME_STOP_DTE) {
+            val verb = if (isShort) "Buy to close or let it ride" else "Sell or roll"
             alerts += CallExitAlert(
                 position.id, CallExitAlert.Type.TIME_STOP,
                 "$label — ${dte}d left",
-                "Your $label has ${dte}d left — time decay speeds up now. Sell or roll? Not investment advice.",
+                "Your $label has ${dte}d left — time decay speeds up now. $verb? Not investment advice.",
             )
         }
 

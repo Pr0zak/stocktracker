@@ -208,8 +208,12 @@ fun PortfolioScreen(
             }
             if (state.hasCostBasis) {
                 val gUp = state.totalGain >= 0
+                // MONEY-5: this is price movement only — current value vs. what was paid, on shares
+                // still held. Dividends are fetched elsewhere in the app (the detail chart's ex-div
+                // markers) but never summed in here, and nothing sold is in this number either. Call
+                // it what it is rather than "total return", which promises both.
                 Text(
-                    text = "${Formatting.changeLine(state.totalGain, state.totalGainPercent, gUp, hideZeroCents)} total return",
+                    text = "${Formatting.changeLine(state.totalGain, state.totalGainPercent, gUp, hideZeroCents)} unrealized gain (price only)",
                     color = if (gUp) GainGreen else LossRed,
                     fontWeight = FontWeight.Medium,
                 )
@@ -219,7 +223,7 @@ fun PortfolioScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     state.vsSpyPct?.let { v ->
                         Text(
-                            "vs S&P ${if (v >= 0) "+" else ""}${"%.1f".format(v)}%",
+                            "Today's mix vs S&P ${if (v >= 0) "+" else ""}${"%.1f".format(v)}%",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (v >= 0) GainGreen else LossRed,
                             fontWeight = FontWeight.Medium,
@@ -232,6 +236,17 @@ fun PortfolioScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                // MONEY-5: this is not a record of what the account actually did — it prices TODAY's
+                // share counts across the whole window, as if that exact mix had been held throughout,
+                // then compares that hypothetical curve to the S&P. A rebalance yesterday rewrites this
+                // number for the whole year. Said once, here, rather than implied by "vs S&P" alone.
+                if (state.vsSpyPct != null) {
+                    Text(
+                        "Hypothetical: today's holdings priced back over the window, not your real history.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
@@ -740,6 +755,11 @@ private fun RebalancePlanDialog(
                                     }
                                     Text(head, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                     Text(m.reason, style = MaterialTheme.typography.bodySmall, color = neutral)
+                                    // MONEY-1: computed client-side from this device's own dated lots
+                                    // (never from the model) — see PortfolioViewModel.taxWarnings.
+                                    ui.taxWarnings[m.symbol.uppercase()]?.let { warn ->
+                                        Text(warn, style = MaterialTheme.typography.labelSmall, color = amber)
+                                    }
                                 }
                                 Icon(
                                     Icons.AutoMirrored.Filled.KeyboardArrowRight,

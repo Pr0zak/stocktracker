@@ -98,19 +98,27 @@ object RiskMultiple {
      * Entry is the premium paid per share; the exit is the premium sold per share. Unscoreable when:
      *  - the record carries no [ClosedCallPosition.stopPct] — every position closed before SWT-6 is in
      *    this bucket, permanently;
-     *  - the outcome is EXERCISED — the option's value rolled into the shares, so there is no option-leg
-     *    exit price to measure (the same exclusion [RealizedPnl.summarize] makes);
+     *  - the outcome is EXERCISED or ASSIGNED — the option's value rolled into the shares, so there is
+     *    no option-leg exit price to measure (the same exclusion [RealizedPnl.summarize] makes);
      *  - a SOLD close somehow has no exit price recorded.
      *
      * EXPIRED-worthless IS scored, at an exit of $0: the premium went to zero. That usually blows
      * through the stop — a 50% stop that expired worthless is −2R, not −1R — and that is the honest
      * number. R measures what the trade actually did, not what the plan said would happen.
+     *
+     * SHORT positions are not scored at all, even when [ClosedCallPosition.stopPct] is present: this
+     * function, like the rest of [RiskMultiple], is LONG-ONLY (see the class doc) — [stopPriceFromPct]
+     * always places the stop BELOW the entry, which is backwards for a short, and a MONEY-3 short
+     * tracked through the wheel cards never has a stop/take-profit collected for exactly this reason
+     * (see `CallEntryDialog`). If one somehow arrives with a stop recorded, this returns null rather
+     * than silently scoring it with the wrong sign convention.
      */
     fun rFor(position: ClosedCallPosition): Double? {
+        if (position.side == PositionSide.SHORT) return null
         val exit = when (position.outcome) {
             CallOutcome.SOLD -> position.exitPricePerShare ?: return null
             CallOutcome.EXPIRED -> 0.0
-            CallOutcome.EXERCISED -> return null
+            CallOutcome.EXERCISED, CallOutcome.ASSIGNED -> return null
         }
         return rMultipleFromStopPct(position.fillPrice, exit, position.stopPct)
     }

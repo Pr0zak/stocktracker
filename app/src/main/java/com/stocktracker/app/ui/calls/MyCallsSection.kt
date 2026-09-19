@@ -36,6 +36,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.CallOutcome
 import com.stocktracker.app.data.model.ClosedCallPosition
 import com.stocktracker.app.data.model.ExitTaxonomy
+import com.stocktracker.app.data.model.PositionSide
 import com.stocktracker.app.data.model.RealizedPnl
 import com.stocktracker.app.ui.detail.ageAgo
 import com.stocktracker.app.data.model.RiskMultiple
@@ -95,8 +96,8 @@ fun MyCallsSection() {
 
         if (state.rows.isEmpty()) {
             Text(
-                "No tracked calls yet. Buy a call on Fidelity, then tap \"+ Track a call\" — or use " +
-                    "\"Track this\" on a stock's Play-with-calls card.",
+                "No tracked positions yet. Trade an option on Fidelity, then tap \"+ Track a call\" — or use " +
+                    "\"Track this\" on a stock's calls / puts / covered-call card.",
                 style = MaterialTheme.typography.bodySmall,
                 color = neutral,
             )
@@ -124,6 +125,7 @@ fun MyCallsSection() {
                 row = row,
                 onCloseSold = { exit -> vm.closeSold(row.position, exit); detailId = null },
                 onExercised = { vm.markExercised(row.position); detailId = null },
+                onAssigned = { vm.markAssigned(row.position); detailId = null },
                 onExpired = { vm.markExpiredWorthless(row.position); detailId = null },
                 onDelete = { vm.delete(id); detailId = null },
                 onDismiss = { detailId = null },
@@ -152,7 +154,8 @@ private fun CallRowItem(row: CallRow, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(contractLine(p), fontWeight = FontWeight.Bold)
             Text(
-                "${p.contracts} contract${if (p.contracts != 1) "s" else ""} · cost ${usd(p.costBasis)}",
+                "${p.contracts} contract${if (p.contracts != 1) "s" else ""} · " +
+                    "${if (p.side == PositionSide.SHORT) "credit" else "cost"} ${usd(p.costBasis)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = neutral,
             )
@@ -232,7 +235,7 @@ private fun PillChip(label: String, color: Color) {
 }
 
 /** Which confirm-and-record action the user tapped on the detail dialog. */
-private enum class CloseAction { EXERCISE, EXPIRE, DELETE }
+private enum class CloseAction { EXERCISE, ASSIGN, EXPIRE, DELETE }
 
 /** Position detail: the money numbers, the plan (TP/stop/notes) and the close-out actions + Delete. */
 @Composable
@@ -240,12 +243,14 @@ private fun CallPositionDetailDialog(
     row: CallRow,
     onCloseSold: (Double) -> Unit,
     onExercised: () -> Unit,
+    onAssigned: () -> Unit,
     onExpired: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val p = row.position
+    val isShort = p.side == PositionSide.SHORT
     var showSellPrompt by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<CloseAction?>(null) }
 
@@ -292,7 +297,10 @@ private fun CallPositionDetailDialog(
                     )
                 }
 
-                StatRow("Cost basis (max loss)", usd(p.costBasis))
+                // A SHORT's [CallPosition.costBasis] is a credit collected, not a cost, and its max
+                // loss is either uncapped (short call) or (strike × 100 × contracts − credit, short
+                // put) — neither of which is this number, so the label says what it actually is.
+                StatRow(if (isShort) "Premium collected" else "Cost basis (max loss)", usd(p.costBasis))
                 StatRow("Current value", row.currentValue?.let { usd(it) } ?: "—")
                 StatRow("Break-even", usd(p.breakeven))
                 StatRow("Strike", usd(p.strike))
@@ -322,21 +330,35 @@ private fun CallPositionDetailDialog(
                     modifier = Modifier.padding(top = 10.dp),
                 )
                 OutlinedButton(onClick = { showSellPrompt = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Sold to close — record P/L")
+                    Text(if (isShort) "Bought to close — record P/L" else "Sold to close — record P/L")
                 }
-                OutlinedButton(onClick = { pending = CloseAction.EXERCISE }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Exercised — I bought the shares")
+                if (isShort) {
+                    OutlinedButton(onClick = { pending = CloseAction.ASSIGN }, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            if (p.type.equals("put", ignoreCase = true)) "Assigned — I bought the shares"
+                            else "Assigned — my shares were called away",
+                        )
+                    }
+                } else {
+                    OutlinedButton(onClick = { pending = CloseAction.EXERCISE }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Exercised — I bought the shares")
+                    }
                 }
                 OutlinedButton(onClick = { pending = CloseAction.EXPIRE }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Expired worthless")
+                    Text(if (isShort) "Expired worthless (kept the premium)" else "Expired worthless")
                 }
                 TextButton(onClick = { pending = CloseAction.DELETE }) {
                     Text("Delete (discard, no record)", color = LossRed)
                 }
 
                 Text(
-                    "You bought this on Fidelity — the max loss is the whole premium. Selling to close is the " +
-                        "normal exit. This is a tracker, not advice.",
+                    if (isShort) {
+                        "You sold this on Fidelity — you keep the premium unless assigned. Buying to close is " +
+                            "the normal exit. This is a tracker, not advice."
+                    } else {
+                        "You bought this on Fidelity — the max loss is the whole premium. Selling to close is " +
+                            "the normal exit. This is a tracker, not advice."
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = neutral,
                     modifier = Modifier.padding(top = 6.dp),
@@ -360,6 +382,7 @@ private fun CallPositionDetailDialog(
             onConfirm = {
                 when (action) {
                     CloseAction.EXERCISE -> onExercised()
+                    CloseAction.ASSIGN -> onAssigned()
                     CloseAction.EXPIRE -> onExpired()
                     CloseAction.DELETE -> onDelete()
                 }
@@ -378,25 +401,31 @@ private fun SellToCloseDialog(
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val p = row.position
+    val isShort = p.side == PositionSide.SHORT
     var text by remember { mutableStateOf(row.currentPrice?.let { plainNum(it) } ?: "") }
     val exit = text.trim().toDoubleOrNull()
-    val preview = exit?.let { RealizedPnl.forSale(p.fillPrice, it, p.contracts) }
+    val preview = exit?.let { RealizedPnl.forSale(p.fillPrice, it, p.contracts, p.side) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Sold to close") },
+        title = { Text(if (isShort) "Bought to close" else "Sold to close") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Enter the premium PER SHARE you sold the option for. Selling to close is the beginner-normal " +
-                        "exit — you take the cash and never risk exercising into shares.",
+                    if (isShort) {
+                        "Enter the premium PER SHARE you paid to buy the option back. Buying to close is the " +
+                            "beginner-normal exit — you lock in the difference and never risk being assigned."
+                    } else {
+                        "Enter the premium PER SHARE you sold the option for. Selling to close is the " +
+                            "beginner-normal exit — you take the cash and never risk exercising into shares."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = neutral,
                 )
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text("Sell price (premium / share)") },
+                    label = { Text(if (isShort) "Buy-back price (premium / share)" else "Sell price (premium / share)") },
                     prefix = { Text("$") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -426,7 +455,7 @@ private fun SellToCloseDialog(
                 enabled = exit != null && exit >= 0.0 && !submitting,
                 onClick = { submitting = true; onConfirm(exit!!) },
             ) {
-                Text("Record sale")
+                Text(if (isShort) "Record buy-back" else "Record sale")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
@@ -464,12 +493,40 @@ private fun ConfirmCloseDialog(
             confirmLabel = "Confirm exercised"
             danger = false
         }
+        CloseAction.ASSIGN -> {
+            val isPut = p.type.equals("put", ignoreCase = true)
+            if (isPut) {
+                val perShareBasis = p.strike - p.fillPrice
+                title = "Mark assigned"
+                body = "Assignment turns this put into $shares shares of ${p.symbol.uppercase()} you must buy " +
+                    "at the ${usd(p.strike)} strike — that costs ${usd(p.strike * 100.0 * p.contracts)}, offset " +
+                    "by the ${usd(p.costBasis)} premium you already collected. Your cost basis becomes " +
+                    "${usd(perShareBasis)}/share (strike − the premium you collected). We record this as " +
+                    "assigned and don't show a separate option P/L, since the value now lives in the shares. " +
+                    "Confirming also adds those $shares shares to your ${p.symbol.uppercase()} portfolio " +
+                    "holding, dated today, at that cost basis."
+            } else {
+                title = "Mark assigned"
+                body = "Assignment sells $shares shares of ${p.symbol.uppercase()} away at the " +
+                    "${usd(p.strike)} strike (${usd(p.strike * 100.0 * p.contracts)} proceeds), on top of the " +
+                    "${usd(p.costBasis)} premium you already collected when you sold the call. We record this " +
+                    "as assigned and don't show a separate option P/L. Confirming also removes those $shares " +
+                    "shares from your ${p.symbol.uppercase()} portfolio holding, dated today."
+            }
+            confirmLabel = "Confirm assigned"
+            danger = false
+        }
         CloseAction.EXPIRE -> {
             title = "Mark expired worthless"
-            body = "The option expired with no value — you lose the whole premium: −${usd(p.costBasis)} (−100%). " +
-                "Record it in your history?"
-            confirmLabel = "Confirm loss"
-            danger = true
+            body = if (p.side == PositionSide.SHORT) {
+                "The option expired with no value — you keep the whole premium you collected: " +
+                    "+${usd(p.costBasis)} (+100%). Record it in your history?"
+            } else {
+                "The option expired with no value — you lose the whole premium: −${usd(p.costBasis)} (−100%). " +
+                    "Record it in your history?"
+            }
+            confirmLabel = if (p.side == PositionSide.SHORT) "Confirm" else "Confirm loss"
+            danger = p.side != PositionSide.SHORT
         }
         CloseAction.DELETE -> {
             title = "Delete this position?"
@@ -516,8 +573,8 @@ private fun ClosedCallsDialog(closed: List<ClosedCallPosition>, onDismiss: () ->
                     closed.forEach { ClosedRow(it) }
                 }
                 Text(
-                    "Win rate and total cover sold + expired only. Exercised calls roll their value into the " +
-                        "shares you now own, so they aren't counted here.",
+                    "Win rate and total cover sold + expired only. Exercised/assigned positions roll their " +
+                        "value into the shares, so they aren't counted here.",
                     style = MaterialTheme.typography.labelSmall,
                     color = neutral,
                     modifier = Modifier.padding(top = 2.dp),
@@ -716,9 +773,10 @@ private fun ClosedRow(c: ClosedCallPosition) {
             }
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            if (c.outcome == CallOutcome.EXERCISED) {
+            val calledAway = c.outcome == CallOutcome.ASSIGNED && c.type.equals("call", ignoreCase = true)
+            if (c.outcome == CallOutcome.EXERCISED || c.outcome == CallOutcome.ASSIGNED) {
                 Text("${c.exercisedShares} sh", style = PriceSmall, color = neutral)
-                Text("now held", style = MaterialTheme.typography.labelSmall, color = neutral)
+                Text(if (calledAway) "called away" else "now held", style = MaterialTheme.typography.labelSmall, color = neutral)
             } else {
                 val pnl = c.realizedPnl ?: 0.0
                 val up = pnl >= 0
@@ -750,6 +808,7 @@ private fun OutcomeChip(outcome: CallOutcome) {
     val (label, color) = when (outcome) {
         CallOutcome.SOLD -> "SOLD" to MaterialTheme.colorScheme.primary
         CallOutcome.EXERCISED -> "EXERCISED" to MaterialTheme.colorScheme.tertiary
+        CallOutcome.ASSIGNED -> "ASSIGNED" to MaterialTheme.colorScheme.tertiary
         CallOutcome.EXPIRED -> "EXPIRED" to LossRed
     }
     PillChip(label, color)
@@ -770,7 +829,8 @@ private fun StatRow(label: String, value: String) {
 /** "UNH $420C Sep 17 '26" for a closed position (mirrors contractLine for CallPosition). */
 private fun closedContractLine(c: ClosedCallPosition): String {
     val k = if (c.strike % 1.0 == 0.0) c.strike.toLong().toString() else "%.2f".format(c.strike)
-    return "${c.symbol.uppercase()} \$${k}C ${shortExpiry(c.expiryIso)}"
+    val optChar = if (c.type.equals("put", ignoreCase = true)) "P" else "C"
+    return "${c.symbol.uppercase()} \$${k}$optChar ${shortExpiry(c.expiryIso)}"
 }
 
 private fun plainNum(v: Double): String = if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()

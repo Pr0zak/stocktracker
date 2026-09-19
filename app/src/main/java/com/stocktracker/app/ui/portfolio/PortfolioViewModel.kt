@@ -7,6 +7,8 @@ import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.model.saleTaxNote
+import com.stocktracker.app.data.model.toDisplayText
 import com.stocktracker.app.data.remote.HoldingSync
 import com.stocktracker.app.data.remote.PortfolioReviewResponse
 import com.stocktracker.app.data.remote.RebalanceResponse
@@ -56,6 +58,15 @@ data class RebalanceUi(
     val error: String? = null,
     val targetPct: Int = 25,
     val needsSetup: Boolean = false,
+    /**
+     * MONEY-1: per-symbol tax callouts for the plan's own sell moves, keyed by [RebalanceMove.symbol]
+     * uppercased. Computed HERE, client-side, from the app's own full [Asset.lots] — never from
+     * anything the backend echoes back — because the app is the only side that knows exactly which
+     * lots a given share count would consume. Empty for a tax-advantaged account (see
+     * [com.stocktracker.app.data.prefs.SettingsStore.taxableAccount]) or when nothing touched is
+     * short-term/mixed/unknown-dated.
+     */
+    val taxWarnings: Map<String, String> = emptyMap(),
 )
 
 /** A cached quote older than this is reported as stale rather than rendered as current. */
@@ -66,6 +77,14 @@ data class PortfolioUiState(
     val dayChange: Double = 0.0,
     val dayChangePercent: Double = 0.0,
     val totalCost: Double = 0.0,
+    /**
+     * Unrealized, price-only gain (MONEY-5): today's value of the holdings WITH a recorded cost minus
+     * that cost. It is NOT a total return — dividends are fetched elsewhere in the app (the detail
+     * chart's ex-dividend markers) but never added in here, and nothing already sold enters this
+     * number either. See [PortfolioScreen]'s "unrealized gain (price only)" label, which is what this
+     * actually is. A real total-return figure would need a dividend-adjusted (`adjclose`) price
+     * history summed alongside this, which the app does not fetch today.
+     */
     val totalGain: Double = 0.0,
     val totalGainPercent: Double = 0.0,
     val hasCostBasis: Boolean = false,
@@ -88,7 +107,13 @@ data class PortfolioUiState(
     val benchmarkChart: List<PricePoint> = emptyList(),
     /** Worst peak-to-trough dip of the reconstructed value series, as a (<= 0) percent. */
     val maxDrawdownPct: Double? = null,
-    /** Portfolio total return minus the S&P's over the window, in percentage points. */
+    /**
+     * NOT a record of what this account actually returned (MONEY-5). [loadChart] reconstructs the
+     * curve by pricing TODAY's share count on every past day in the window (see its doc), so this
+     * compares that hypothetical "today's mix, held the whole time" curve against the same money in
+     * the S&P — not the account's real buy/sell history. A rebalance yesterday changes this number for
+     * the whole window. See [PortfolioScreen]'s "Today's mix vs S&P" label + caption, which say so.
+     */
     val vsSpyPct: Double? = null,
     val range: ChartRange = ChartRange.YEAR,
     val loading: Boolean = true,
@@ -204,7 +229,33 @@ class PortfolioViewModel : ViewModel() {
      */
     private fun syncPayload(): List<HoldingSync> = holdings.map { a ->
         val sym = if (a.type == AssetType.CRYPTO) "${a.symbol.uppercase()}-USD" else a.symbol.uppercase()
-        HoldingSync(sym, a.shares ?: 0.0, a.avgCost ?: 0.0)
+        // MONEY-1: one date per lot, in lot order, `null` where the lot's own date is unknown — not
+        // flattened to a single date. A position bought in two pieces a year apart is honestly TWO
+        // holding periods, and collapsing them (oldest, newest, or an average) would tell the backend
+        // something that isn't true about the shares that would actually be sold. Omitted (not an
+        // empty list) for a position with no lots at all.
+        val openedAt = a.lots.takeIf { it.isNotEmpty() }?.map { it.acquiredDateIso }
+        HoldingSync(sym, a.shares ?: 0.0, a.avgCost ?: 0.0, openedAt)
+    }
+
+    /**
+     * MONEY-1: a short tax callout per SELL move in [plan], keyed by symbol (uppercased, matching
+     * [com.stocktracker.app.data.remote.RebalanceMove.symbol] — the backend already strips crypto's
+     * "-USD" suffix on the way out). Computed from this app's OWN [Asset.lots] via FIFO — see
+     * [com.stocktracker.app.data.model.Asset.saleTaxNote] — never from anything the backend echoes
+     * back, and never at all when [taxable] is false: a tax-advantaged account must not have the app
+     * pretend holding period matters for it.
+     */
+    private fun taxWarnings(plan: RebalanceResponse, taxable: Boolean): Map<String, String> {
+        if (!taxable) return emptyMap()
+        val bySymbol = holdings.associateBy { it.symbol.uppercase() }
+        return plan.plan.moves
+            .filter { it.action.equals("sell", ignoreCase = true) && it.shares > 0.0 }
+            .mapNotNull { m ->
+                val asset = bySymbol[m.symbol.uppercase()] ?: return@mapNotNull null
+                val note = asset.saleTaxNote(m.shares) ?: return@mapNotNull null
+                m.symbol.uppercase() to note.toDisplayText()
+            }.toMap()
     }
 
     fun loadReview(force: Boolean) {
@@ -284,12 +335,17 @@ class PortfolioViewModel : ViewModel() {
             _state.update { it.copy(rebalance = it.rebalance.copy(loading = true, error = null, needsSetup = false)) }
             val syncs = syncPayload()
             val target = _state.value.rebalance.targetPct
-            val res = runCatching { signalsApi.rebalance(base, cashValue(), target, syncs, refresh = force) }
+            val taxable = settings.taxableAccount.first()
+            val res = runCatching {
+                signalsApi.rebalance(base, cashValue(), target, syncs, refresh = force, taxableAccount = taxable)
+            }
+            val plan = res.getOrNull()
             _state.update { st ->
                 st.copy(rebalance = st.rebalance.copy(
                     loading = false,
-                    result = res.getOrNull() ?: st.rebalance.result,
+                    result = plan ?: st.rebalance.result,
                     error = res.exceptionOrNull()?.let { it.message ?: "Couldn't load the rebalance plan." },
+                    taxWarnings = plan?.let { taxWarnings(it, taxable) } ?: st.rebalance.taxWarnings,
                 ))
             }
         }

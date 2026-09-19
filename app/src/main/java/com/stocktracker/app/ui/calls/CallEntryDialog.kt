@@ -32,9 +32,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.stocktracker.app.data.model.CallPosition
+import com.stocktracker.app.data.model.PositionSide
 import com.stocktracker.app.data.model.RiskMultiple
+import com.stocktracker.app.data.remote.CoveredCallCandidate
+import com.stocktracker.app.data.remote.CoveredCallResponse
 import com.stocktracker.app.data.remote.OptionCandidate
 import com.stocktracker.app.data.remote.OptionsResponse
+import com.stocktracker.app.data.remote.PutCandidate
+import com.stocktracker.app.data.remote.PutsResponse
 import com.stocktracker.app.ui.ideas.usd
 import java.time.Instant
 import java.time.LocalDate
@@ -59,9 +64,13 @@ data class CallDraft(
     val expiryTs: Long? = null,
     val contracts: Int = 1,
     val fillPrice: Double? = null,
+    /** LONG (bought — the OC-2 "Play with calls" flow) or SHORT (sold — the OC-8 wheel cards). */
+    val side: PositionSide = PositionSide.LONG,
+    /** "call" or "put". */
+    val type: String = "call",
 ) : java.io.Serializable
 
-/** Build a pre-fill draft from a shown call suggestion — the contract's own expiry ts is carried through. */
+/** Build a pre-fill draft from a shown LONG call suggestion — the contract's own expiry ts carries through. */
 fun callDraftFrom(symbol: String, options: OptionsResponse, c: OptionCandidate): CallDraft = CallDraft(
     symbol = symbol,
     contractSymbol = c.contractSymbol,
@@ -70,7 +79,42 @@ fun callDraftFrom(symbol: String, options: OptionsResponse, c: OptionCandidate):
     expiryTs = options.expiry?.ts,
     contracts = c.contracts ?: 1,
     fillPrice = c.limitPrice, // default the fill to the suggested limit; user overwrites with their actual fill
+    side = PositionSide.LONG,
+    type = "call",
 )
+
+/**
+ * Build a pre-fill draft from a shown "Get paid to buy" cash-secured PUT suggestion (MONEY-3) — a
+ * SHORT put: [CallDraft.fillPrice] defaults to the suggested limit (the premium you'd COLLECT).
+ */
+fun putDraftFrom(symbol: String, puts: PutsResponse, c: PutCandidate): CallDraft = CallDraft(
+    symbol = symbol,
+    contractSymbol = c.contractSymbol,
+    strike = c.strike,
+    expiryIso = puts.expiry?.iso?.take(10) ?: "",
+    expiryTs = puts.expiry?.ts,
+    contracts = c.contracts ?: 1,
+    fillPrice = c.limitPrice,
+    side = PositionSide.SHORT,
+    type = "put",
+)
+
+/**
+ * Build a pre-fill draft from a shown "Sell covered calls" suggestion (MONEY-3) — a SHORT call against
+ * shares already held.
+ */
+fun coveredCallDraftFrom(symbol: String, sharesHeld: Int, cc: CoveredCallResponse, c: CoveredCallCandidate): CallDraft =
+    CallDraft(
+        symbol = symbol,
+        contractSymbol = c.contractSymbol,
+        strike = c.strike,
+        expiryIso = cc.expiry?.iso?.take(10) ?: "",
+        expiryTs = cc.expiry?.ts,
+        contracts = cc.contracts ?: (sharesHeld / 100),
+        fillPrice = c.limitPrice,
+        side = PositionSide.SHORT,
+        type = "call",
+    )
 
 /**
  * The manual call-tracker entry form (OC-3), shown as a dialog for both paths: pre-filled from a
@@ -87,6 +131,12 @@ fun CallEntryDialog(
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val today = remember { LocalDate.now().toString() }
 
+    val side = prefill?.side ?: PositionSide.LONG
+    val isShort = side == PositionSide.SHORT
+    val optionType = prefill?.type ?: "call"
+    val isPut = optionType.equals("put", ignoreCase = true)
+    val typeWord = if (isPut) "put" else "call"
+
     var symbol by remember { mutableStateOf(prefill?.symbol?.uppercase() ?: "") }
     var strikeText by remember { mutableStateOf(prefill?.strike?.let { plainNumber(it) } ?: "") }
     var contractsText by remember { mutableStateOf((prefill?.contracts ?: 1).toString()) }
@@ -101,33 +151,53 @@ fun CallEntryDialog(
     val contractSymbol = prefill?.contractSymbol.orEmpty()
 
     var advanced by remember { mutableStateOf(false) }
-    var tpText by remember { mutableStateOf("80") }   // sensible default: plan to take profit at +80%
-    var stopText by remember { mutableStateOf("50") }  // sensible default: bail at −50%
+    // A SHORT tracked from a wheel card is left blank on purpose: RiskMultiple/ExitTaxonomy are
+    // LONG-ONLY (a stop-below-entry convention is backwards for a credit position — see their class
+    // docs), so a SHORT is never scored in R regardless of what is typed here. Pre-filling a number
+    // that will quietly never drive a "scored in R" claim would be worse than leaving it empty.
+    var tpText by remember { mutableStateOf(if (isShort) "" else "80") }
+    var stopText by remember { mutableStateOf(if (isShort) "" else "50") }
     var notes by remember { mutableStateOf("") }
 
     val strike = strikeText.trim().toDoubleOrNull()
     val contracts = contractsText.trim().toIntOrNull()
     val fill = fillText.trim().toDoubleOrNull()
-    // SWT-11. The stop is required, because it is R's denominator: a position logged without one can
-    // never be scored, and that is only discovered after it closes, when the number can no longer be
-    // recovered. The test is RiskMultiple's own, so a value the form accepts is a value that scores.
+    // SWT-11, LONG only. The stop is required there, because it is R's denominator: a position logged
+    // without one can never be scored, and that is only discovered after it closes, when the number
+    // can no longer be recovered. A SHORT is never scored in R at all (see above), so it has nothing
+    // to protect and the field is optional — filled in only if the user wants it on the record.
     val stopPct = stopText.trim().toDoubleOrNull()
+    val stopProvided = stopText.isNotBlank()
     val stopUsable = RiskMultiple.isUsableStopPct(stopPct)
+    val stopOk = if (isShort) (!stopProvided || stopUsable) else stopUsable
     val valid = symbol.isNotBlank() && strike != null && strike > 0 &&
         contracts != null && contracts >= 1 && fill != null && fill > 0 &&
-        expiryTs != null && expiryIso.isNotBlank() && stopUsable
+        expiryTs != null && expiryIso.isNotBlank() && stopOk
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (prefill != null) "Track this call" else "Track a call") },
+        title = {
+            Text(
+                when {
+                    prefill == null -> "Track a call"
+                    isShort -> "Track this sold $typeWord"
+                    else -> "Track this $typeWord"
+                },
+            )
+        },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    "You bought this on Fidelity — enter the fill and we'll track its live P/L. The premium " +
-                        "you paid is also the most you can lose.",
+                    if (isShort) {
+                        "You sold this on Fidelity — enter the premium you collected and we'll track its live " +
+                            "P/L. You keep it unless assigned."
+                    } else {
+                        "You bought this on Fidelity — enter the fill and we'll track its live P/L. The " +
+                            "premium you paid is also the most you can lose."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = neutral,
                 )
@@ -162,41 +232,51 @@ fun CallEntryDialog(
                 OutlinedTextField(
                     value = fillText,
                     onValueChange = { fillText = it },
-                    label = { Text("Fill price (premium / share)") },
+                    label = { Text(if (isShort) "Fill price (premium collected / share)" else "Fill price (premium / share)") },
                     prefix = { Text("$") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                DateFieldButton("Bought on", openIso) { _, iso -> openIso = iso }
+                DateFieldButton(if (isShort) "Sold on" else "Bought on", openIso) { _, iso -> openIso = iso }
 
                 // Live cost-basis / break-even echo so a beginner sees what they're committing to.
                 if (strike != null && contracts != null && contracts >= 1 && fill != null) {
+                    val breakeven = if (isPut) strike - fill else strike + fill
                     Text(
-                        "Cost basis (max loss) ${usd(fill * 100.0 * contracts)} · break-even ${usd(strike + fill)}",
+                        if (isShort) {
+                            "Premium collected ${usd(fill * 100.0 * contracts)} · break-even ${usd(breakeven)}"
+                        } else {
+                            "Cost basis (max loss) ${usd(fill * 100.0 * contracts)} · break-even ${usd(breakeven)}"
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Medium,
                     )
                 }
 
-                // Required, and in the main form rather than behind "Advanced", because it decides
-                // whether this trade can ever be measured. Pre-filled with the same default the exit
-                // alerts already assume, so the common path is one glance rather than one decision.
+                // LONG: required, and in the main form rather than behind "Advanced", because it
+                // decides whether this trade can ever be measured. Pre-filled with the same default
+                // the exit alerts already assume, so the common path is one glance rather than one
+                // decision. SHORT: optional — see the state declaration above for why it can never be
+                // scored in R regardless, so there is nothing here to protect.
                 OutlinedTextField(
                     value = stopText,
                     onValueChange = { stopText = it },
-                    label = { Text("Stop %") },
+                    label = { Text(if (isShort) "Stop % (optional)" else "Stop %") },
                     suffix = { Text("%") },
                     singleLine = true,
-                    isError = stopText.isNotBlank() && !stopUsable,
+                    isError = stopProvided && !stopUsable,
                     supportingText = {
                         Text(
                             when {
+                                isShort && stopText.isBlank() ->
+                                    "Optional — a short isn't scored in R here regardless (see My Calls)."
                                 stopText.isBlank() ->
                                     "Required — without it this trade can never be scored in R."
                                 !stopUsable ->
                                     "Enter a number above 0 and up to 100. You cannot risk more than " +
-                                        "the premium you paid."
+                                        "the premium " + (if (isShort) "you collected." else "you paid.")
+                                isShort -> "Noted on the record, for your own reference."
                                 fill != null && fill > 0 -> {
                                     val price = RiskMultiple.stopPriceFromPct(fill, stopPct)
                                     "Bail if the premium falls to ${usd(price ?: 0.0)} — risking " +
@@ -241,6 +321,7 @@ fun CallEntryDialog(
                         CallPosition(
                             symbol = symbol.trim().uppercase(),
                             contractSymbol = contractSymbol.trim(),
+                            type = optionType,
                             strike = strike!!,
                             expiryIso = expiryIso,
                             expiryTs = expiryTs!!,
@@ -248,8 +329,9 @@ fun CallEntryDialog(
                             fillPrice = fill!!,
                             openDateIso = openIso,
                             takeProfitPct = tpText.trim().toDoubleOrNull(),
-                            stopPct = stopPct, // validated above; `valid` gates the button on it
+                            stopPct = stopPct.takeIf { stopOk }, // validated above; `valid` gates the button on it
                             notes = notes.trim().ifBlank { null },
+                            side = side,
                         ),
                     )
                 },
@@ -307,5 +389,6 @@ fun shortExpiry(iso: String): String = runCatching {
 /** "UNH $420C Sep 17 '26" — the one-line contract identity used in lists and detail. */
 fun contractLine(p: CallPosition): String {
     val k = if (p.strike % 1.0 == 0.0) p.strike.toLong().toString() else "%.2f".format(p.strike)
-    return "${p.symbol.uppercase()} \$${k}C ${shortExpiry(p.expiryIso)}"
+    val optChar = if (p.type.equals("put", ignoreCase = true)) "P" else "C"
+    return "${p.symbol.uppercase()} \$${k}$optChar ${shortExpiry(p.expiryIso)}"
 }

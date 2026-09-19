@@ -455,7 +455,12 @@ private fun ConfirmCloseDialog(
             body = "Exercising turns this option into $shares shares of ${p.symbol.uppercase()} at the " +
                 "${usd(p.strike)} strike — that costs ${usd(p.strike * 100.0 * p.contracts)} to buy the shares. " +
                 "Your cost basis becomes ${usd(p.breakeven)}/share (strike + the premium you paid). We record " +
-                "this as exercised and don't show a separate option P/L, since the value now lives in the shares."
+                "this as exercised and don't show a separate option P/L, since the value now lives in the shares. " +
+                // ONE confirmation line (MONEY-2): this tap also appends those $shares shares, dated
+                // today, as a lot on your ${p.symbol.uppercase()} watchlist holding — not a second,
+                // silent write later.
+                "Confirming also adds those $shares shares to your ${p.symbol.uppercase()} portfolio holding, " +
+                "dated today, at that cost basis."
             confirmLabel = "Confirm exercised"
             danger = false
         }

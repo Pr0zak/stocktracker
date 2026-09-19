@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.CallPosition
 import com.stocktracker.app.data.model.ClosedCallPosition
+import com.stocktracker.app.data.model.Lot
 import com.stocktracker.app.data.model.asExercised
 import com.stocktracker.app.data.model.asExpiredWorthless
 import com.stocktracker.app.data.model.asSold
@@ -147,11 +148,31 @@ class CallsViewModel : ViewModel() {
         }
     }
 
-    /** Exercised: record the outcome (no option P/L — value rolls into the shares) and remove from open. */
+    /**
+     * Exercised: record the outcome (no option P/L — value rolls into the shares) and remove from
+     * open.
+     *
+     * Also appends a dated [Lot] to the matching watchlist holding — 100 × contracts shares at
+     * strike + premium paid, dated today (MONEY-2). This funnels through
+     * [com.stocktracker.app.data.prefs.WatchlistStore.addLot], the exact same path a recorded journal
+     * fill uses ([com.stocktracker.app.ui.journal.JournalViewModel.markTaken]), so a real acquisition
+     * is recorded the same way regardless of which screen it came from. There is no separate opt-in
+     * here: unlike a journal fill, which can be logged with the numbers still unknown, exercising
+     * ALWAYS turns the contract into real shares at a known cost, and [ConfirmCloseDialog] already
+     * states as much before this is ever called — that dialog IS the one confirmation line.
+     */
     fun markExercised(position: CallPosition) {
         viewModelScope.launch {
             closedStore.add(position.asExercised(today()))
             store.delete(position.id)
+            ServiceLocator.watchlistStore.addLot(
+                position.symbol,
+                Lot(
+                    shares = 100.0 * position.contracts,
+                    costPerShare = position.strike + position.fillPrice,
+                    acquiredDateIso = today(),
+                ),
+            )
         }
     }
 

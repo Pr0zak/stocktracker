@@ -7,6 +7,7 @@ import com.stocktracker.app.data.model.AssetAlerts
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.JournalPlan
+import com.stocktracker.app.data.model.Lot
 import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.model.TakenState
@@ -884,14 +885,26 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     /**
      * Persist shares + alerts in a SINGLE write. (Two separate writes raced and clobbered each
      * other's field, so shares appeared not to save.) Adds the asset to the watchlist if needed.
+     *
+     * This dialog only ever gathers a TOTAL, never a per-lot correction, so it has no way to know
+     * WHICH lot changed when the totals move (MONEY-2). A no-op edit — the numbers already match
+     * what [lots] derives — leaves any real, dated lot history alone; an actual change collapses the
+     * holding to a single undated lot carrying the new totals, the same "one blended number" this
+     * screen always produced, just expressed as a lot now. Precise, dated lots come only from a
+     * recorded fill or an exercised call (see [Lot], [com.stocktracker.app.data.prefs.WatchlistStore.addLot]).
      */
     fun saveHoldingsAndAlerts(shares: Double?, avgCost: Double?, alerts: AssetAlerts) {
         viewModelScope.launch {
             val base = store.snapshot().firstOrNull { it.id == asset.id } ?: asset
+            val newAvgCost = avgCost.takeIf { shares != null } // cost only meaningful with shares
+            val lots = when {
+                shares == base.shares && newAvgCost == base.avgCost -> base.lots
+                shares == null || shares == 0.0 -> emptyList()
+                else -> listOf(Lot(shares = shares, costPerShare = newAvgCost, acquiredDateIso = null))
+            }
             store.update(
                 base.copy(
-                    shares = shares,
-                    avgCost = avgCost.takeIf { shares != null }, // cost only meaningful with shares
+                    lots = lots,
                     alerts = alerts.takeUnless { it.isEmpty },
                 ),
             )

@@ -3,6 +3,7 @@ package com.stocktracker.app.ui.journal
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stocktracker.app.data.model.JournalReplay
+import com.stocktracker.app.data.model.Lot
 import com.stocktracker.app.data.model.TakenState
 import com.stocktracker.app.data.model.VerdictJournalEntry
 import com.stocktracker.app.data.remote.HttpStatusException
@@ -99,20 +100,40 @@ class JournalViewModel : ViewModel() {
      * [fillPrice] and [shares] are nullable because "I took it and I'll fill the numbers in later" is
      * a real state ([com.stocktracker.app.data.model.JournalStatus.TAKEN_UNFILLED]) and is scored as
      * nothing rather than as a fill of zero.
+     *
+     * [addToHolding] is the MONEY-2 wire: the fill dialog already asks you to confirm price, shares
+     * and date, and when this is true it reuses that SAME confirmation to also append a dated [Lot]
+     * to the matching watchlist holding — never a second, silent write behind the journal entry. It
+     * funnels through [com.stocktracker.app.data.prefs.WatchlistStore.addLot], the one path an
+     * exercised call ([com.stocktracker.app.ui.calls.CallsViewModel.markExercised]) uses too. A lot
+     * only gets appended when there is a real price AND a real share count — "I'll fill in the
+     * numbers tonight" records nothing to the holding either, same as it records nothing to the R.
      */
     fun markTaken(
         entry: VerdictJournalEntry,
         fillPrice: Double?,
         shares: Double?,
         fillDateIso: String?,
-    ) = write(
-        entry.copy(
-            taken = TakenState.TAKEN,
-            fillPrice = fillPrice,
-            shares = shares,
-            fillDateIso = fillDateIso?.takeIf { it.isNotBlank() } ?: today(),
-        ),
-    )
+        addToHolding: Boolean = false,
+    ) {
+        val resolvedDate = fillDateIso?.takeIf { it.isNotBlank() } ?: today()
+        write(
+            entry.copy(
+                taken = TakenState.TAKEN,
+                fillPrice = fillPrice,
+                shares = shares,
+                fillDateIso = resolvedDate,
+            ),
+        )
+        if (addToHolding && fillPrice != null && fillPrice > 0.0 && shares != null && shares > 0.0) {
+            viewModelScope.launch {
+                ServiceLocator.watchlistStore.addLot(
+                    entry.symbol,
+                    Lot(shares = shares, costPerShare = fillPrice, acquiredDateIso = resolvedDate),
+                )
+            }
+        }
+    }
 
     /** Back to undecided — the fill and exit go with it, since they described a decision you retracted. */
     fun markUndecided(entry: VerdictJournalEntry) = write(

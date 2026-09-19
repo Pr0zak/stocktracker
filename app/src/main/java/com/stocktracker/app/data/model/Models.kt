@@ -1,19 +1,55 @@
 package com.stocktracker.app.data.model
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 
 @Serializable
 enum class AssetType { STOCK, CRYPTO }
 
-/** A tracked instrument. [coinGeckoId] is set for crypto (e.g. "bitcoin"). */
+/**
+ * One purchase lot behind a holding (MONEY-2).
+ *
+ * A holding used to be two scalars — [Asset.shares] and [Asset.avgCost] — with no history behind
+ * them: adding to a position meant re-typing a new blended total by hand, and there was no record of
+ * WHEN any of it was bought. That missing date is why a tax-aware rebalance can't tell short-term
+ * from long-term, why a split has no anchor to correct against, and why there is no realised-gains
+ * history for equities. A lot is the fix: [shares]/[avgCost] on [Asset] are now derived by folding
+ * over a list of these.
+ *
+ * [costPerShare] and [acquiredDateIso] are independently nullable, and null means UNKNOWN in both —
+ * never zero, never "today", never rendered as a real value. That is what lets a lot synthesized from
+ * the pre-MONEY-2 shape (bare shares + avgCost, no date at all) decode honestly instead of inventing
+ * a purchase date nobody recorded.
+ */
 @Serializable
+data class Lot(
+    val shares: Double,
+    /** What was paid per share for this lot. Null means unknown, not free — see [Asset.avgCost]. */
+    val costPerShare: Double? = null,
+    /** ISO yyyy-MM-dd. Null means unknown — a migrated pre-MONEY-2 holding always lands here. */
+    val acquiredDateIso: String? = null,
+)
+
+/**
+ * A tracked instrument. [coinGeckoId] is set for crypto (e.g. "bitcoin").
+ *
+ * [lots] replaced the old bare `shares`/`avgCost` scalars (MONEY-2); those are now derived getters
+ * below so every existing read site ([Asset.shares], [Asset.avgCost]) keeps compiling and behaving
+ * exactly as before. [AssetSerializer] is what makes an [Asset] persisted in the old shape decode as
+ * a single migrated [Lot] with a null date, so nothing already on a watchlist or in a backup silently
+ * loses its position on the next read.
+ */
+@Serializable(with = AssetSerializer::class)
 data class Asset(
     val symbol: String,          // "AAPL", "BTC"
     val type: AssetType,
     val displayName: String,     // "Apple Inc.", "Bitcoin"
     val coinGeckoId: String? = null,
-    val shares: Double? = null,          // user-owned quantity (for position value)
-    val avgCost: Double? = null,         // average cost per share (for total return)
+    /** Purchase lots behind this holding. Empty means no position — same meaning as the old null. */
+    val lots: List<Lot> = emptyList(),
     val alerts: AssetAlerts? = null,     // price / percent threshold alerts
     val groups: List<String> = emptyList(), // named watchlists this asset belongs to
     /**
@@ -34,6 +70,112 @@ data class Asset(
     val id: String get() = when (type) {
         AssetType.CRYPTO -> "CRYPTO:${coinGeckoId ?: symbol.uppercase()}"
         AssetType.STOCK -> "STOCK:${symbol.uppercase()}"
+    }
+
+    /**
+     * Total shares held, derived from [lots]. Null — not 0.0 — when there is no position at all, so
+     * every existing `asset.shares ?: 0.0` / `asset.shares != null` read site keeps meaning what it
+     * always meant.
+     */
+    val shares: Double? get() = lots.takeIf { it.isNotEmpty() }?.sumOf { it.shares }
+
+    /**
+     * Weighted average cost per share across [lots]. Null when there is no position, AND null when
+     * ANY lot's cost is unknown — blending a real cost against a missing one would silently treat the
+     * unpriced lot as free and understate the true basis, which is exactly the confident-looking
+     * wrong number this project refuses to print.
+     */
+    val avgCost: Double?
+        get() {
+            if (lots.isEmpty() || lots.any { it.costPerShare == null }) return null
+            val totalShares = lots.sumOf { it.shares }
+            if (totalShares == 0.0) return null
+            return lots.sumOf { it.shares * (it.costPerShare ?: 0.0) } / totalShares
+        }
+
+    /**
+     * Would replacing these lots with one blended [shares]/[avgCost] total throw away history?
+     *
+     * The Edit-holdings dialog can only express a single total — it has no way to say WHICH of
+     * several lots the user meant to correct — so any real change collapses the list. That is
+     * acceptable when the lots carry no dates anyway, and destructive when they do: the dates are
+     * exactly what a tax-aware rebalance and a split adjustment read. So the caller asks this
+     * first and warns, rather than quietly discarding a purchase history the user did not know
+     * they had.
+     */
+    fun editWouldDiscardDatedLots(newShares: Double?, newAvgCost: Double?): Boolean {
+        val unchanged = newShares == shares && newAvgCost == avgCost
+        if (unchanged) return false
+        return lots.count { it.acquiredDateIso != null } > 0 && lots.size > 0
+    }
+
+    /** How many dated lots an [editWouldDiscardDatedLots] edit would collapse. */
+    fun datedLotCount(): Int = lots.count { it.acquiredDateIso != null }
+}
+
+/**
+ * Hand-written so an [Asset] persisted before MONEY-2 (a bare `shares`/`avgCost` pair, no `lots` key
+ * at all) decodes as a single [Lot] with a null — unknown — acquisition date, instead of the position
+ * quietly vanishing the moment `lots` was added with a default of `emptyList()`. New data is always
+ * written with `lots` only; `shares`/`avgCost` are read-only legacy keys on the wire now that the
+ * Kotlin properties of those names are derived getters rather than stored fields.
+ */
+object AssetSerializer : KSerializer<Asset> {
+
+    @Serializable
+    private data class Surrogate(
+        val symbol: String,
+        val type: AssetType,
+        val displayName: String,
+        val coinGeckoId: String? = null,
+        val lots: List<Lot> = emptyList(),
+        // Pre-MONEY-2 shape only. A decode with these but no `lots` synthesizes one lot (see below);
+        // encode never sets them, so a round trip through this app always upgrades a legacy Asset.
+        val shares: Double? = null,
+        val avgCost: Double? = null,
+        val alerts: AssetAlerts? = null,
+        val groups: List<String> = emptyList(),
+        val favorite: Boolean = false,
+    )
+
+    override val descriptor: SerialDescriptor = Surrogate.serializer().descriptor
+
+    override fun deserialize(decoder: Decoder): Asset {
+        val s = decoder.decodeSerializableValue(Surrogate.serializer())
+        val lots = s.lots.ifEmpty {
+            // A legacy "no position" Asset has shares == null or 0.0 — that migrates to no lots at
+            // all, not a zero-share lot.
+            listOfNotNull(
+                s.shares?.takeIf { it != 0.0 }
+                    ?.let { Lot(shares = it, costPerShare = s.avgCost, acquiredDateIso = null) },
+            )
+        }
+        return Asset(
+            symbol = s.symbol,
+            type = s.type,
+            displayName = s.displayName,
+            coinGeckoId = s.coinGeckoId,
+            lots = lots,
+            alerts = s.alerts,
+            groups = s.groups,
+            favorite = s.favorite,
+        )
+    }
+
+    override fun serialize(encoder: Encoder, value: Asset) {
+        encoder.encodeSerializableValue(
+            Surrogate.serializer(),
+            Surrogate(
+                symbol = value.symbol,
+                type = value.type,
+                displayName = value.displayName,
+                coinGeckoId = value.coinGeckoId,
+                lots = value.lots,
+                alerts = value.alerts,
+                groups = value.groups,
+                favorite = value.favorite,
+            ),
+        )
     }
 }
 

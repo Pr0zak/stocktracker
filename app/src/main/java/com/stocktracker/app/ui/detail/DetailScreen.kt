@@ -196,6 +196,34 @@ fun DetailScreen(
     var showIndicatorSheet by remember { mutableStateOf(false) }
     var showNewListDialog by remember { mutableStateOf(false) }
     var newListName by rememberSaveable { mutableStateOf("") }
+    // Set only when a holdings edit would collapse dated lots; see onSave below.
+    var pendingLotOverwrite by remember { mutableStateOf<Triple<Double?, Double?, AssetAlerts>?>(null) }
+
+    pendingLotOverwrite?.let { (pShares, pCost, pAlerts) ->
+        val dated = state.asset.datedLotCount()
+        AlertDialog(
+            onDismissRequest = { pendingLotOverwrite = null },
+            title = { Text("Replace $dated dated ${if (dated == 1) "purchase" else "purchases"}?") },
+            text = {
+                Text(
+                    "This holding has $dated ${if (dated == 1) "purchase" else "purchases"} with " +
+                        "recorded dates, from fills and exercised calls. Saving a single total " +
+                        "replaces them with one entry that has no date.\n\n" +
+                        "Cost basis and share count are kept. The dates are not, and they are what " +
+                        "long-term treatment and split adjustments are worked out from.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.saveHoldingsAndAlerts(pShares, pCost, pAlerts)
+                    pendingLotOverwrite = null
+                }) { Text("Replace") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingLotOverwrite = null }) { Text("Keep purchases") }
+            },
+        )
+    }
     // Non-null while the OC-3 call-tracker entry form is open (pre-filled from a "Track this" tap).
     var callDraft by rememberSaveable { mutableStateOf<CallDraft?>(null) }
     val context = LocalContext.current
@@ -591,7 +619,18 @@ fun DetailScreen(
                     } else null
                 },
                 onSave = { newShares, newAvgCost, newAlerts ->
-                    vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
+                    // The Edit-holdings form can only express one blended total, so a real change
+                    // collapses however many dated lots exist into a single undated one. When those
+                    // lots came from recorded fills or an exercised call, their dates are what a
+                    // tax-aware rebalance and a split adjustment read — so say so before discarding
+                    // them, rather than letting a hand correction quietly erase a purchase history
+                    // the user may not know the app was keeping.
+                    val discarding = state.asset.editWouldDiscardDatedLots(newShares, newAvgCost)
+                    if (discarding) {
+                        pendingLotOverwrite = Triple(newShares, newAvgCost, newAlerts)
+                    } else {
+                        vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
+                    }
                     if (!newAlerts.isEmpty) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=

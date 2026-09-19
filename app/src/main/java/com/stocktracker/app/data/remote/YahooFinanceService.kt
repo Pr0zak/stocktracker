@@ -148,28 +148,48 @@ class YahooFinanceService {
      * GET a chart-endpoint [path] and parse it, failing over query1 → query2. The failover also
      * triggers when query1 returns a 200 whose body isn't the JSON we expect (Yahoo serves HTML
      * consent / rate-limit pages that way), because the parse happens *inside* the failover. A
-     * Yahoo `error` object is likewise treated as a failure, so a rate-limited response fails over
-     * (and, if both hosts fail, throws) instead of being mistaken for "no data". Serialized through
-     * [gate] so one detail-screen open can't fan five simultaneous requests into a 429.
+     * Yahoo `error` object is likewise treated as a failure, so a garbled/erroring response fails
+     * over (and, if both hosts fail, throws) instead of being mistaken for "no data" — EXCEPT a 429,
+     * which does not fail over (see [RetryPolicy.shouldFailoverToOtherHost]): rate limiting is a
+     * property of the caller, not of query1 specifically, so retrying the identical ladder against
+     * query2 would only double the request volume at the moment Yahoo is asking for less of it.
+     *
+     * Checks [Http.throwIfBreakerOpen] for query1 *before* touching [gate], so once query1 is known
+     * to be rate-limiting, further calls fail immediately instead of queueing for one of its 2
+     * permits only to hit the same wall.
      */
-    private suspend fun fetchChart(path: String): YahooChartResponse = gate.withPermit {
-        try {
-            parseChart(Http.getString("https://query1.finance.yahoo.com/$path"))
-        } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
-            throw ce
-        } catch (_: Throwable) {
-            // query1 failed (transport error, garbled/HTML body, or a Yahoo error object) — fail over.
+    private suspend fun fetchChart(path: String): YahooChartResponse {
+        val primaryUrl = "https://query1.finance.yahoo.com/$path"
+        Http.throwIfBreakerOpen(primaryUrl)
+        return gate.withPermit {
             try {
-                parseChart(Http.getString("https://query2.finance.yahoo.com/$path"))
+                parseChart(Http.getString(primaryUrl))
             } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
                 throw ce
             } catch (e: HttpStatusException) {
-                // A definitive 404 = delisted/unknown symbol = genuine no-data, not a transient
-                // failure. Return empty so the UI shows "no data" instead of a Retry that can't
-                // succeed; everything else (429/5xx/timeout) propagates so stale-while-error/retry
-                // can kick in.
-                if (e.code == 404) YahooChartResponse() else throw e
+                if (!RetryPolicy.shouldFailoverToOtherHost(e.code)) throw e
+                failoverToQuery2(path)
+            } catch (_: Throwable) {
+                // query1 failed (transport error, garbled/HTML body, or a Yahoo error object) — fail over.
+                failoverToQuery2(path)
             }
+        }
+    }
+
+    /** The query2 half of [fetchChart]'s failover, also breaker-gated. */
+    private suspend fun failoverToQuery2(path: String): YahooChartResponse {
+        val secondaryUrl = "https://query2.finance.yahoo.com/$path"
+        Http.throwIfBreakerOpen(secondaryUrl)
+        return try {
+            parseChart(Http.getString(secondaryUrl))
+        } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+            throw ce
+        } catch (e: HttpStatusException) {
+            // A definitive 404 = delisted/unknown symbol = genuine no-data, not a transient
+            // failure. Return empty so the UI shows "no data" instead of a Retry that can't
+            // succeed; everything else (429/5xx/timeout) propagates so stale-while-error/retry
+            // can kick in.
+            if (e.code == 404) YahooChartResponse() else throw e
         }
     }
 

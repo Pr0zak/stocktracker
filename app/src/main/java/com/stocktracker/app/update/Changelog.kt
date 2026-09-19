@@ -16,13 +16,15 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.7.1" to listOf(
+            "New: an access token field for the signals service, if your backend asks for one",
+        ),
         "1.7.0" to listOf(
             "Fixed: home-screen widgets no longer show a stale or partial total as if it were current",
             "Fixed: a price alert is only marked sent once it actually arrives \u2014 blocked notifications used to swallow it silently",
             "New: holdings remember when you bought them, so a sale can warn you if it's short-term",
             "New: import your holdings from a Fidelity positions export instead of typing them in",
             "New: watchlist widgets can each show a different list, sort and \u0024/%",
-            "New: an access token field for the signals service, if your backend asks for one",
         ),
         "1.6.0" to listOf(
             "New: choose whether the sandbox's recurring deposit lands once or twice a month",

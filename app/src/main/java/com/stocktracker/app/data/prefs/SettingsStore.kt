@@ -54,6 +54,11 @@ class SettingsStore(private val context: Context) {
     /** The versionName the user was last SHOWN the changelog for. Absent on a fresh install, which
      *  is how "first run" is told apart from "just upgraded" — a new user gets no release notes. */
     private val lastSeenVersionKey = stringPreferencesKey("last_seen_version")
+
+    /** The release version the user last chose "Later" for in the update dialog. Compared against
+     *  the latest available release so a cold start doesn't re-nag about the same one every launch;
+     *  see [dismissedUpdateVersion]. */
+    private val dismissedUpdateVersionKey = stringPreferencesKey("dismissed_update_version")
     private val lastSandboxTradeTsKey = doublePreferencesKey("last_sandbox_trade_ts")
     private val lastBackgroundRunKey = longPreferencesKey("last_background_run_at")
     private val lastBackgroundFailuresKey = stringPreferencesKey("last_background_failures")
@@ -88,6 +93,12 @@ class SettingsStore(private val context: Context) {
 
     val lastSeenVersion: Flow<String?> = context.dataStore.data.map { it[lastSeenVersionKey] }
     suspend fun setLastSeenVersion(v: String) = context.dataStore.edit { it[lastSeenVersionKey] = v }
+
+    /** null = nothing ever dismissed. See [UpdateChecker.shouldPrompt][com.stocktracker.app.update.UpdateChecker.shouldPrompt]
+     *  for how this suppresses only that exact version, not updates in general. */
+    val dismissedUpdateVersion: Flow<String?> = context.dataStore.data.map { it[dismissedUpdateVersionKey] }
+    suspend fun setDismissedUpdateVersion(version: String) =
+        context.dataStore.edit { it[dismissedUpdateVersionKey] = version }
     suspend fun setInvestableCash(amount: Double) = context.dataStore.edit {
         it[investableCashKey] = amount.coerceAtLeast(0.0)
     }

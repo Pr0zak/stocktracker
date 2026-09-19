@@ -10,6 +10,7 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.LocalContext
+import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
@@ -31,11 +32,14 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.stocktracker.app.MainActivity
+import com.stocktracker.app.notify.AlertNotifier
+import com.stocktracker.app.ui.Routes
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.OnSurfaceDark
 import com.stocktracker.app.ui.theme.OnSurfaceVariantDark
+import com.stocktracker.app.ui.theme.Signal
 
 private val OnSurface = OnSurfaceDark
 private val Muted = OnSurfaceVariantDark
@@ -52,9 +56,12 @@ class WatchlistWidget : GlanceAppWidget() {
         provideContent {
             val prefs = currentState<Preferences>()
             WatchlistContent(
+                config = WatchlistWidgetState.readConfig(prefs),
                 rows = WatchlistWidgetState.readRows(prefs),
+                expectedCount = prefs[WatchlistWidgetState.EXPECTED_COUNT] ?: 0,
                 loaded = prefs.contains(WatchlistWidgetState.ROWS),
                 error = prefs[WatchlistWidgetState.ERROR],
+                lastSuccessMs = prefs[WatchlistWidgetState.LAST_SUCCESS] ?: 0L,
                 hideZeroCents = prefs[WatchlistWidgetState.HIDE_ZERO_CENTS] ?: false,
                 backgroundArgb = backgroundArgb,
                 backgroundTransparency = backgroundTransparency,
@@ -65,31 +72,64 @@ class WatchlistWidget : GlanceAppWidget() {
 
 @Composable
 private fun WatchlistContent(
+    config: WatchlistWidgetConfig,
     rows: List<WatchlistRow>,
+    expectedCount: Int,
     loaded: Boolean,
     error: String?,
     hideZeroCents: Boolean,
+    lastSuccessMs: Long = 0L,
+    nowMs: Long = System.currentTimeMillis(),
     backgroundArgb: Long = WidgetBackground.DEFAULT_ARGB,
     backgroundTransparency: Int = WidgetBackground.DEFAULT_TRANSPARENCY,
 ) {
     val context = LocalContext.current
+    val heightDp = LocalSize.current.height.value
+    val listLabel = watchlistListLabel(config.listName)
+    val display = watchlistDisplay(rows, expectedCount, error, loaded, heightDp, lastSuccessMs, nowMs, listLabel)
+    val accent = Color(config.accentArgb.toInt())
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
             .widgetBackground(backgroundArgb, backgroundTransparency)
             .padding(14.dp)
-            .clickable(actionStartActivity(Intent(context, MainActivity::class.java))),
+            .clickable(actionStartActivity(
+                Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(AlertNotifier.EXTRA_ROUTE, Routes.WATCHLIST),
+            )),
     ) {
         Text(
             text = "Watchlist",
-            style = TextStyle(color = ColorProvider(OnSurface), fontSize = 14.sp, fontWeight = FontWeight.Bold),
+            style = TextStyle(color = ColorProvider(accent), fontSize = 14.sp, fontWeight = FontWeight.Bold),
+            maxLines = 1,
         )
+        // Two instances scoped to different lists must not look identical -- the subtitle is the
+        // one thing on screen that says which list THIS widget is, independent of its (now also
+        // per-instance) rows.
+        listLabel?.let { label ->
+            Text(
+                text = label,
+                style = TextStyle(color = ColorProvider(Muted), fontSize = 11.sp),
+                maxLines = 1,
+            )
+        }
         Spacer(GlanceModifier.height(6.dp))
-        when {
-            rows.isNotEmpty() -> rows.take(6).forEach { row -> WatchlistRowItem(row, hideZeroCents) }
-            error != null -> Message(error)
-            !loaded -> Message("Loading…")
-            else -> Message("Add tickers in the app")
+        when (display) {
+            is WatchlistDisplay.Rows -> {
+                display.visible.forEach { row -> WatchlistRowItem(row, config.valueMode, hideZeroCents, nowMs) }
+                // A partial load (or a truncated list) must not read as the complete, current
+                // watchlist -- the same amber the rest of the app uses for "not the whole story".
+                display.footerLabel?.let { label ->
+                    Spacer(GlanceModifier.height(4.dp))
+                    Text(
+                        text = label,
+                        style = TextStyle(color = ColorProvider(Signal), fontSize = 11.sp, fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                    )
+                }
+            }
+            is WatchlistDisplay.Message -> Message(display.text)
         }
     }
 }
@@ -100,8 +140,11 @@ private fun Message(text: String) {
 }
 
 @Composable
-private fun WatchlistRowItem(row: WatchlistRow, hideZeroCents: Boolean) {
-    val color = if (row.isUp) Up else Down
+private fun WatchlistRowItem(row: WatchlistRow, valueMode: WatchlistValueMode, hideZeroCents: Boolean, nowMs: Long) {
+    // A stale row's move is not today's -- drop the confident green/red rather than assert a
+    // direction the data can no longer back up. Mirrors TickerWidgetState's age handling.
+    val stale = watchlistRowIsStale(row, nowMs)
+    val color = if (stale) Muted else if (row.isUp) Up else Down
     Row(
         modifier = GlanceModifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -120,7 +163,7 @@ private fun WatchlistRowItem(row: WatchlistRow, hideZeroCents: Boolean) {
         )
         Spacer(GlanceModifier.width(10.dp))
         Text(
-            text = "${Formatting.arrow(row.isUp)} ${Formatting.percent(row.changePercent)}",
+            text = watchlistChangeText(row, valueMode, hideZeroCents),
             style = TextStyle(color = ColorProvider(color), fontSize = 12.sp, fontWeight = FontWeight.Medium),
             maxLines = 1,
         )

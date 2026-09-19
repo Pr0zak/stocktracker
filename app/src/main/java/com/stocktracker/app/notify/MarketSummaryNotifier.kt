@@ -8,6 +8,7 @@ import com.stocktracker.app.util.MarketClock
 import com.stocktracker.app.util.MarketHolidays
 import com.stocktracker.app.util.MarketPhase
 import com.stocktracker.app.ui.Routes
+import com.stocktracker.app.ui.portfolio.STALE_QUOTE_MS
 import kotlinx.coroutines.flow.first
 import java.time.DayOfWeek
 import java.time.ZoneId
@@ -78,9 +79,11 @@ object MarketSummaryNotifier {
         val movers = marketMovers ?: run {
             val stocks = ServiceLocator.watchlistStore.snapshot().filter { it.type == AssetType.STOCK }
             if (stocks.isEmpty()) return
+            val now = System.currentTimeMillis()
             stocks.mapNotNull { asset ->
                 val q = runCatching { ServiceLocator.repository.quote(asset) }.getOrNull()
                     ?: ServiceLocator.priceCache.getQuote(asset.id)
+                        ?.takeIf { it.asOfEpochMs <= 0L || now - it.asOfEpochMs <= STALE_QUOTE_MS }
                     ?: return@mapNotNull null
                 // The quote's post-market field comes from the chart meta, which Yahoo no longer
                 // populates — so for the after-hours recap derive the move from intraday bars

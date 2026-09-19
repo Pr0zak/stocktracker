@@ -1,6 +1,7 @@
 package com.stocktracker.app.notify
 
 import com.stocktracker.app.data.model.CallPosition
+import com.stocktracker.app.data.model.PositionSide
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -114,5 +115,38 @@ class CallExitRulesTest {
 
         val timeStop = CallExitRules.evaluate(position(dte = 10), null, null, null, nowMs)
         assertEquals(setOf(CallExitAlert.Type.TIME_STOP), types(timeStop))
+    }
+
+    // ---------------------------------------------------------------------------- MONEY-3: SHORT side
+
+    @Test fun `a SHORT position never fires the P-L take-profit-stop rules, even against the defaults`() {
+        // Same numbers as the LONG take-profit test above (1.00 -> 1.80 = +80% by the LONG sign
+        // convention) would fire TAKE_PROFIT on a LONG. On a SHORT this premium RISE is a LOSS, and
+        // this app has no side-aware convention for the defaults yet (see the class doc) -- so it must
+        // fire nothing from the P/L side, not a backwards-signed alert.
+        val p = position(fillPrice = 1.00, dte = 60).copy(side = PositionSide.SHORT)
+        val alerts = CallExitRules.evaluate(p, currentPremiumPerShare = 1.80, spot = null, inTheMoney = null, nowEpochMs = nowMs)
+        assertTrue("a SHORT must never get a TAKE_PROFIT/STOP alert from the P/L rules", alerts.isEmpty())
+    }
+
+    @Test fun `a SHORT still gets the DTE rules, worded for a seller`() {
+        val p = position(fillPrice = 1.00, dte = 10).copy(side = PositionSide.SHORT)
+        val alerts = CallExitRules.evaluate(p, currentPremiumPerShare = 1.00, spot = null, inTheMoney = null, nowEpochMs = nowMs)
+        assertEquals(setOf(CallExitAlert.Type.TIME_STOP), types(alerts))
+        assertTrue(alerts.single().message.contains("Buy to close"))
+    }
+
+    @Test fun `a SHORT expiring OTM is framed as keeping the premium, not as a loss to consider closing`() {
+        val p = position(fillPrice = 1.00, strike = 100.0, dte = 2).copy(side = PositionSide.SHORT)
+        val alerts = CallExitRules.evaluate(p, currentPremiumPerShare = 1.00, spot = 80.0, inTheMoney = false, nowEpochMs = nowMs)
+        assertEquals(setOf(CallExitAlert.Type.EXPIRY), types(alerts))
+        assertTrue(alerts.single().message.contains("keep the full premium"))
+    }
+
+    @Test fun `a SHORT expiring ITM warns of assignment, not auto-exercise`() {
+        val p = position(fillPrice = 1.00, strike = 100.0, dte = 3).copy(side = PositionSide.SHORT)
+        val alerts = CallExitRules.evaluate(p, currentPremiumPerShare = 1.00, spot = 120.0, inTheMoney = null, nowEpochMs = nowMs)
+        assertEquals(setOf(CallExitAlert.Type.EXPIRY), types(alerts))
+        assertTrue(alerts.single().message.contains("may be assigned"))
     }
 }

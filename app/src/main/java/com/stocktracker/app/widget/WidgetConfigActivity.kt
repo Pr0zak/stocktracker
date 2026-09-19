@@ -4,11 +4,14 @@ import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -78,7 +82,13 @@ class WidgetConfigActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // The app is dark, always -- see MainActivity's identical call. A bare enableEdgeToEdge()
+        // lets the SYSTEM day/night setting pick the status-bar icon color, which is how a
+        // system-light phone got black icons on the black bar INK-2 gave every other screen.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         // If the user backs out, the widget host must not add the widget.
         setResult(RESULT_CANCELED)
 
@@ -92,13 +102,27 @@ class WidgetConfigActivity : ComponentActivity() {
             return
         }
 
+        // Both widgets' APPWIDGET_CONFIGURE intent-filters point at this one activity (see the
+        // manifest) rather than each carrying its own -- the host has already bound appWidgetId to
+        // a provider by the time this activity launches, so its provider info says which widget is
+        // actually being configured.
+        val isWatchlist = isWatchlistWidget(applicationContext, appWidgetId)
+
         setContent {
             StockTrackerTheme {
-                WidgetConfigScreen(
-                    appWidgetId = appWidgetId,
-                    onCancel = { finish() },
-                    onConfirm = ::confirm,
-                )
+                if (isWatchlist) {
+                    WatchlistWidgetConfigScreen(
+                        appWidgetId = appWidgetId,
+                        onCancel = { finish() },
+                        onConfirm = ::confirmWatchlist,
+                    )
+                } else {
+                    WidgetConfigScreen(
+                        appWidgetId = appWidgetId,
+                        onCancel = { finish() },
+                        onConfirm = ::confirm,
+                    )
+                }
             }
         }
     }
@@ -115,6 +139,29 @@ class WidgetConfigActivity : ComponentActivity() {
             val result = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
             setResult(RESULT_OK, result)
             finish()
+        }
+    }
+
+    private fun confirmWatchlist(config: WatchlistWidgetConfig) {
+        lifecycleScope.launch {
+            val glanceId = GlanceAppWidgetManager(applicationContext).getGlanceIdBy(appWidgetId)
+            updateAppWidgetState(applicationContext, glanceId) { prefs ->
+                prefs[WatchlistWidgetState.CONFIG] = Http.json.encodeToString(config)
+            }
+            WidgetRefresh.refreshWatchlistInstance(applicationContext, glanceId, force = true)
+            WidgetRefreshScheduler.ensureScheduled(applicationContext)
+
+            val result = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            setResult(RESULT_OK, result)
+            finish()
+        }
+    }
+
+    companion object {
+        /** True when [appWidgetId] belongs to the watchlist widget rather than the ticker widget. */
+        internal fun isWatchlistWidget(context: android.content.Context, appWidgetId: Int): Boolean {
+            val info = AppWidgetManager.getInstance(context).getAppWidgetInfo(appWidgetId)
+            return info?.provider?.className == WatchlistWidgetReceiver::class.java.name
         }
     }
 }
@@ -366,5 +413,203 @@ private fun AccentSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         if (selected) Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black)
+    }
+}
+
+// -----------------------------------------------------------------------------------------------
+// Watchlist widget configuration (WGT-5)
+// -----------------------------------------------------------------------------------------------
+
+private val SORT_ORDER_LABELS = listOf(
+    WatchlistSortOrder.MANUAL to "Manual",
+    WatchlistSortOrder.ALPHABETICAL to "A–Z",
+    WatchlistSortOrder.CHANGE_DESC to "Top gainers",
+    WatchlistSortOrder.CHANGE_ASC to "Top losers",
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WatchlistWidgetConfigScreen(
+    appWidgetId: Int,
+    onCancel: () -> Unit,
+    onConfirm: (WatchlistWidgetConfig) -> Unit,
+) {
+    val context = LocalContext.current
+    var config by remember { mutableStateOf(WatchlistWidgetConfig()) }
+    // When reconfiguring an existing widget, seed the form with its saved config.
+    LaunchedEffect(appWidgetId) {
+        runCatching {
+            val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
+            val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId)
+            if (prefs.contains(WatchlistWidgetState.CONFIG)) {
+                config = WatchlistWidgetState.readConfig(prefs)
+            }
+        }
+    }
+
+    val backgroundArgb by ServiceLocator.settingsStore.widgetBackgroundArgb
+        .collectAsState(initial = WidgetBackground.DEFAULT_ARGB)
+    val backgroundTransparency by ServiceLocator.settingsStore.widgetBackgroundTransparency
+        .collectAsState(initial = WidgetBackground.DEFAULT_TRANSPARENCY)
+    // The user's own named lists (Asset.groups), on top of the three built-ins -- a group they
+    // create after this widget is already configured just doesn't show up here until reopened;
+    // there is no live list of "in-use" group names to watch instead.
+    val groups by ServiceLocator.settingsStore.watchlistGroups.collectAsState(initial = emptyList())
+    val lists = WatchlistWidgetConfig.BUILTIN_LISTS + groups.filterNot { it in WatchlistWidgetConfig.BUILTIN_LISTS }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Configure Watchlist") },
+                navigationIcon = {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.Default.Close, contentDescription = "Cancel")
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { onConfirm(config) }) { Text("Add") }
+                },
+            )
+        },
+        bottomBar = {
+            Button(
+                onClick = { onConfirm(config) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            ) { Text("Add to Home Screen") }
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item { WatchlistWidgetPreview(config, backgroundArgb, backgroundTransparency) }
+
+            item { SectionHeader("List") }
+            item {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    lists.forEach { name ->
+                        FilterChip(
+                            selected = config.listName == name,
+                            onClick = { config = config.copy(listName = name) },
+                            label = { Text(name) },
+                        )
+                    }
+                }
+            }
+
+            item { SectionHeader("Sort") }
+            item {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SORT_ORDER_LABELS.forEach { (order, label) ->
+                        FilterChip(
+                            selected = config.sortOrder == order,
+                            onClick = { config = config.copy(sortOrder = order) },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+            }
+
+            item { SectionHeader("Change column") }
+            item {
+                ToggleRow("Show dollar change instead of %", config.valueMode == WatchlistValueMode.DOLLAR) { checked ->
+                    config = config.copy(valueMode = if (checked) WatchlistValueMode.DOLLAR else WatchlistValueMode.PERCENT)
+                }
+            }
+
+            item { SectionHeader("Accent") }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    WatchlistWidgetConfig.ACCENT_CHOICES.forEach { argb ->
+                        AccentSwatch(
+                            color = Color(argb.toInt()),
+                            selected = config.accentArgb == argb,
+                        ) { config = config.copy(accentArgb = argb) }
+                    }
+                }
+            }
+
+            item { SectionHeader("Refresh") }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WatchlistWidgetConfig.REFRESH_CHOICES.forEach { minutes ->
+                        FilterChip(
+                            selected = config.refreshMinutes == minutes,
+                            onClick = { config = config.copy(refreshMinutes = minutes) },
+                            label = { Text(if (minutes < 60) "${minutes}m" else "${minutes / 60}h") },
+                        )
+                    }
+                }
+            }
+
+            item { Spacer(Modifier.width(1.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun WatchlistWidgetPreview(
+    config: WatchlistWidgetConfig,
+    backgroundArgb: Long = WidgetBackground.DEFAULT_ARGB,
+    backgroundTransparency: Int = WidgetBackground.DEFAULT_TRANSPARENCY,
+) {
+    // Fabricated rows -- purely to show what the accent + dollar/percent choice will look like.
+    // The real widget's own rows come from the user's actual (per-instance) list once it's placed.
+    val sample = listOf(Triple("AAPL", 229.14, 1.20), Triple("BTC", 64213.0, -0.82))
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .background(
+                    Color(WidgetBackground.argbWith(backgroundArgb, backgroundTransparency)),
+                    RoundedCornerShape(20.dp),
+                )
+                .padding(16.dp)
+                .width(220.dp),
+        ) {
+            Text("Watchlist", color = Color(config.accentArgb.toInt()), fontWeight = FontWeight.Bold)
+            watchlistListLabel(config.listName)?.let {
+                Text(it, color = OnSurfaceVariantDark, style = MaterialTheme.typography.labelSmall)
+            }
+            Spacer(Modifier.height(6.dp))
+            sample.forEach { (symbol, price, pct) ->
+                val up = pct >= 0.0
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(symbol, color = OnSurfaceDark, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        Formatting.price(price),
+                        color = OnSurfaceDark,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        if (config.valueMode == WatchlistValueMode.DOLLAR) {
+                            Formatting.change(price * pct / 100.0)
+                        } else {
+                            "${Formatting.arrow(up)} ${Formatting.percent(pct)}"
+                        },
+                        color = if (up) GainGreen else LossRed,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
     }
 }

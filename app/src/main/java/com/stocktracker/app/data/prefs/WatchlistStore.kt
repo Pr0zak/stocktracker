@@ -1,10 +1,13 @@
 package com.stocktracker.app.data.prefs
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.model.AssetType
+import com.stocktracker.app.data.model.Lot
 import com.stocktracker.app.data.remote.Http
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -80,12 +83,53 @@ class WatchlistStore(private val context: Context) {
         prefs[key] = encode(list)
     }
 
+    /** The exact bytes on disk, or null if the key was never written. For [com.stocktracker.app.data.BackupManager]
+     *  only: a backup restore snapshots this (not [snapshot]) precisely because [snapshot] collapses
+     *  "unreadable" to an empty list, and an undo built on that lie would write an empty list over
+     *  bytes that were actually still recoverable. */
+    internal fun rawValue(prefs: Preferences): String? = prefs[key]
+
+    /** Writes [raw] verbatim — or clears the key when null — bypassing [mutate]'s corruption guard on
+     *  purpose. Used only to commit an import or restore a pre-import snapshot, both of which must
+     *  act on exactly what is there rather than a "safe" reconstruction of it. Participates in a
+     *  caller-supplied transaction so several stores can be replaced atomically in one write. */
+    internal fun writeRaw(prefs: MutablePreferences, raw: String?) {
+        if (raw == null) prefs.remove(key) else prefs[key] = raw
+    }
+
     /** Replace the entry with the same id (used to set shares / alerts). Adds it if absent. */
     suspend fun update(asset: Asset) = context.dataStore.edit { prefs ->
         mutate(prefs) { cur ->
             if (cur.any { it.id == asset.id }) cur.map { if (it.id == asset.id) asset else it }
             else cur + asset
         }
+    }
+
+    /**
+     * Append a purchase lot to the tracked asset matching [symbol] (MONEY-2) — the ONE path a
+     * recorded journal fill ([com.stocktracker.app.ui.journal.JournalViewModel.markTaken]) and an
+     * exercised call ([com.stocktracker.app.ui.calls.CallsViewModel.markExercised]) both funnel
+     * through, so a real, dated acquisition is recorded the same way regardless of which screen it
+     * came from.
+     *
+     * Matching is case-insensitive and strips a trailing "-USD" — the verdict journal stores crypto
+     * symbols Yahoo-style ("BTC-USD") so its replay can look the bars up, and that must still land on
+     * the plain "BTC" watchlist entry.
+     *
+     * Returns true if a matching tracked asset was found and updated, false otherwise. This never
+     * CREATES an asset from a bare ticker: a symbol with nothing on the watchlist could be a stock or
+     * a coin, and guessing wrong would silently mis-file the position.
+     */
+    suspend fun addLot(symbol: String, lot: Lot): Boolean {
+        var applied = false
+        context.dataStore.edit { prefs ->
+            mutate(prefs) { cur ->
+                val (next, matched) = appendLot(cur, symbol, lot)
+                applied = matched
+                next
+            }
+        }
+        return applied
     }
 
     private fun decode(raw: String?): List<Asset>? =
@@ -101,5 +145,22 @@ class WatchlistStore(private val context: Context) {
             Asset("MSFT", AssetType.STOCK, "Microsoft Corporation"),
             Asset("ETH", AssetType.CRYPTO, "Ethereum", coinGeckoId = "ethereum"),
         )
+
+        /**
+         * The pure matching-and-append step behind [addLot], pulled out so it is unit-testable
+         * without a Context/DataStore (MONEY-2) — mirrors [CallPositionStore.currentForMutation] /
+         * [VerdictJournalStore]'s split between "the rule" and "the storage plumbing that applies it".
+         *
+         * Matching is case-insensitive and strips a trailing "-USD" — the verdict journal stores
+         * crypto symbols Yahoo-style ("BTC-USD") for its replay, and that must still land on the plain
+         * "BTC" watchlist entry. Returns the (possibly unchanged) list plus whether a match was found;
+         * this never CREATES an asset from a bare ticker, since an unmatched symbol could be a stock
+         * or a coin and guessing wrong would silently mis-file the position.
+         */
+        fun appendLot(assets: List<Asset>, symbol: String, lot: Lot): Pair<List<Asset>, Boolean> {
+            val bare = symbol.removeSuffix("-USD")
+            val match = assets.firstOrNull { it.symbol.equals(bare, ignoreCase = true) } ?: return assets to false
+            return assets.map { if (it.id == match.id) it.copy(lots = it.lots + lot) else it } to true
+        }
     }
 }

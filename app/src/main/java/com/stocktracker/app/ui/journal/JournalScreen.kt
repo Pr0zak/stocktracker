@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -196,7 +197,7 @@ fun JournalScreen(onBack: () -> Unit) {
                 entry = entry,
                 replaying = ui.replaying,
                 configured = ui.configured == true,
-                onTaken = { price, shares, date -> vm.markTaken(entry, price, shares, date) },
+                onTaken = { price, shares, date, addToHolding -> vm.markTaken(entry, price, shares, date, addToHolding) },
                 onDeclined = { vm.markDeclined(entry) },
                 onUndecided = { vm.markUndecided(entry) },
                 onExit = { price, date -> vm.recordExit(entry, price, date) },
@@ -633,7 +634,7 @@ private fun EntryRow(entry: VerdictJournalEntry, vm: JournalViewModel, onOpen: (
     if (fillPrompt) {
         FillDialog(
             entry = entry,
-            onConfirm = { price, shares, date -> vm.markTaken(entry, price, shares, date); fillPrompt = false },
+            onConfirm = { price, shares, date, addToHolding -> vm.markTaken(entry, price, shares, date, addToHolding); fillPrompt = false },
             onDismiss = { fillPrompt = false },
         )
     }
@@ -659,7 +660,7 @@ private fun JournalEntryDialog(
     entry: VerdictJournalEntry,
     replaying: Boolean,
     configured: Boolean,
-    onTaken: (Double?, Double?, String?) -> Unit,
+    onTaken: (Double?, Double?, String?, Boolean) -> Unit,
     onDeclined: () -> Unit,
     onUndecided: () -> Unit,
     onExit: (Double, String?) -> Unit,
@@ -844,7 +845,7 @@ private fun JournalEntryDialog(
     if (fillPrompt) {
         FillDialog(
             entry = entry,
-            onConfirm = { price, shares, date -> onTaken(price, shares, date); fillPrompt = false },
+            onConfirm = { price, shares, date, addToHolding -> onTaken(price, shares, date, addToHolding); fillPrompt = false },
             onDismiss = { fillPrompt = false },
         )
     }
@@ -879,11 +880,16 @@ private fun JournalEntryDialog(
  * The price and the share count are OPTIONAL. "I took it, I'll enter the numbers tonight" is a real
  * state the model has a name for, and forcing a number here would either lose the decision or invite
  * a made-up one — and a made-up fill scores a made-up R.
+ *
+ * When both are entered, this ALSO offers to append the fill as a dated lot on the matching watchlist
+ * holding (MONEY-2) — a checkbox in this SAME confirmation, not a silent second write once "Record"
+ * is tapped. Defaults checked: recording a fill here and not reflecting it in the holding is the gap
+ * this exists to close, but it stays visible and switchable rather than automatic.
  */
 @Composable
 private fun FillDialog(
     entry: VerdictJournalEntry,
-    onConfirm: (Double?, Double?, String?) -> Unit,
+    onConfirm: (Double?, Double?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
@@ -891,6 +897,7 @@ private fun FillDialog(
     var price by remember { mutableStateOf(entry.fillPrice?.let { plainNum(it) } ?: "") }
     var shares by remember { mutableStateOf(entry.shares?.let { plainNum(it) } ?: "") }
     var date by remember { mutableStateOf(entry.fillDateIso ?: today) }
+    var addToHolding by remember { mutableStateOf(true) }
     // NaN and Infinity are what `toDoubleOrNull` hands back for "NaN" and "Infinity" typed into a
     // decimal field. They are not prices: a non-finite fill poisons the cost basis, the realized P&L
     // and every aggregate the entry ever reaches, and it renders as "$NaN" on the way there.
@@ -938,10 +945,22 @@ private fun FillDialog(
                         color = neutral,
                     )
                 }
+                // ONE confirmation line (MONEY-2): only offered once there is a real price AND a real
+                // share count to append — nothing to add to the holding otherwise.
+                if (p != null && s != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = addToHolding, onCheckedChange = { addToHolding = it })
+                        Text(
+                            "Add ${plainNum(s)} sh of ${entry.symbol.uppercase()} to my holding at " +
+                                "${usd(p)}/share on $date",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(p, s, date) }) { Text("Record") }
+            TextButton(onClick = { onConfirm(p, s, date, addToHolding) }) { Text("Record") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

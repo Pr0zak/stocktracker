@@ -1,10 +1,14 @@
 package com.stocktracker.app.data
 
+import com.stocktracker.app.data.model.Asset
+import com.stocktracker.app.data.model.AssetType
+import com.stocktracker.app.data.model.Lot
 import com.stocktracker.app.data.remote.Http
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -78,5 +82,45 @@ class BackupSafetyTest {
         val legacy = """{"version":1,"assets":[],"groups":["Old"]}"""
         val back = BackupManager.parseBackup(legacy)
         assertEquals(listOf("Old"), back.groups)
+    }
+
+    // ---------------------------------------------------------------------------------- MONEY-2
+
+    @Test
+    fun `a real backup round-trips purchase lots through the actual export-import codec`() {
+        val original = BackupData(
+            assets = listOf(
+                Asset(
+                    symbol = "AAPL", type = AssetType.STOCK, displayName = "Apple Inc.",
+                    lots = listOf(
+                        Lot(shares = 5.0, costPerShare = 150.0, acquiredDateIso = "2024-03-01"),
+                        Lot(shares = 5.0, costPerShare = 170.0, acquiredDateIso = "2025-01-10"),
+                    ),
+                ),
+            ),
+        )
+        val text = BackupManager.encodeBackup(original)
+        val back = BackupManager.parseBackup(text)
+        assertEquals(original.assets, back.assets)
+        assertEquals(10.0, back.assets[0].shares!!, 0.0001)
+        assertEquals(160.0, back.assets[0].avgCost!!, 0.0001)
+    }
+
+    @Test
+    fun `a backup taken before lots existed imports its shares+avgCost as one undated lot`() {
+        // The real shape of every backup exported before MONEY-2: no "lots" key at all.
+        val legacy = """
+            {"format":"${BackupManager.FORMAT}","assets":[
+                {"symbol":"TSLA","type":"STOCK","displayName":"Tesla","shares":4.0,"avgCost":220.0}
+            ]}
+        """.trimIndent()
+        val back = BackupManager.parseBackup(legacy)
+        val asset = back.assets.single()
+        assertEquals(1, asset.lots.size)
+        assertEquals(4.0, asset.lots[0].shares, 0.0001)
+        assertEquals(220.0, asset.lots[0].costPerShare!!, 0.0001)
+        assertNull("a position with no recorded fill history has an unknown acquisition date", asset.lots[0].acquiredDateIso)
+        assertEquals(4.0, asset.shares!!, 0.0001)
+        assertEquals(220.0, asset.avgCost!!, 0.0001)
     }
 }

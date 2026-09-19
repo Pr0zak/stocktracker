@@ -1,19 +1,61 @@
 package com.stocktracker.app.data.model
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 
 @Serializable
 enum class AssetType { STOCK, CRYPTO }
 
-/** A tracked instrument. [coinGeckoId] is set for crypto (e.g. "bitcoin"). */
+/**
+ * One purchase lot behind a holding (MONEY-2).
+ *
+ * A holding used to be two scalars — [Asset.shares] and [Asset.avgCost] — with no history behind
+ * them: adding to a position meant re-typing a new blended total by hand, and there was no record of
+ * WHEN any of it was bought. That missing date is why a tax-aware rebalance can't tell short-term
+ * from long-term, why a split has no anchor to correct against, and why there is no realised-gains
+ * history for equities. A lot is the fix: [shares]/[avgCost] on [Asset] are now derived by folding
+ * over a list of these.
+ *
+ * [costPerShare] and [acquiredDateIso] are independently nullable, and null means UNKNOWN in both —
+ * never zero, never "today", never rendered as a real value. That is what lets a lot synthesized from
+ * the pre-MONEY-2 shape (bare shares + avgCost, no date at all) decode honestly instead of inventing
+ * a purchase date nobody recorded.
+ *
+ * NEGATIVE [shares] (MONEY-3) records a DISPOSAL — shares an assigned short call took away, most
+ * commonly — rather than an acquisition. [costPerShare] on a disposal lot is the price the shares left
+ * at (a fact worth keeping for history/notes), NOT a cost input: see [Asset.avgCost] for how the two
+ * kinds are folded differently.
+ */
 @Serializable
+data class Lot(
+    val shares: Double,
+    /** What was paid per share for this lot — or, on a disposal (negative [shares]), what it left at.
+     *  Null means unknown, not free — see [Asset.avgCost]. */
+    val costPerShare: Double? = null,
+    /** ISO yyyy-MM-dd. Null means unknown — a migrated pre-MONEY-2 holding always lands here. */
+    val acquiredDateIso: String? = null,
+)
+
+/**
+ * A tracked instrument. [coinGeckoId] is set for crypto (e.g. "bitcoin").
+ *
+ * [lots] replaced the old bare `shares`/`avgCost` scalars (MONEY-2); those are now derived getters
+ * below so every existing read site ([Asset.shares], [Asset.avgCost]) keeps compiling and behaving
+ * exactly as before. [AssetSerializer] is what makes an [Asset] persisted in the old shape decode as
+ * a single migrated [Lot] with a null date, so nothing already on a watchlist or in a backup silently
+ * loses its position on the next read.
+ */
+@Serializable(with = AssetSerializer::class)
 data class Asset(
     val symbol: String,          // "AAPL", "BTC"
     val type: AssetType,
     val displayName: String,     // "Apple Inc.", "Bitcoin"
     val coinGeckoId: String? = null,
-    val shares: Double? = null,          // user-owned quantity (for position value)
-    val avgCost: Double? = null,         // average cost per share (for total return)
+    /** Purchase lots behind this holding. Empty means no position — same meaning as the old null. */
+    val lots: List<Lot> = emptyList(),
     val alerts: AssetAlerts? = null,     // price / percent threshold alerts
     val groups: List<String> = emptyList(), // named watchlists this asset belongs to
     /**
@@ -34,6 +76,205 @@ data class Asset(
     val id: String get() = when (type) {
         AssetType.CRYPTO -> "CRYPTO:${coinGeckoId ?: symbol.uppercase()}"
         AssetType.STOCK -> "STOCK:${symbol.uppercase()}"
+    }
+
+    /**
+     * Total shares held, derived from [lots]. Null — not 0.0 — when there is no position at all, so
+     * every existing `asset.shares ?: 0.0` / `asset.shares != null` read site keeps meaning what it
+     * always meant.
+     */
+    val shares: Double? get() = lots.takeIf { it.isNotEmpty() }?.sumOf { it.shares }
+
+    /**
+     * Weighted average cost per share across [lots]. Null when there is no position, AND null when
+     * ANY acquisition lot's cost is unknown — blending a real cost against a missing one would silently
+     * treat the unpriced lot as free and understate the true basis, which is exactly the
+     * confident-looking wrong number this project refuses to print.
+     *
+     * A NEGATIVE-shares lot (MONEY-3) is a DISPOSAL — shares an assigned short call took away — not an
+     * acquisition, and it is folded differently on purpose. Average-cost accounting means selling part
+     * of a position does not change the average cost of what is LEFT; it only shrinks the share count.
+     * So a disposal removes its shares from the running pool AT THE POOL'S OWN AVERAGE COST SO FAR,
+     * never at the disposal lot's own [Lot.costPerShare] — that field on a disposal is the price the
+     * shares left AT (the strike), a fact worth keeping for history, not an input to what remains.
+     * Folding it in like an acquisition would blend the strike into the weighted average and silently
+     * UNDERSTATE the surviving shares' cost basis whenever they left above cost — exactly the trade a
+     * covered call is. Worked: 200 sh @ $50 avg, then 100 sh called away at a $60 strike → the average
+     * cost of the 100 sh left is still $50, not $40.
+     */
+    val avgCost: Double?
+        get() {
+            if (lots.isEmpty()) return null
+            var shares = 0.0
+            var cost = 0.0
+            var costKnown = true
+            for (lot in lots) {
+                if (lot.shares >= 0.0) {
+                    if (lot.costPerShare == null) costKnown = false else cost += lot.shares * lot.costPerShare
+                    shares += lot.shares
+                } else {
+                    val disposed = -lot.shares
+                    if (costKnown && shares > 0.0) cost -= disposed * (cost / shares)
+                    shares += lot.shares // negative: shrinks the pool
+                }
+            }
+            if (!costKnown || shares <= 0.0) return null
+            return cost / shares
+        }
+
+    /**
+     * Would replacing these lots with one blended [shares]/[avgCost] total throw away history?
+     *
+     * The Edit-holdings dialog can only express a single total — it has no way to say WHICH of
+     * several lots the user meant to correct — so any real change collapses the list. That is
+     * acceptable when the lots carry no dates anyway, and destructive when they do: the dates are
+     * exactly what a tax-aware rebalance and a split adjustment read. So the caller asks this
+     * first and warns, rather than quietly discarding a purchase history the user did not know
+     * they had.
+     */
+    fun editWouldDiscardDatedLots(newShares: Double?, newAvgCost: Double?): Boolean {
+        val unchanged = newShares == shares && newAvgCost == avgCost
+        if (unchanged) return false
+        return lots.count { it.acquiredDateIso != null } > 0 && lots.size > 0
+    }
+
+    /** How many dated lots an [editWouldDiscardDatedLots] edit would collapse. */
+    fun datedLotCount(): Int = lots.count { it.acquiredDateIso != null }
+}
+
+/** US long-term capital-gains treatment starts at MORE THAN one year of holding — matches the
+ *  backend's `sandbox_job._LONG_TERM_DAYS` exactly, so the two never disagree about the boundary. */
+const val LONG_TERM_HOLDING_DAYS = 366
+
+/** What selling some shares of a lotted holding would realise, tax-wise. Only ever built for a
+ *  sale that touches a SHORT_TERM or MIXED lot, or one with an unknown date — see [Asset.saleTaxNote]. */
+enum class LotTaxStatus { SHORT_TERM, MIXED, UNKNOWN }
+
+data class SaleTaxNote(
+    val status: LotTaxStatus,
+    /** Days until the youngest still-short lot this sale touches turns long-term. Null for
+     *  [LotTaxStatus.UNKNOWN], where no date-based countdown can be trusted. */
+    val daysToLongTerm: Int? = null,
+)
+
+/**
+ * What selling [sharesToSell] shares of this holding would realise, tax-wise (MONEY-1), consuming
+ * lots FIFO — the IRS default and the same order the backend's own `ledger_cost` accounting uses.
+ *
+ * Returns null when there is nothing to warn about: no lots, nothing to sell, or every lot the sale
+ * would touch is already safely long-term. Otherwise the whole thing is [LotTaxStatus.UNKNOWN] the
+ * moment the sale would touch ANY lot with no recorded [Lot.acquiredDateIso] — a lot's null date is
+ * unknown, never short- or long-term by default, so it must never be silently skipped in favor of the
+ * dated lots the caller CAN see (which is exactly the confident-wrong-number [Asset.avgCost] already
+ * refuses to produce for cost, one layer up). An unparseable date is treated the same way.
+ */
+fun Asset.saleTaxNote(sharesToSell: Double, today: java.time.LocalDate = java.time.LocalDate.now()): SaleTaxNote? {
+    if (sharesToSell <= 0.0 || lots.isEmpty()) return null
+    // FIFO: oldest known lot first. An undated lot is never assumed to be the oldest — it sorts
+    // LAST, so a sale small enough to be filled entirely from known lots correctly says nothing is
+    // unknown about it, rather than an arbitrary ordering choice hiding the undated lot from a small
+    // sale that would never actually touch it.
+    val ordered = lots.sortedWith(compareBy(nullsLast()) { it.acquiredDateIso })
+    var remaining = sharesToSell
+    var touchedUnknown = false
+    val shortDaysRemaining = mutableListOf<Long>()
+    var touchedLong = false
+    for (lot in ordered) {
+        if (remaining <= 1e-9) break
+        val take = minOf(lot.shares, remaining)
+        if (take <= 0.0) continue
+        remaining -= take
+        val dateIso = lot.acquiredDateIso
+        val acquired = dateIso?.let { runCatching { java.time.LocalDate.parse(it.take(10)) }.getOrNull() }
+        if (acquired == null) {
+            touchedUnknown = true
+            continue
+        }
+        val age = java.time.temporal.ChronoUnit.DAYS.between(acquired, today)
+        if (age >= LONG_TERM_HOLDING_DAYS) touchedLong = true else shortDaysRemaining.add(age)
+    }
+    return when {
+        touchedUnknown -> SaleTaxNote(LotTaxStatus.UNKNOWN)
+        shortDaysRemaining.isEmpty() -> null   // every touched lot is cleanly long-term already
+        else -> {
+            val daysToLongTerm = (LONG_TERM_HOLDING_DAYS - shortDaysRemaining.min()).toInt()
+            SaleTaxNote(if (touchedLong) LotTaxStatus.MIXED else LotTaxStatus.SHORT_TERM, daysToLongTerm)
+        }
+    }
+}
+
+/** UI copy for a [SaleTaxNote] — what the rebalance dialog shows under a sell move. */
+fun SaleTaxNote.toDisplayText(): String = when (status) {
+    LotTaxStatus.SHORT_TERM ->
+        "Short-term gain" + (daysToLongTerm?.let { " — long-term in $it day${if (it == 1) "" else "s"}" } ?: "")
+    LotTaxStatus.MIXED ->
+        "Partly short-term" + (daysToLongTerm?.let { " — fully long-term in $it day${if (it == 1) "" else "s"}" } ?: "")
+    LotTaxStatus.UNKNOWN -> "Acquisition date unknown for part of this position — tax impact unclear"
+}
+
+/**
+ * Hand-written so an [Asset] persisted before MONEY-2 (a bare `shares`/`avgCost` pair, no `lots` key
+ * at all) decodes as a single [Lot] with a null — unknown — acquisition date, instead of the position
+ * quietly vanishing the moment `lots` was added with a default of `emptyList()`. New data is always
+ * written with `lots` only; `shares`/`avgCost` are read-only legacy keys on the wire now that the
+ * Kotlin properties of those names are derived getters rather than stored fields.
+ */
+object AssetSerializer : KSerializer<Asset> {
+
+    @Serializable
+    private data class Surrogate(
+        val symbol: String,
+        val type: AssetType,
+        val displayName: String,
+        val coinGeckoId: String? = null,
+        val lots: List<Lot> = emptyList(),
+        // Pre-MONEY-2 shape only. A decode with these but no `lots` synthesizes one lot (see below);
+        // encode never sets them, so a round trip through this app always upgrades a legacy Asset.
+        val shares: Double? = null,
+        val avgCost: Double? = null,
+        val alerts: AssetAlerts? = null,
+        val groups: List<String> = emptyList(),
+        val favorite: Boolean = false,
+    )
+
+    override val descriptor: SerialDescriptor = Surrogate.serializer().descriptor
+
+    override fun deserialize(decoder: Decoder): Asset {
+        val s = decoder.decodeSerializableValue(Surrogate.serializer())
+        val lots = s.lots.ifEmpty {
+            // A legacy "no position" Asset has shares == null or 0.0 — that migrates to no lots at
+            // all, not a zero-share lot.
+            listOfNotNull(
+                s.shares?.takeIf { it != 0.0 }
+                    ?.let { Lot(shares = it, costPerShare = s.avgCost, acquiredDateIso = null) },
+            )
+        }
+        return Asset(
+            symbol = s.symbol,
+            type = s.type,
+            displayName = s.displayName,
+            coinGeckoId = s.coinGeckoId,
+            lots = lots,
+            alerts = s.alerts,
+            groups = s.groups,
+            favorite = s.favorite,
+        )
+    }
+
+    override fun serialize(encoder: Encoder, value: Asset) {
+        encoder.encodeSerializableValue(
+            Surrogate.serializer(),
+            Surrogate(
+                symbol = value.symbol,
+                type = value.type,
+                displayName = value.displayName,
+                coinGeckoId = value.coinGeckoId,
+                lots = value.lots,
+                alerts = value.alerts,
+                groups = value.groups,
+                favorite = value.favorite,
+            ),
+        )
     }
 }
 
@@ -135,7 +376,9 @@ data class Quote(
     val isUp: Boolean get() = change >= 0.0
 }
 
-/** CBOE Volatility Index snapshot (^VIX). Higher = more expected volatility ("fear"). */
+/** CBOE Volatility Index snapshot (^VIX). Higher = more expected volatility ("fear"). Serializable
+ *  so DATA-9 can persist the last reading across a process restart (see MarketContextCache). */
+@Serializable
 data class VixQuote(
     val value: Double,
     val change: Double,

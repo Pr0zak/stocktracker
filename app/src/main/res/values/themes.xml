@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Base window theme. Compose draws the real UI; this only styles the
-         window before/around Compose (background, no action bar). -->
-    <style name="Theme.StockTracker" parent="@android:style/Theme.Material.Light.NoActionBar">
+         window before/around Compose (background, no action bar).
+
+         The app has had no light colour scheme since INK-2 — it is dark, always, regardless of
+         the system's day/night setting (see MainActivity's enableEdgeToEdge call). This variant
+         (values/, used when the system is in light mode) used to still carry a light Material
+         parent + a light window background + light status-bar icons, which meant a system-light
+         phone got a white cold-start flash before Compose ever drew a frame. Kept identical to
+         values-night/themes.xml on purpose — there is no longer a "day" theme to diverge into. -->
+    <style name="Theme.StockTracker" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/window_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

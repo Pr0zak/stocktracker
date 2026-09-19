@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="window_background">#141318</color>
+    <!-- Kept equal to values/colors.xml's window_background on purpose: the app has one dark
+         theme, not a day/night pair, so a system-dark phone must see the same SurfaceDark
+         (#0D1116, ui/theme/Color.kt) cold-start background as a system-light one. -->
+    <color name="window_background">#0D1116</color>
 </resources>

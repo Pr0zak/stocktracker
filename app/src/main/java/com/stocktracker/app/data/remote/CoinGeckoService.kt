@@ -21,6 +21,9 @@ class CoinGeckoService {
         val map = Http.json.decodeFromString<Map<String, CoinGeckoPriceDto>>(body)
         val d = map[coinId] ?: throw IOException("No CoinGecko price for '$coinId'")
         val price = d.usd
+        if (price == null || price <= 0.0) {
+            throw IOException("No CoinGecko price for '$coinId' (invalid or missing price)")
+        }
         val pct = d.usd24hChange ?: 0.0
         val prev = if (pct != -100.0) price / (1.0 + pct / 100.0) else price
         return Quote(
@@ -41,12 +44,13 @@ class CoinGeckoService {
         val ids = coinIds.joinToString(",")
         val url = "$base/coins/markets?vs_currency=usd&ids=$ids&sparkline=true&price_change_percentage=24h"
         val dto = Http.json.decodeFromString<List<CoinMarketDto>>(Http.getString(url))
-        return dto.map {
-            CoinMarket(
+        return dto.mapNotNull {
+            val price = it.currentPrice
+            if (price == null || price <= 0.0) null else CoinMarket(
                 id = it.id,
                 symbol = it.symbol.uppercase(),
                 name = it.name,
-                price = it.currentPrice,
+                price = price,
                 change = it.priceChange24h ?: 0.0,
                 changePercent = it.priceChangePercentage24h ?: 0.0,
                 sparkline = it.sparkline?.price ?: emptyList(),
@@ -85,7 +89,7 @@ data class CoinMarket(
 
 @Serializable
 data class CoinGeckoPriceDto(
-    val usd: Double = 0.0,
+    val usd: Double?,
     @SerialName("usd_24h_change") val usd24hChange: Double? = null,
     @SerialName("usd_24h_vol") val usd24hVol: Double? = null,
 )
@@ -101,7 +105,7 @@ data class CoinMarketDto(
     val id: String = "",
     val symbol: String = "",
     val name: String = "",
-    @SerialName("current_price") val currentPrice: Double = 0.0,
+    @SerialName("current_price") val currentPrice: Double?,
     @SerialName("price_change_24h") val priceChange24h: Double? = null,
     @SerialName("price_change_percentage_24h") val priceChangePercentage24h: Double? = null,
     @SerialName("sparkline_in_7d") val sparkline: SparklineDto? = null,

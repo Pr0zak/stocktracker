@@ -12,7 +12,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import com.stocktracker.app.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 sealed interface UpdateUiState {
@@ -31,16 +33,23 @@ class UpdateController(
     var state by mutableStateOf<UpdateUiState>(UpdateUiState.Idle)
         private set
 
-    /** [silent] = don't surface "checking"/"up to date"; used for the launch-time auto-check. */
+    /**
+     * [silent] = don't surface "checking"/"up to date"; used for the launch-time auto-check.
+     *
+     * Silent checks additionally respect a prior "Later" — see [UpdateChecker.shouldPrompt] — so a
+     * cold start doesn't re-nag about the exact release the user already dismissed. A manual tap
+     * on "Check for updates" always surfaces whatever is latest, dismissal or not.
+     */
     fun check(silent: Boolean = false) {
         if (state is UpdateUiState.Downloading) return
         if (!silent) state = UpdateUiState.Checking
         scope.launch {
             val update = UpdateChecker.check()
             state = when {
-                update != null -> UpdateUiState.Available(update)
-                silent -> UpdateUiState.Idle
-                else -> UpdateUiState.UpToDate
+                update == null -> if (silent) UpdateUiState.Idle else UpdateUiState.UpToDate
+                silent && !UpdateChecker.shouldPrompt(update, ServiceLocator.settingsStore.dismissedUpdateVersion.first()) ->
+                    UpdateUiState.Idle
+                else -> UpdateUiState.Available(update)
             }
         }
     }
@@ -50,7 +59,7 @@ class UpdateController(
         scope.launch {
             runCatching {
                 val installer = ApkInstaller(context)
-                installer.install(installer.download(update.apkUrl, update.newVersion))
+                installer.install(installer.download(update.apkUrl, update.newVersion, update.apkSizeBytes))
             }.onSuccess {
                 state = UpdateUiState.Idle // system installer has taken over
             }.onFailure {
@@ -59,7 +68,13 @@ class UpdateController(
         }
     }
 
+    /** Dismisses the current dialog. When dismissing an offered update (i.e. "Later" rather than an
+     *  error being acknowledged), persists that choice so the launch-time auto-check doesn't
+     *  re-prompt for the same version — see [check]. */
     fun dismiss() {
+        (state as? UpdateUiState.Available)?.let { available ->
+            scope.launch { ServiceLocator.settingsStore.setDismissedUpdateVersion(available.update.newVersion) }
+        }
         state = UpdateUiState.Idle
     }
 }

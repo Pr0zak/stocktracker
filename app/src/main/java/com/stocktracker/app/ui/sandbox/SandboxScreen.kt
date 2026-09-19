@@ -104,7 +104,7 @@ internal val AMBER = Signal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
+fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> Unit = {}) {
     val vm: SandboxViewModel = sandboxViewModel()
     val ui by vm.state.collectAsState()
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
@@ -173,7 +173,13 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
                 item { com.stocktracker.app.ui.components.BackendStatusBanner() }
             }
             if (!ui.configured) {
-                item { InfoCard("Set the Signals service URL in Settings to use the AI sandbox.") }
+                item {
+                    InfoCard(
+                        "Set the Signals service URL in Settings to use the AI sandbox.",
+                        actionLabel = "Set up signals",
+                        onAction = onOpenSignalsSettings,
+                    )
+                }
                 return@LazyColumn
             }
             // Only surface a per-screen error when it ISN'T plain unreachability — the banner above
@@ -352,6 +358,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}) {
             symbol = sym,
             position = ui.state?.positions?.firstOrNull { it.symbol == sym },
             trades = ui.trades.filter { it.symbol == sym },
+            staleMarks = ui.state?.staleMarks ?: emptyList(),
             onDismiss = { detailSymbol = null },
         )
     }
@@ -726,10 +733,12 @@ private fun TickerDetailSheet(
     symbol: String,
     position: SandboxPosition?,
     trades: List<SandboxTrade>,
+    staleMarks: List<String> = emptyList(),
     onDismiss: () -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val sym = symbol.removeSuffix("-USD")
+    val isStale = staleMarks.contains(symbol)
     val filled = trades.filter { it.status == "filled" }
     val net = filled.sumOf {
         when (it.side) {
@@ -766,13 +775,17 @@ private fun TickerDetailSheet(
                 val unrealized = p.value - basis
                 StatLine("Shares", trimNum(p.shares))
                 StatLine("Average cost", Formatting.price(p.avgCost))
-                StatLine("Last price", Formatting.price(p.price))
+                StatLine(
+                    "Last price",
+                    Formatting.price(p.price),
+                    if (isStale) neutral else null,
+                )
                 StatLine("Cost basis", Formatting.price(basis))
                 StatLine("Market value", Formatting.price(p.value))
                 StatLine(
                     "Unrealized",
-                    signedMoney(unrealized) + (p.unrealizedPct?.let { " (${signedPct(it)})" } ?: ""),
-                    if (unrealized >= 0) GREEN else RED,
+                    if (isStale) signedMoney(unrealized) else signedMoney(unrealized) + (p.unrealizedPct?.let { " (${signedPct(it)})" } ?: ""),
+                    if (isStale) neutral else if (unrealized >= 0) GREEN else RED,
                 )
             }
             if (realized != 0.0) {
@@ -1108,10 +1121,15 @@ private fun ScorecardCard(mem: com.stocktracker.app.data.remote.MemoryStats) {
 }
 
 @Composable
-private fun InfoCard(text: String) = Box(
-    Modifier.fillMaxWidth().padding(top = 24.dp)
+private fun InfoCard(text: String, actionLabel: String? = null, onAction: (() -> Unit)? = null) = Column(
+    modifier = Modifier.fillMaxWidth().padding(top = 24.dp)
         .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)).padding(16.dp),
-) { Text(text, style = MaterialTheme.typography.bodyMedium) }
+) {
+    Text(text, style = MaterialTheme.typography.bodyMedium)
+    if (actionLabel != null && onAction != null) {
+        Button(onClick = onAction, modifier = Modifier.padding(top = 10.dp)) { Text(actionLabel) }
+    }
+}
 
 /** Which book the screen is showing. A side arm is a paper experiment against the main account;
  *  saying so on the chip itself is cheaper than a legend nobody reads. */

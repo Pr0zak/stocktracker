@@ -56,12 +56,12 @@ class ExitTaxonomyTest {
             realizedPnl = when (outcome) {
                 CallOutcome.SOLD -> realized?.pnl
                 CallOutcome.EXPIRED -> RealizedPnl.forExpiredWorthless(fillPrice, 1).pnl
-                CallOutcome.EXERCISED -> null
+                CallOutcome.EXERCISED, CallOutcome.ASSIGNED -> null
             },
             realizedPnlPct = when (outcome) {
                 CallOutcome.SOLD -> realized?.pct
                 CallOutcome.EXPIRED -> RealizedPnl.forExpiredWorthless(fillPrice, 1).pct
-                CallOutcome.EXERCISED -> null
+                CallOutcome.EXERCISED, CallOutcome.ASSIGNED -> null
             },
         )
     }

@@ -82,6 +82,57 @@ class RealizedPnlTest {
         assertEquals(-320.0, s.totalRealized, eps) // 80 − 100 − 300
     }
 
+    @Test fun `summary — ASSIGNED is excluded exactly like EXERCISED`() {
+        val shortCall = call(fillPrice = 1.00).copy(side = PositionSide.SHORT, type = "call")
+        val closed = listOf(
+            call(fillPrice = 1.00).asSold(exitPricePerShare = 1.80, closeDateIso = "d"), // +80
+            shortCall.asAssigned(closeDateIso = "d"),                                    // excluded
+        )
+        val s = RealizedPnl.summarize(closed)
+        assertEquals(2, s.closedCount)
+        assertEquals(1, s.counted)
+        assertEquals(80.0, s.totalRealized, eps)
+    }
+
+    // ---------------------------------------------------------------------------- MONEY-3: SHORT side
+
+    @Test fun `SHORT gain — bought back cheaper than the premium collected`() {
+        // Sold (collected) $2.00, bought back at $0.50 -- kept the $1.50 difference.
+        val r = RealizedPnl.forSale(fillPrice = 2.00, exitPricePerShare = 0.50, contracts = 1, side = PositionSide.SHORT)
+        assertEquals(150.0, r.pnl, eps)  // (2.00 - 0.50) * 100 * 1
+        assertEquals(75.0, r.pct, eps)   // (2.00 - 0.50) / 2.00 * 100
+    }
+
+    @Test fun `SHORT loss — bought back for more than the premium collected`() {
+        val r = RealizedPnl.forSale(fillPrice = 1.00, exitPricePerShare = 1.80, contracts = 1, side = PositionSide.SHORT)
+        assertEquals(-80.0, r.pnl, eps)
+        assertEquals(-80.0, r.pct, eps)
+    }
+
+    @Test fun `SHORT expired worthless is a full plus 100 percent -- the whole premium collected is kept`() {
+        val r = RealizedPnl.forExpiredWorthless(fillPrice = 1.50, contracts = 2, side = PositionSide.SHORT)
+        assertEquals(300.0, r.pnl, eps)  // +(1.50 * 100 * 2), the mirror image of the LONG case
+        assertEquals(100.0, r.pct, eps)
+    }
+
+    @Test fun `the same fill and exit produce mirror-image dollar results on opposite sides`() {
+        val long = RealizedPnl.forSale(fillPrice = 2.00, exitPricePerShare = 3.00, contracts = 1, side = PositionSide.LONG)
+        val short = RealizedPnl.forSale(fillPrice = 2.00, exitPricePerShare = 3.00, contracts = 1, side = PositionSide.SHORT)
+        assertEquals(-long.pnl, short.pnl, eps)
+        assertEquals(-long.pct, short.pct, eps)
+    }
+
+    @Test fun `close factories carry the position's side into the realized result`() {
+        val shortCall = { fillPrice: Double -> call(fillPrice = fillPrice).copy(side = PositionSide.SHORT) }
+
+        val boughtToClose = shortCall(2.00).asSold(exitPricePerShare = 0.50, closeDateIso = "2026-08-01")
+        assertEquals(150.0, boughtToClose.realizedPnl!!, eps)
+
+        val expiredWorthless = shortCall(1.00).asExpiredWorthless(closeDateIso = "2026-09-18")
+        assertEquals(100.0, expiredWorthless.realizedPnl!!, eps)
+        assertEquals(100.0, expiredWorthless.realizedPnlPct!!, eps)
+    }
+
     @Test fun `summary — empty set reports zero win rate without dividing by zero`() {
         val s = RealizedPnl.summarize(emptyList())
         assertEquals(0, s.closedCount)

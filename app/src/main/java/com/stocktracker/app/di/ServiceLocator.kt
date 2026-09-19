@@ -60,13 +60,24 @@ object ServiceLocator {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /**
+     * Lives as long as the process, not as long as any one screen.
+     *
+     * A backup restore used to run on `rememberCoroutineScope()`, which Compose cancels the instant
+     * the composable that created it leaves composition — so backing out of Settings mid-import (or
+     * rotating, or the system reclaiming the activity) could cancel the restore between stores,
+     * applying some and not others with no warning (DATA-8). Launching it here instead means it runs
+     * to completion — or fails outright — as a unit, independent of any navigation event.
+     */
+    val applicationScope: CoroutineScope get() = scope
+
     @Volatile
     private var initialized = false
 
     fun init(context: Context) {
         if (initialized) return
         val app = context.applicationContext
-        marketContext = MarketContextStore(scope)
+        marketContext = MarketContextStore(app, scope)
         watchlistStore = WatchlistStore(app)
         settingsStore = SettingsStore(app)
         priceCache = PriceCache(app)

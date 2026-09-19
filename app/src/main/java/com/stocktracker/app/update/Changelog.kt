@@ -16,6 +16,116 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.7.0" to listOf(
+            "Fixed: home-screen widgets no longer show a stale or partial total as if it were current",
+            "Fixed: a price alert is only marked sent once it actually arrives \u2014 blocked notifications used to swallow it silently",
+            "New: holdings remember when you bought them, so a sale can warn you if it's short-term",
+            "New: import your holdings from a Fidelity positions export instead of typing them in",
+            "New: watchlist widgets can each show a different list, sort and \u0024/%",
+        ),
+        "1.6.0" to listOf(
+            "New: choose whether the sandbox's recurring deposit lands once or twice a month",
+        ),
+        "1.5.0" to listOf(
+            "New: choose your widgets' card colour and transparency, letting the wallpaper show through",
+        ),
+        "1.4.0" to listOf(
+            "New: a redesigned, dark-only look across the watchlist, ticker and portfolio screens",
+            "New: a Markets tab gathers the scan, heat map, calendar, dip radar and VIX in one labelled place",
+            "The ticker screen now leads with your position and alerts, not eleven screens of market commentary",
+            "Every empty card now says why it's empty instead of leaving a blank space",
+            "Chart marks and colours now carry a second signal, so a reading doesn't depend on telling hues apart",
+        ),
+        "1.3.2" to listOf(
+            "Fixed: the \"too many bars for candles\" note could be struck through by the price or axis labels",
+        ),
+        "1.3.1" to listOf(
+            "Fixed: BTC's \"1D\" chart was drawing 48 hours, not 24 — every crypto range now matches its label",
+        ),
+        "1.3.0" to listOf(
+            "A stop is now required on every call position, since it's what R gets measured against",
+        ),
+        "1.2.1" to listOf(
+            "Fixed: the catalyst calendar silently cut events past row 30; it now says how many were dropped",
+        ),
+        "1.2.0" to listOf(
+            "Fixed: the Stochastic indicator read closes instead of highs/lows, skewing its overbought signal",
+            "Fixed: an alert with only a condition (no price levels) could silently never fire",
+            "Fixed: editing one price alert could wipe every other armed level on the same asset",
+            "New: armed price alerts now draw on the chart, plus real price labels and double-tap to exit a zoom",
+            "New: alerts for moving-average crossings and 52-week highs, and a volume-profile overlay",
+        ),
+        "1.1.0" to listOf(
+            "The market-scan cross-section can now be searched and acted on directly",
+        ),
+        "1.0.0" to listOf(
+            "The watchlist now shows the regime gate, and the dip strip has the states it was missing",
+        ),
+        "0.99.0" to listOf(
+            "Fixed: the dip radar showed \"No dips right now\" whenever it actually failed to load",
+            "New: a chase warning on a ticker's entry zone, and a market-scan screen with each metric's rank",
+            "Closed call positions are now measured by what they risked, and classified by how they ended",
+            "New: a trade journal recording what you did against a verdict, and how it compares to the plan",
+            "Performance stats no longer show half a track record, and now say what the numbers leave out",
+        ),
+        "0.92.0" to listOf(
+            "New: sandbox drawdown is shown and shaded on the curve, alongside a list of settings changes",
+        ),
+        "0.91.0" to listOf(
+            "Fixed: a bad quote could crash the app or print as \"\$NaN\"; sub-penny prices no longer read as \$0",
+        ),
+        "0.90.0" to listOf(
+            "Watchlist sectors are now collapsible, and down to one control row instead of two",
+        ),
+        "0.89.0" to listOf(
+            "New: a \"smallest company it may buy\" control for the sandbox",
+        ),
+        "0.88.0" to listOf(
+            "Sandbox now asks for your date of birth instead of a typed-in current age",
+            "New: watchlist sector verticals, with your favourite names pinned on top",
+        ),
+        "0.87.0" to listOf(
+            "New: a chart of every sandbox arm's trajectory over time",
+        ),
+        "0.86.0" to listOf(
+            "New: switch between sandbox arms and compare them side by side",
+        ),
+        "0.85.0" to listOf(
+            "Sandbox fills now flag when a trade filled for a different size than the AI asked for",
+        ),
+        "0.84.0" to listOf(
+            "Fixed: chart high/low markers were built from closing prices, not the real intraday high and low",
+        ),
+        "0.83.0" to listOf(
+            "The app now shows when prices were last read, and refreshing them actually refreshes them",
+        ),
+        "0.82.0" to listOf(
+            "The watchlist value card is gone; the cash form now sits below your holdings",
+        ),
+        "0.81.0" to listOf(
+            "Fixed: a BTC sparkline could climb all day in red because it ignored the previous close",
+            "The benchmark overlay and the VIX gauge no longer rely on colour alone to be read",
+            "The watchlist opens with your portfolio total first; context cards collapse behind one line",
+            "Watchlist rows are more compact, with the ticker and name on one line",
+        ),
+        "0.80.0" to listOf(
+            "New: the heat map now groups tiles into labelled sector blocks",
+        ),
+        "0.79.0" to listOf(
+            "Fixed: the after-hours recap was reporting a quiet market every single night",
+        ),
+        "0.78.0" to listOf(
+            "Fixed: one failing alert channel could silently kill every notification after it",
+        ),
+        "0.77.0" to listOf(
+            "Fixed: the sandbox trend line was counting your deposits as investment performance",
+        ),
+        "0.76.0" to listOf(
+            "New: tap a holding to see everything it paid — average cost and every fill behind it",
+            "The sandbox trade log is now one line per trade, with the AI's reasoning a tap away",
+            "New: a macro backdrop card showing the risk the sandbox trader reasons against",
+            "New: pick which BTC ETF the sandbox buys, under Universe",
+        ),
         "0.75.2" to listOf(
             "Heat map: the signals view now says how old the scan behind it is",
             "Heat map: names the scan couldn't measure are listed instead of just missing",

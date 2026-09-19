@@ -26,16 +26,48 @@ object AlertNotifier {
     const val EXTRA_ROUTE = "com.stocktracker.app.NOTIFICATION_ROUTE"
 
 
-    private const val CHANNEL_ID = "price_alerts"
+    // Not private: Settings (AlertDelivery.current) needs it to read the channel's live importance
+    // and to open the system channel-settings screen for it.
+    const val CHANNEL_ID = "price_alerts"
     private const val MARKET_CHANNEL_ID = "market_summary"
     private const val BRIEF_CHANNEL_ID = "ai_daily_brief"
     private const val SANDBOX_CHANNEL_ID = "sandbox_trades"
+    private const val SCAN_CHANNEL_ID = "signal_scan"
+
+    /** Groups every scan-family post (see [notifyScan]) so they collapse together in the shade instead
+     *  of listing separately from a channel a user may not have even opened Settings to name yet. */
+    private const val SCAN_GROUP_KEY = "com.stocktracker.app.SCAN_GROUP"
+    private val SCAN_SUMMARY_ID = "scan_group_summary".hashCode()
 
     fun ensureChannel(context: Context) {
         ensureChannel(
             context, CHANNEL_ID, "Price alerts",
             "Alerts when a tracked price crosses your thresholds",
             NotificationManager.IMPORTANCE_HIGH,
+        )
+    }
+
+    /**
+     * NOTIF-2: home for everything that used to ride the HIGH-importance price-alerts channel without
+     * actually being a price alert — overnight signal flips, 200-week-line crosses, dip alerts, the
+     * catalyst calendar, the weekly digest, and call-exit warnings. A user muting "Market dates to
+     * watch" was muting the same channel as "NVDA fell below $120"; now they're independent.
+     *
+     * This is a NEW channel id rather than a repurposed [CHANNEL_ID]: a channel's importance (and most
+     * other properties) is frozen the instant it is first created on a device — calling
+     * createNotificationChannel again with the same id is a no-op for anyone who already has it, it
+     * does not retroactively lower its importance. So there is no way to "migrate" price_alerts down to
+     * DEFAULT for existing installs from code; the only correct move is to leave price_alerts exactly as
+     * it is (still HIGH, still exclusively real price alerts, unaffected for every existing user) and
+     * mint a distinct id that every install — new or upgrading — gets created fresh at DEFAULT the first
+     * time this fires.
+     */
+    fun ensureScanChannel(context: Context) {
+        ensureChannel(
+            context, SCAN_CHANNEL_ID, "Signal & scan alerts",
+            "Overnight signal flips, 200-week-line crosses, dip alerts, key dates, the weekly digest, " +
+                "and call exit warnings",
+            NotificationManager.IMPORTANCE_DEFAULT,
         )
     }
 
@@ -90,6 +122,10 @@ object AlertNotifier {
     fun notify(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
         post(context, CHANNEL_ID, NotificationCompat.PRIORITY_HIGH, id, title, text, route)
 
+    /** Post a scan-family notification (its own default-importance channel; grouped — see [ensureScanChannel]). */
+    fun notifyScan(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, SCAN_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route, group = SCAN_GROUP_KEY)
+
     /** Post a market-summary notification (its own default-importance channel). */
     fun notifyMarket(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
         post(context, MARKET_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
@@ -111,6 +147,11 @@ object AlertNotifier {
      * never send them again. Permission is not requested anywhere except the ticker-alert sheet, so
      * for the market recap (on by default), the AI brief and call tracking this is the normal path,
      * not an edge case.
+     *
+     * NOTIF-1: permission was the ONLY gate checked here, but it is not the only way a post silently
+     * disappears — the user can also block the app's notifications outright, or mute one channel
+     * without touching the app toggle, and [NotificationManagerCompat.notify] "succeeds" (no exception)
+     * in both cases anyway. See [AlertDelivery] for the shared, unit-tested decision.
      */
     private fun post(
         context: Context,
@@ -121,6 +162,9 @@ object AlertNotifier {
         text: String,
         /** Where the tap lands, from [com.stocktracker.app.ui.Routes]. Null opens wherever the app was. */
         route: String?,
+        /** Non-null bundles this post with every other post sharing the same key so they collapse
+         *  together in the shade (see [notifyScan]); also triggers a group-summary post. */
+        group: String? = null,
     ): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -132,7 +176,14 @@ object AlertNotifier {
             MARKET_CHANNEL_ID -> ensureMarketChannel(context)
             BRIEF_CHANNEL_ID -> ensureBriefChannel(context)
             SANDBOX_CHANNEL_ID -> ensureSandboxChannel(context)
+            SCAN_CHANNEL_ID -> ensureScanChannel(context)
             else -> ensureChannel(context)
+        }
+
+        val channelImportance = context.getSystemService(NotificationManager::class.java)
+            ?.getNotificationChannel(channelId)?.importance
+        if (!AlertDelivery.canDeliver(NotificationManagerCompat.from(context).areNotificationsEnabled(), channelImportance)) {
+            return false // app blocked, or this channel muted — the caller must NOT record this as sent
         }
 
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -155,13 +206,37 @@ object AlertNotifier {
             .setPriority(priority)
             .setAutoCancel(true)
             .setContentIntent(pending)
+            .apply { if (group != null) setGroup(group) }
             .build()
         return try {
             NotificationManagerCompat.from(context).notify(id, notification)
+            if (group != null) postGroupSummary(context, channelId, group)
             true
         } catch (e: SecurityException) {
             // Permission revoked between the check above and the post.
             false
         }
     }
+
+    /** The system only visually bundles grouped notifications once a summary post exists for the
+     *  group — post/refresh it alongside every real post rather than tracking a count, since re-notifying
+     *  the same id is just an update. Losing this is cosmetic only, so failures here are swallowed. */
+    private fun postGroupSummary(context: Context, channelId: String, group: String) {
+        val summary = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_stat_alert)
+            .setContentTitle("Signal & scan alerts")
+            .setGroup(group)
+            .setGroupSummary(true)
+            .setAutoCancel(true)
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(SCAN_SUMMARY_ID, summary) }
+    }
+
+    /**
+     * Current importance of the price-alerts channel, or null if it has never been created (the
+     * background worker has never posted through it). Read by Settings ([AlertDelivery.current]) to
+     * explain why alerts might not arrive even when the worker itself looks healthy.
+     */
+    fun priceAlertChannelImportance(context: Context): Int? =
+        context.getSystemService(NotificationManager::class.java)?.getNotificationChannel(CHANNEL_ID)?.importance
 }

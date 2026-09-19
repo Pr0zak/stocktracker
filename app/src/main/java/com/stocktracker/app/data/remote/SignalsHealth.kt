@@ -47,9 +47,22 @@ data class SignalsHealthState(
     val lastOkAt: Long = 0L,          // epoch ms of the last success (0 = never) — for display only
     val lastError: String? = null,    // short human-readable reason for the last failure
     val checking: Boolean = false,    // a USER-initiated retry is in flight (not the background poll)
+    /**
+     * Where the backend loaded its settings from on its last probe: "file" normally, "backup" if it
+     * had to recover settings.json from its .bak, "env" if both were unreadable and it fell back to
+     * environment defaults. Null when the probe has not returned a body we could read.
+     *
+     * A backend running on env defaults answers every request perfectly and is running on the WRONG
+     * WATCHLIST with no API key — reachable and wrong, which is the state this app's rules say must
+     * never be reported as simply fine. See settingsDegraded.
+     */
+    val settingsSource: String? = null,
 ) {
     val isOffline: Boolean get() = state == BackendState.OFFLINE
     val isConfigured: Boolean get() = state != BackendState.NOT_CONFIGURED
+
+    /** Reachable, but serving from a recovered or absent settings file rather than the real one. */
+    val settingsDegraded: Boolean get() = settingsSource != null && settingsSource != "file"
 }
 
 /**
@@ -82,6 +95,10 @@ object SignalsHealth {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
+
+    /** Pause background polling while the app is not in the foreground (no point probing while the user
+     *  cannot see the result, and it burns battery waiting for a network response on cellular). */
+    private val paused = AtomicBoolean(false)
 
     /** Nudges the poll loop awake. Without this, an OFFLINE flip reported by a real API call would sit
      *  until the loop's (up to 5 minute) ONLINE-cadence sleep expired before the fast 30s retry engaged. */
@@ -126,11 +143,14 @@ object SignalsHealth {
     }
 
     /** Start the background poll. Idempotent — a second call is a no-op rather than a second loop. */
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
     fun start() {
         if (!started.compareAndSet(false, true)) return
         scope.launch {
             while (true) {
-                runCatching { check(manual = false) }   // a probe crash must never kill the loop
+                if (!paused.get()) {
+                    runCatching { check(manual = false) }   // a probe crash must never kill the loop
+                }
                 val naptime = if (_state.value.isOffline) POLL_WHEN_OFFLINE_MS else POLL_WHEN_ONLINE_MS
                 // Drain first. `wake` is CONFLATED, so a trySend with no receiver parked BUFFERS the
                 // element — and check() itself signals it on every failure. Without this drain the
@@ -144,15 +164,22 @@ object SignalsHealth {
                 }
             }
         }
-        // Re-probe when the app comes back to the foreground. A nap is a coroutine delay that does not
-        // advance in deep sleep, so a "5 minute" cadence can span hours of wall time — and the state
-        // has no staleness concept, so a long-stale ONLINE renders exactly like a fresh one (no banner)
-        // on a phone that has since changed networks entirely.
+        // Pause polling when the app goes to the background and resume on foreground. A nap is a
+        // coroutine delay that does not advance in deep sleep, so a "5 minute" cadence can span
+        // hours of wall time — and there is no point probing while the user cannot see the result.
+        // Resume re-probes immediately so the state is fresh when they come back.
         runCatching {
             androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(
                 androidx.lifecycle.LifecycleEventObserver { _, event ->
-                    if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
-                        scope.launch { runCatching { check(manual = false) } }
+                    when (event) {
+                        androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                            paused.set(false)
+                            scope.launch { runCatching { check(manual = false) } }
+                        }
+                        androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                            paused.set(true)
+                        }
+                        else -> {}
                     }
                 },
             )
@@ -202,7 +229,18 @@ object SignalsHealth {
             }
             return when {
                 result == null -> { reportFailure(ProbeTimeout(), direct = true); false }
-                result.isSuccess -> { reportSuccess(); true }
+                result.isSuccess -> {
+                    // The body was previously discarded — only the HTTP status was read — so the
+                    // backend's own report that it is running on recovered or default settings had
+                    // nowhere to arrive. Best-effort: a body we cannot parse leaves the field null,
+                    // which reads as "unknown", never as "fine".
+                    val src = runCatching {
+                        Http.json.decodeFromString<Health>(result.getOrThrow()).settingsSource
+                    }.getOrNull()?.takeIf { it.isNotBlank() }
+                    reportSuccess()
+                    _state.update { it.copy(settingsSource = src) }
+                    true
+                }
                 else -> {
                     val e = result.exceptionOrNull()
                     reportFailure(e, direct = true)

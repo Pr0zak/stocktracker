@@ -7,7 +7,13 @@ import com.stocktracker.app.data.model.AssetAlerts
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.JournalPlan
+import com.stocktracker.app.data.model.Lot
+import com.stocktracker.app.data.model.LotSplitAdjustment
 import com.stocktracker.app.data.model.PricePoint
+import com.stocktracker.app.data.model.applySplitAdjustments
+import com.stocktracker.app.data.model.detectSplitAdjustments
+import com.stocktracker.app.data.model.earliestKnownLotEpochMs
+import com.stocktracker.app.data.model.sharesCommittedToShortCalls
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.model.TakenState
 import com.stocktracker.app.data.model.VerdictJournalEntry
@@ -64,6 +70,12 @@ data class DetailUiState(
     val inWatchlist: Boolean = false,
     val shares: Double? = null,
     val avgCost: Double? = null,
+    /**
+     * Shares of this symbol already promised away by an OPEN short call (MONEY-3) — 100 per contract.
+     * Covered-call eligibility (`heldShares` in DetailScreen) subtracts this from [shares], so selling
+     * a second covered call against shares already committed to a first one is no longer offered.
+     */
+    val sharesCommittedToShortCalls: Int = 0,
     val alerts: AssetAlerts = AssetAlerts(),
     val groups: List<String> = emptyList(),
     val fiftyTwoWeekHigh: Double? = null,
@@ -163,6 +175,21 @@ data class DetailUiState(
     val touchStudy: TouchStudyResponse? = null,
     /** True once the quote says this is a fund — insiders and Congress do not file against an ETF. */
     val isEtf: Boolean = false,
+    /**
+     * MONEY-4: a detected split affecting one or more of this holding's DATED lots, awaiting the
+     * user's confirmation. Never applied automatically — see [DetailViewModel.confirmSplitAdjustment].
+     * Null when nothing has been checked yet, nothing was found, or the user already acted on it.
+     */
+    val splitPrompt: SplitPromptUi? = null,
+)
+
+/** MONEY-4 — what a detected split would do to this holding, for the confirmation dialog. */
+data class SplitPromptUi(
+    val adjustments: List<LotSplitAdjustment>,
+    val sharesBefore: Double,
+    val sharesAfter: Double,
+    /** Combined ratio label(s), e.g. "4:1" or "4:1, 2:1" if two separate splits both apply. */
+    val label: String,
 )
 
 class DetailViewModel(private val asset: Asset) : ViewModel() {
@@ -170,6 +197,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     private val repo = ServiceLocator.repository
     private val store = ServiceLocator.watchlistStore
     private val settings = ServiceLocator.settingsStore
+    private val callPositionStore = ServiceLocator.callPositionStore
 
     private val _state = MutableStateFlow(DetailUiState(asset))
     val state = _state.asStateFlow()
@@ -200,6 +228,16 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                         alerts = stored?.alerts ?: AssetAlerts(),
                         groups = stored?.groups ?: emptyList(),
                     )
+                }
+                if (stored != null) maybeCheckForSplit(stored.lots)
+            }
+        }
+        // Covered-call eligibility (MONEY-3): shares already promised away by an OPEN short call on
+        // this symbol must not be offered again — see [sharesCommittedToShortCalls].
+        viewModelScope.launch {
+            callPositionStore.positions.collect { positions ->
+                _state.update {
+                    it.copy(sharesCommittedToShortCalls = positions.sharesCommittedToShortCalls(asset.symbol))
                 }
             }
         }
@@ -884,17 +922,84 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
     /**
      * Persist shares + alerts in a SINGLE write. (Two separate writes raced and clobbered each
      * other's field, so shares appeared not to save.) Adds the asset to the watchlist if needed.
+     *
+     * This dialog only ever gathers a TOTAL, never a per-lot correction, so it has no way to know
+     * WHICH lot changed when the totals move (MONEY-2). A no-op edit — the numbers already match
+     * what [lots] derives — leaves any real, dated lot history alone; an actual change collapses the
+     * holding to a single undated lot carrying the new totals, the same "one blended number" this
+     * screen always produced, just expressed as a lot now. Precise, dated lots come only from a
+     * recorded fill or an exercised call (see [Lot], [com.stocktracker.app.data.prefs.WatchlistStore.addLot]).
      */
     fun saveHoldingsAndAlerts(shares: Double?, avgCost: Double?, alerts: AssetAlerts) {
         viewModelScope.launch {
             val base = store.snapshot().firstOrNull { it.id == asset.id } ?: asset
+            val newAvgCost = avgCost.takeIf { shares != null } // cost only meaningful with shares
+            val lots = when {
+                shares == base.shares && newAvgCost == base.avgCost -> base.lots
+                shares == null || shares == 0.0 -> emptyList()
+                else -> listOf(Lot(shares = shares, costPerShare = newAvgCost, acquiredDateIso = null))
+            }
             store.update(
                 base.copy(
-                    shares = shares,
-                    avgCost = avgCost.takeIf { shares != null }, // cost only meaningful with shares
+                    lots = lots,
                     alerts = alerts.takeUnless { it.isEmpty },
                 ),
             )
         }
+    }
+
+    // ------------------------------------------------------------------------------------ MONEY-4
+
+    // The lots this ViewModel has already checked (or the user already acted on / dismissed), so a
+    // stock with no split doesn't refetch on every unrelated store write, and a dismissed prompt
+    // doesn't reappear immediately for the SAME, still-unadjusted lots. A genuinely new lot (an
+    // add-to-position) or a newly detected split changes `lots` and re-triggers the check.
+    private var splitCheckedLots: List<Lot>? = null
+
+    private fun maybeCheckForSplit(lots: List<Lot>) {
+        if (asset.type != AssetType.STOCK) return
+        if (lots.isEmpty() || lots == splitCheckedLots) return
+        val since = earliestKnownLotEpochMs(lots)
+        if (since == null) {
+            // Every lot's date is unknown -- there is nothing to compare a split's date against, so
+            // this is the SAME "never assume from silence" rule as everywhere else in MONEY-1/4.
+            splitCheckedLots = lots
+            return
+        }
+        splitCheckedLots = lots
+        viewModelScope.launch {
+            val splits = runCatching { repo.splitsSince(asset, since) }.getOrDefault(emptyList())
+            val adjustments = detectSplitAdjustments(lots, splits)
+            if (adjustments.isEmpty()) return@launch
+            val before = lots.sumOf { it.shares }
+            val after = applySplitAdjustments(lots, adjustments).sumOf { it.shares }
+            _state.update {
+                it.copy(splitPrompt = SplitPromptUi(
+                    adjustments = adjustments, sharesBefore = before, sharesAfter = after,
+                    label = adjustments.map { a -> a.label }.distinct().joinToString(", "),
+                ))
+            }
+        }
+    }
+
+    /** The user confirmed: adjust the affected lots' shares/cost, preserve every lot's date. Reads
+     *  the CURRENT stored lots rather than the snapshot the prompt was computed from, so an edit made
+     *  while the dialog was open isn't clobbered. */
+    fun confirmSplitAdjustment() {
+        val prompt = _state.value.splitPrompt ?: return
+        viewModelScope.launch {
+            val base = store.snapshot().firstOrNull { it.id == asset.id } ?: return@launch
+            val adjusted = applySplitAdjustments(base.lots, prompt.adjustments)
+            store.update(base.copy(lots = adjusted))
+            splitCheckedLots = adjusted
+            _state.update { it.copy(splitPrompt = null) }
+        }
+    }
+
+    /** The user said not now — never adjust anything on their behalf. [splitCheckedLots] is already
+     *  set to the lots that produced this prompt (from [maybeCheckForSplit]), so simply clearing the
+     *  dialog is enough to stop it reappearing on this same, still-unadjusted data. */
+    fun dismissSplitPrompt() {
+        _state.update { it.copy(splitPrompt = null) }
     }
 }

@@ -1,5 +1,6 @@
 package com.stocktracker.app.update
 
+import com.stocktracker.app.BuildConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,7 +68,9 @@ class ChangelogTest {
     fun `recent returns releases newest first for the on-demand view`() {
         val recent = Changelog.recent()
         assertTrue("expected several releases", recent.size >= 3)
-        assertEquals("0.75.2", recent.first().first)
+        // Hardcoded on purpose: cutting a release without writing its notes should fail here as
+        // well as in the build-version guard below, and updating this line is the reminder.
+        assertEquals("1.7.0", recent.first().first)
         // Every listed release must actually have notes — an empty section would render as a bare
         // version heading with nothing under it.
         assertTrue(recent.all { it.second.isNotEmpty() })
@@ -76,5 +79,24 @@ class ChangelogTest {
     @Test
     fun `recent is capped`() {
         assertEquals(2, Changelog.recent(limit = 2).size)
+    }
+
+    // CI-3: the bundled map went 28 releases without an update (last key was 0.75.2 while the app
+    // shipped v1.6.0), so the post-upgrade sheet was silent and About showed July's notes under a
+    // September header. This pins the one invariant that actually prevents that: whatever version
+    // this build reports, that version must be a key here. `BuildConfig.VERSION_NAME` reflects
+    // `-Pversion.name` from the release tag, so a release cut without updating this map fails here
+    // instead of shipping quietly wrong. "0.1.0" is the documented fallback `app/build.gradle.kts`
+    // uses when no version.name is passed at all (local builds, and CI runs that don't build a
+    // release) — that placeholder was never itself released, so it is exempt rather than added as
+    // a permanent, meaningless entry.
+    @Test
+    fun `the build's own version has changelog notes`() {
+        val version = BuildConfig.VERSION_NAME
+        if (version == "0.1.0") return
+        assertTrue(
+            "BuildConfig.VERSION_NAME=$version has no Changelog entry — add one before releasing",
+            Changelog.forVersion(version).isNotEmpty(),
+        )
     }
 }

@@ -82,10 +82,28 @@ class SignalsApiService {
         return Http.json.decodeFromString<ScanLatest>(body)
     }
 
-    /** Push the app's watchlist up so the backend's nightly scan tracks what the user tracks. */
-    suspend fun syncWatchlist(baseUrl: String, stocks: List<String>, cryptos: List<String>) {
+    /**
+     * Push the app's watchlist up so the backend's nightly scan tracks what the user tracks.
+     *
+     * [clientId] is this install's stable OPS-3 id (see [com.stocktracker.app.data.prefs.InstallId])
+     * — without it, every client that omits one looks like the same client to the backend's removal
+     * guard, and the guard does nothing. [replace] forces the sync past that guard; only ever set
+     * true after the user has explicitly confirmed a refusal (see [watchlistSyncRefusal]) — never
+     * automatically, or the guard is pointless. Throws [HttpStatusException] with code 409 when the
+     * guard trips and [replace] is false.
+     */
+    suspend fun syncWatchlist(
+        baseUrl: String,
+        stocks: List<String>,
+        cryptos: List<String>,
+        clientId: String,
+        replace: Boolean = false,
+    ) {
         if (baseUrl.isBlank()) return
-        sPost("${baseUrl.trimEnd('/')}/api/settings", Http.json.encodeToString(WatchlistSync(stocks, cryptos)))
+        sPost(
+            "${baseUrl.trimEnd('/')}/api/settings",
+            Http.json.encodeToString(WatchlistSync(stocks, cryptos, clientId, replace)),
+        )
     }
 
     /** Short-pressure read (FINRA SI + short volume + SEC FTDs) — free, no LLM call. Stocks only. */
@@ -232,11 +250,11 @@ class SignalsApiService {
      *  gate on the AI switch. Crypto holdings must be sent as <SYM>-USD. Null on a blank URL / no holdings. */
     suspend fun rebalance(
         baseUrl: String, cash: Double, maxPositionPct: Int, holdings: List<HoldingSync>, deep: Boolean = false,
-        refresh: Boolean = false,
+        refresh: Boolean = false, taxableAccount: Boolean = true,
     ): RebalanceResponse? {
         if (baseUrl.isBlank() || holdings.isEmpty()) return null
         val body = Http.json.encodeToString(
-            RebalanceRequestBody(cash, deep, refresh, maxPositionPct.toDouble(), holdings),
+            RebalanceRequestBody(cash, deep, refresh, maxPositionPct.toDouble(), holdings, taxableAccount),
         )
         return Http.json.decodeFromString<RebalanceResponse>(
             sPost("${baseUrl.trimEnd('/')}/portfolio/rebalance", body, slow = true),
@@ -1129,6 +1147,21 @@ data class MacroCatalyst(
     @SerialName("seen_count") val seenCount: Int = 0,
 )
 
+/**
+ * GET /health's body. CI-2: nothing in the app decoded this as JSON before — [SignalsHealth] only
+ * checked the raw HTTP response for success/failure — so a rename here (e.g. `key_configured`) could
+ * ship on the backend with nothing on this side to notice. Added so the contract has a model to pin;
+ * see app/src/test/java/com/stocktracker/app/data/ContractFixtureDecodeTest.kt.
+ */
+@Serializable
+data class Health(
+    val ok: Boolean = false,
+    @SerialName("key_configured") val keyConfigured: Boolean = false,
+    @SerialName("deep_model") val deepModel: String = "",
+    @SerialName("scan_model") val scanModel: String = "",
+    @SerialName("settings_source") val settingsSource: String = "",
+)
+
 // ---- AI Sandbox models ----
 
 @Serializable
@@ -1161,6 +1194,8 @@ data class SandboxState(
     @SerialName("last_weekly_review_date") val lastWeeklyReviewDate: String? = null,
     @SerialName("last_strategy_note") val strategyNote: SandboxStrategyNote? = null,
     @SerialName("created_at") val createdAt: Double? = null,
+    /** Symbols that could not be priced and are being valued at a fallback mark rather than a live quote. */
+    @SerialName("stale_marks") val staleMarks: List<String> = emptyList(),
 )
 
 @Serializable
@@ -1600,6 +1635,17 @@ data class HoldingSync(
     val symbol: String,
     val shares: Double,
     @SerialName("avg_cost") val avgCost: Double,
+    /**
+     * MONEY-1: one ISO `yyyy-mm-dd` acquisition date per purchase lot behind this holding, in
+     * [com.stocktracker.app.data.model.Asset.lots] order. A position bought in several pieces has
+     * several holding periods, so this is a LIST rather than one flattened date — collapsing it to a
+     * single date would misreport which shares are still short-term. A `null` entry is a lot whose
+     * date the app never recorded (most commonly a pre-MONEY-2 migrated position); the backend
+     * treats even ONE unknown entry as "can't tell" for the whole holding rather than guessing from
+     * the lots it can see. Left at its default `null` (omitted, not an empty list) for a holding
+     * with no lot data at all.
+     */
+    @SerialName("opened_at") val openedAt: List<String?>? = null,
 )
 
 /** POST /portfolio/rebalance — a concrete sized rebalance plan (Theme C). */
@@ -1611,6 +1657,13 @@ data class RebalanceRequestBody(
     val refresh: Boolean,
     @SerialName("max_position_pct") val maxPositionPct: Double,
     val holdings: List<HoldingSync>,
+    /**
+     * MONEY-1. No default, same reason as [refresh] above: `Http.json` drops a field equal to its
+     * class default, and `true` (a taxable account) is overwhelmingly the common case — declaring it
+     * `Boolean = true` would mean flipping the Settings switch back ON after trying "tax-advantaged"
+     * silently stopped sending anything, and the server would keep skipping the annotation forever.
+     */
+    @SerialName("taxable_account") val taxableAccount: Boolean,
 )
 
 @Serializable
@@ -1924,7 +1977,42 @@ data class RecommendationsResponse(
 data class WatchlistSync(
     val watchlist: List<String>,
     @SerialName("crypto_watchlist") val cryptoWatchlist: List<String>,
+    @SerialName("client_id") val clientId: String? = null,
+    val replace: Boolean = false,
 )
+
+/**
+ * The body a 409 from `POST /api/settings` carries when OPS-3's removal guard refuses a sync (see
+ * ~/stocktracker-signals app/settings_store.py `WatchlistSyncRefused.detail()`) — everything the UI
+ * needs to tell the user what would have been removed, in plain terms, and let them choose.
+ */
+@Serializable
+data class WatchlistSyncRefusal(
+    /** "watchlist" or "crypto_watchlist" — which list tripped the guard. */
+    val field: String,
+    @SerialName("n_before") val nBefore: Int,
+    @SerialName("n_after") val nAfter: Int,
+    @SerialName("removed_count") val removedCount: Int,
+    val removed: List<String> = emptyList(),
+    val threshold: Int,
+    val message: String = "",
+)
+
+@Serializable
+private data class WatchlistSyncRefusalEnvelope(val detail: WatchlistSyncRefusal)
+
+/**
+ * Parses [e] as an OPS-3 watchlist-sync refusal — a 409 from `POST /api/settings` whose body is
+ * `{"detail": {...}}` — or returns null when it isn't one: a plain network failure, a
+ * differently-shaped 4xx, or no exception at all. Callers use this to show exactly which symbols
+ * would have been removed instead of a bare "sync failed".
+ */
+fun watchlistSyncRefusal(e: Throwable?): WatchlistSyncRefusal? {
+    val http = e as? HttpStatusException ?: return null
+    if (http.code != 409) return null
+    val body = http.body ?: return null
+    return runCatching { Http.json.decodeFromString<WatchlistSyncRefusalEnvelope>(body).detail }.getOrNull()
+}
 
 /**
  * GET /scan/latest — the nightly scan, or the server saying it hasn't got one.

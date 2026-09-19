@@ -1,6 +1,8 @@
 package com.stocktracker.app.data.prefs
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.stocktracker.app.data.model.ClosedCallPosition
@@ -39,6 +41,17 @@ class ClosedCallPositionStore(private val context: Context) {
     /** Wholesale replace — used only by a backup restore, which is destructive by design. */
     suspend fun setAll(positions: List<ClosedCallPosition>) = context.dataStore.edit { prefs ->
         prefs[key] = encode(positions)
+    }
+
+    /** The exact bytes on disk, or null if the key was never written. For [com.stocktracker.app.data.BackupManager]
+     *  only, so a restore snapshot mirrors [CallPositionStore]/[VerdictJournalStore] and can put back
+     *  exactly what was there — the realized-P&L history this store holds. */
+    internal fun rawValue(prefs: Preferences): String? = prefs[key]
+
+    /** Writes [raw] verbatim, or clears the key when null. Participates in a caller-supplied
+     *  transaction so several stores can be replaced atomically in one write. */
+    internal fun writeRaw(prefs: MutablePreferences, raw: String?) {
+        if (raw == null) prefs.remove(key) else prefs[key] = raw
     }
 
     private fun decode(raw: String?): List<ClosedCallPosition>? =

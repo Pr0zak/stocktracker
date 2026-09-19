@@ -101,6 +101,20 @@ fun StockTrackerRoot(
     val parentTab = spokeParent[currentRoute] ?: if (isMarketCalendar) TopDest.Markets else null
     val showBottomBar = topDestinations.any { it.route == currentRoute } || parentTab != null
 
+    // PLAT-3: every "the signals backend isn't configured" dead end — Watchlist's Market Now,
+    // Portfolio's review and rebalance, Ideas, the catalyst calendar, the dip radar, the sandbox,
+    // and the detail screen's idle lenses — used to explain the gap and stop there. One place to
+    // send all of them: the Settings tab, switched to with the same semantics as a bottom-bar tap
+    // (popUpTo + restoreState) rather than pushed, so Back doesn't strand the user on a copy of
+    // Settings with no way out.
+    val openSignalsSettings: () -> Unit = {
+        nav.navigate(TopDest.Settings.route) {
+            popUpTo(TopDest.Watchlist.route) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
     // A notification's tap, arriving as a route. The back stack is left intact underneath, so Back
     // from a deep-linked detail screen lands on the watchlist rather than closing the app.
     LaunchedEffect(pendingRoute) {
@@ -161,6 +175,7 @@ fun StockTrackerRoot(
                     onOpenDips = { nav.navigate(Routes.DIPS) },
                     onOpenHeatmap = { nav.navigate(TopDest.Heatmap.route) },
                     onOpenMarketScan = { nav.navigate(TopDest.MarketScan.route) },
+                    onOpenSignalsSettings = openSignalsSettings,
                 )
             }
             composable(Routes.VIX) { VixDetailScreen(onBack = { nav.popBackStack() }) }
@@ -168,6 +183,7 @@ fun StockTrackerRoot(
                 DipListScreen(
                     onBack = { nav.popBackStack() },
                     onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                    onOpenSignalsSettings = openSignalsSettings,
                 )
             }
             composable(
@@ -179,6 +195,7 @@ fun StockTrackerRoot(
                     onBack = { nav.popBackStack() },
                     symbol = sym,
                     onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                    onOpenSignalsSettings = openSignalsSettings,
                 )
             }
             composable(TopDest.Portfolio.route) {
@@ -190,6 +207,7 @@ fun StockTrackerRoot(
                     onOpenIdeas = { nav.navigate(TopDest.Ideas.route) },
                     onOpenJournal = { nav.navigate(TopDest.Journal.route) },
                     onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                    onOpenSignalsSettings = openSignalsSettings,
                 )
             }
             composable(TopDest.Journal.route) {
@@ -213,11 +231,13 @@ fun StockTrackerRoot(
                 IdeasScreen(
                     onOpenDetail = { nav.navigate(Routes.detail(it)) },
                     onBack = { nav.popBackStack() },
+                    onOpenSignalsSettings = openSignalsSettings,
                 )
             }
             composable(TopDest.Sandbox.route) {
                 com.stocktracker.app.ui.sandbox.SandboxScreen(
                     onOpenSettings = { nav.navigate(Routes.SANDBOX_SETTINGS) },
+                    onOpenSignalsSettings = openSignalsSettings,
                 )
             }
             composable(Routes.SANDBOX_SETTINGS) {
@@ -271,6 +291,7 @@ fun StockTrackerRoot(
                         }
                     },
                     onOpenCalendar = { nav.navigate(Routes.calendar(Routes.calendarSymbol(asset))) },
+                    onOpenSignalsSettings = openSignalsSettings,
                 )
             }
         }

@@ -67,6 +67,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
@@ -114,6 +115,8 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.calls.CallDraft
 import com.stocktracker.app.ui.calls.CallEntryDialog
 import com.stocktracker.app.ui.calls.callDraftFrom
+import com.stocktracker.app.ui.calls.coveredCallDraftFrom
+import com.stocktracker.app.ui.calls.putDraftFrom
 import com.stocktracker.app.data.model.PairedStat
 import com.stocktracker.app.signals.BacktestResult
 import com.stocktracker.app.signals.winRatePair
@@ -181,6 +184,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onOpenCalendar: () -> Unit = {},
     onOpenCalls: () -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val vm: DetailViewModel = viewModel(key = asset.id) { DetailViewModel(asset) }
     val state by vm.state.collectAsState()
@@ -193,9 +197,60 @@ fun DetailScreen(
     val scope = rememberCoroutineScope()
     var showIndicatorSheet by remember { mutableStateOf(false) }
     var showNewListDialog by remember { mutableStateOf(false) }
-    var newListName by remember { mutableStateOf("") }
+    var newListName by rememberSaveable { mutableStateOf("") }
+    // Set only when a holdings edit would collapse dated lots; see onSave below.
+    var pendingLotOverwrite by remember { mutableStateOf<Triple<Double?, Double?, AssetAlerts>?>(null) }
+
+    pendingLotOverwrite?.let { (pShares, pCost, pAlerts) ->
+        val dated = state.asset.datedLotCount()
+        AlertDialog(
+            onDismissRequest = { pendingLotOverwrite = null },
+            title = { Text("Replace $dated dated ${if (dated == 1) "purchase" else "purchases"}?") },
+            text = {
+                Text(
+                    "This holding has $dated ${if (dated == 1) "purchase" else "purchases"} with " +
+                        "recorded dates, from fills and exercised calls. Saving a single total " +
+                        "replaces them with one entry that has no date.\n\n" +
+                        "Cost basis and share count are kept. The dates are not, and they are what " +
+                        "long-term treatment and split adjustments are worked out from.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.saveHoldingsAndAlerts(pShares, pCost, pAlerts)
+                    pendingLotOverwrite = null
+                }) { Text("Replace") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingLotOverwrite = null }) { Text("Keep purchases") }
+            },
+        )
+    }
+    // MONEY-4: a stock split detected since one or more of this holding's dated lots were bought.
+    // Never applied silently — the user confirms before any share count/cost is rewritten.
+    state.splitPrompt?.let { split ->
+        AlertDialog(
+            onDismissRequest = { vm.dismissSplitPrompt() },
+            title = { Text("Split detected: ${split.label}") },
+            text = {
+                Text(
+                    "${asset.symbol} has split ${split.label} since this position was bought. Adjusting " +
+                        "updates your recorded shares from ${Formatting.shares(split.sharesBefore)} to " +
+                        "${Formatting.shares(split.sharesAfter)} and divides cost per share by the same " +
+                        "ratio — your real position and total cost basis are unchanged, only how they're " +
+                        "recorded. Purchase dates are kept exactly as they are.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.confirmSplitAdjustment() }) { Text("Adjust") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.dismissSplitPrompt() }) { Text("Not now") }
+            },
+        )
+    }
     // Non-null while the OC-3 call-tracker entry form is open (pre-filled from a "Track this" tap).
-    var callDraft by remember { mutableStateOf<CallDraft?>(null) }
+    var callDraft by rememberSaveable { mutableStateOf<CallDraft?>(null) }
     val context = LocalContext.current
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val quote = state.quote
@@ -589,7 +644,18 @@ fun DetailScreen(
                     } else null
                 },
                 onSave = { newShares, newAvgCost, newAlerts ->
-                    vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
+                    // The Edit-holdings form can only express one blended total, so a real change
+                    // collapses however many dated lots exist into a single undated one. When those
+                    // lots came from recorded fills or an exercised call, their dates are what a
+                    // tax-aware rebalance and a split adjustment read — so say so before discarding
+                    // them, rather than letting a hand correction quietly erase a purchase history
+                    // the user may not know the app was keeping.
+                    val discarding = state.asset.editWouldDiscardDatedLots(newShares, newAvgCost)
+                    if (discarding) {
+                        pendingLotOverwrite = Triple(newShares, newAvgCost, newAlerts)
+                    } else {
+                        vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
+                    }
                     if (!newAlerts.isEmpty) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -669,11 +735,15 @@ fun DetailScreen(
                     loading = state.putsLoading,
                     error = state.putsError,
                     onSuggest = { cash, style -> vm.requestPuts(cash, style) },
+                    onTrack = { draft -> callDraft = draft },
                 )
 
-                // OC-8 wheel · income side: "Sell covered calls" — only once the user holds ≥100 shares
-                // of THIS symbol (one contract covers 100). Share count comes from the holdings store.
-                val heldShares = state.shares?.toInt() ?: 0
+                // OC-8 wheel · income side: "Sell covered calls" — only once the user holds ≥100 FREE
+                // shares of THIS symbol (one contract covers 100). Raw share count comes from the
+                // holdings store; MONEY-3 subtracts shares already promised away by an OPEN short call
+                // on this symbol, so a shown-and-sold covered call can't be offered again against the
+                // same 100 shares on the next visit.
+                val heldShares = (state.shares?.toInt() ?: 0) - state.sharesCommittedToShortCalls
                 if (heldShares >= 100) {
                     CoveredCallCard(
                         symbol = asset.symbol,
@@ -682,6 +752,7 @@ fun DetailScreen(
                         loading = state.coveredCallLoading,
                         error = state.coveredCallError,
                         onSuggest = { target -> vm.requestCoveredCall(heldShares, target) },
+                        onTrack = { draft -> callDraft = draft },
                     )
                 }
                 } // if (optionsOpen)
@@ -793,6 +864,14 @@ fun DetailScreen(
             )
             val notApplicable = lenses.filter { it.second.isNotApplicable }.map { it.first.label }
             val checkedEmpty = lenses.filter { it.second.isEmpty }.map { it.first.label }
+            // PLAT-3: LensStatus.IDLE means nobody asked — almost always because no signals backend
+            // is configured yet. Every other status gets a rendering (READY the card, FAILED a retry
+            // row, NOT_APPLICABLE/EMPTY the footers above); IDLE got none, so a fresh install showed
+            // this whole area as if it did not exist rather than as a layer waiting to be switched on.
+            val idleLenses = lenses.filter { it.second.status == LensStatus.IDLE }.map { it.first.label }
+            if (idleLenses.isNotEmpty()) {
+                IdleLensNotice(idleLenses, onOpenSignalsSettings)
+            }
 
             if (notApplicable.isNotEmpty()) {
                 Text(
@@ -1354,6 +1433,38 @@ private fun LensRetryRow(id: LensId, onRetry: () -> Unit) {
             )
         }
         TextButton(onClick = onRetry) { Text("Retry") }
+    }
+}
+
+/**
+ * Lens.IDLE, rendered — this is the fix for PLAT-3's third item.
+ *
+ * Every other lens status draws something: READY the card, FAILED [LensRetryRow], NOT_APPLICABLE and
+ * EMPTY the footers above. IDLE drew nothing, anywhere, ever — so a fresh install with no signals
+ * backend showed a Detail screen with no SIGNALS & FLOWS section, no PATTERNS & HISTORY section, and
+ * nothing to suggest either had ever existed. The feature read as absent rather than as a quiet layer
+ * waiting to be switched on. This says what it is and sends the reader straight to the one setting
+ * that turns it on.
+ */
+@Composable
+private fun IdleLensNotice(labels: List<String>, onOpenSignalsSettings: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("AI analyst layer", style = MaterialTheme.typography.labelLarge)
+            Text(
+                labels.joinToString(" · ") +
+                    " read from a self-hosted signals backend, and none of it has been asked for yet.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onOpenSignalsSettings) { Text("Set up signals") }
     }
 }
 
@@ -3184,10 +3295,12 @@ private fun HoldingsAndAlertsSection(
             }
             Text(line, style = MaterialTheme.typography.labelMedium, color = neutral)
             if (avgCost != null && avgCost > 0.0) {
+                // MONEY-5: price movement only, on shares still held — no dividends, nothing sold.
+                // Same fix as the Portfolio screen's headline figure; "total return" claimed both.
                 val gain = shares * (quote.price - avgCost)
                 val gUp = gain >= 0.0
                 Text(
-                    "${Formatting.change(gain, hideZeroCents)} total return",
+                    "${Formatting.change(gain, hideZeroCents)} unrealized gain (price only)",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     color = if (gUp) GainGreen else LossRed,
@@ -3399,12 +3512,12 @@ private fun EditPositionSheet(
     onDismiss: () -> Unit,
     onSave: (Double?, Double?, AssetAlerts) -> Unit,
 ) {
-    var sharesText by remember { mutableStateOf(shares?.let { numText(it) } ?: "") }
-    var costText by remember { mutableStateOf(avgCost?.let { numText(it) } ?: "") }
-    var above by remember { mutableStateOf(alerts.priceAbove?.let { numText(it) } ?: "") }
-    var below by remember { mutableStateOf(alerts.priceBelow?.let { numText(it) } ?: "") }
-    var pctUp by remember { mutableStateOf(alerts.percentUp?.let { numText(it) } ?: "") }
-    var pctDown by remember { mutableStateOf(alerts.percentDown?.let { numText(it) } ?: "") }
+    var sharesText by rememberSaveable { mutableStateOf(shares?.let { numText(it) } ?: "") }
+    var costText by rememberSaveable { mutableStateOf(avgCost?.let { numText(it) } ?: "") }
+    var above by rememberSaveable { mutableStateOf(alerts.priceAbove?.let { numText(it) } ?: "") }
+    var below by rememberSaveable { mutableStateOf(alerts.priceBelow?.let { numText(it) } ?: "") }
+    var pctUp by rememberSaveable { mutableStateOf(alerts.percentUp?.let { numText(it) } ?: "") }
+    var pctDown by rememberSaveable { mutableStateOf(alerts.percentDown?.let { numText(it) } ?: "") }
     val decimal = KeyboardOptions(keyboardType = KeyboardType.Decimal)
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -3913,6 +4026,7 @@ private fun CashSecuredPutCard(
     loading: Boolean,
     error: String?,
     onSuggest: (Double, String) -> Unit,
+    onTrack: (CallDraft) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val context = LocalContext.current
@@ -3993,6 +4107,7 @@ private fun CashSecuredPutCard(
                         clipboard.setText(AnnotatedString(primary.orderTicket))
                         Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
                     },
+                    onTrack = { onTrack(putDraftFrom(symbol, puts, primary)) },
                 )
                 val others = puts.candidates.filter { it !== primary }
                 if (others.isNotEmpty()) {
@@ -4049,6 +4164,7 @@ private fun PutCandidateBlock(
     puts: PutsResponse,
     c: PutCandidate,
     onCopy: () -> Unit,
+    onTrack: () -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val n = c.contracts ?: 1
@@ -4120,8 +4236,15 @@ private fun PutCandidateBlock(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
         )
     }
-    OutlinedButton(onClick = onCopy, enabled = c.orderTicket.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-        Text("Copy order ticket")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = onCopy, enabled = c.orderTicket.isNotBlank(), modifier = Modifier.weight(1f)) {
+            Text("Copy order ticket")
+        }
+        // "Track this" (MONEY-3) — hand the shown suggestion to the OC-3 tracker as a SOLD put
+        // (you still sell it on Fidelity yourself).
+        Button(onClick = onTrack, modifier = Modifier.weight(1f)) {
+            Text("Track this")
+        }
     }
 }
 
@@ -4168,6 +4291,7 @@ private fun CoveredCallCard(
     loading: Boolean,
     error: String?,
     onSuggest: (Double?) -> Unit,
+    onTrack: (CallDraft) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val context = LocalContext.current
@@ -4277,14 +4401,24 @@ private fun CoveredCallCard(
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                 )
             }
-            OutlinedButton(
-                onClick = {
-                    clipboard.setText(AnnotatedString(c.orderTicket))
-                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                },
-                enabled = c.orderTicket.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Copy order ticket") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = {
+                        clipboard.setText(AnnotatedString(c.orderTicket))
+                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = c.orderTicket.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Copy order ticket") }
+                // "Track this" (MONEY-3) — hand the shown suggestion to the OC-3 tracker as a SOLD
+                // call (you still sell it on Fidelity yourself). This is the same tracker that
+                // [sharesCommittedToShortCalls] reads back to keep the next visit from offering these
+                // same shares again.
+                Button(
+                    onClick = { onTrack(coveredCallDraftFrom(symbol, sharesHeld, coveredCall, c)) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Track this") }
+            }
         }
 
         coveredCall?.warnings?.forEach { w ->

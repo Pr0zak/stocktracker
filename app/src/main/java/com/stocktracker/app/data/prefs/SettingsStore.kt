@@ -1,6 +1,8 @@
 package com.stocktracker.app.data.prefs
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -11,6 +13,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.stocktracker.app.data.remote.Http
 import com.stocktracker.app.widget.WidgetBackground
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -39,9 +42,11 @@ class SettingsStore(private val context: Context) {
     private val chartLogScaleKey = booleanPreferencesKey("chart_log_scale")
     private val watchlistGroupsKey = stringPreferencesKey("watchlist_groups")
     private val signalsApiUrlKey = stringPreferencesKey("signals_api_url")
+    private val installIdKey = stringPreferencesKey("install_id")
     private val lastScanNotifiedKey = longPreferencesKey("last_scan_notified_at")
     private val investableCashKey = doublePreferencesKey("investable_cash")
     private val aiAnalystEnabledKey = booleanPreferencesKey("ai_analyst_enabled")
+    private val taxableAccountKey = booleanPreferencesKey("taxable_account")
     private val lastDigestKey = longPreferencesKey("last_weekly_digest_at")
     private val marketSummaryEnabledKey = booleanPreferencesKey("market_summary_enabled")
     private val marketSummaryAfterHoursKey = booleanPreferencesKey("market_summary_after_hours")
@@ -54,12 +59,35 @@ class SettingsStore(private val context: Context) {
     /** The versionName the user was last SHOWN the changelog for. Absent on a fresh install, which
      *  is how "first run" is told apart from "just upgraded" — a new user gets no release notes. */
     private val lastSeenVersionKey = stringPreferencesKey("last_seen_version")
+
+    /** The release version the user last chose "Later" for in the update dialog. Compared against
+     *  the latest available release so a cold start doesn't re-nag about the same one every launch;
+     *  see [dismissedUpdateVersion]. */
+    private val dismissedUpdateVersionKey = stringPreferencesKey("dismissed_update_version")
     private val lastSandboxTradeTsKey = doublePreferencesKey("last_sandbox_trade_ts")
     private val lastBackgroundRunKey = longPreferencesKey("last_background_run_at")
     private val lastBackgroundFailuresKey = stringPreferencesKey("last_background_failures")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
+
+    /**
+     * This install's stable OPS-3 id — see [InstallId] for what it is and isn't. Generated on first
+     * call and persisted from then on, so every later call (this session or after a restart) returns
+     * the same value; sent as `client_id` on every watchlist sync in [SignalScanNotifier][com.stocktracker.app.notify.SignalScanNotifier].
+     */
+    suspend fun installId(): String {
+        val current = context.dataStore.data.map { it[installIdKey] }.first()
+        if (!current.isNullOrBlank()) return current
+        val fresh = InstallId.resolve(null)
+        context.dataStore.edit { prefs ->
+            // DataStore serializes concurrent edit() calls, but another caller may have already run
+            // this same read-then-write between our read above and this block executing — never
+            // clobber an id that's already there.
+            if (prefs[installIdKey].isNullOrBlank()) prefs[installIdKey] = fresh
+        }
+        return context.dataStore.data.map { it[installIdKey] }.first()!!
+    }
 
     /**
      * When the background worker last completed, and which of its steps failed (comma-separated,
@@ -88,6 +116,12 @@ class SettingsStore(private val context: Context) {
 
     val lastSeenVersion: Flow<String?> = context.dataStore.data.map { it[lastSeenVersionKey] }
     suspend fun setLastSeenVersion(v: String) = context.dataStore.edit { it[lastSeenVersionKey] = v }
+
+    /** null = nothing ever dismissed. See [UpdateChecker.shouldPrompt][com.stocktracker.app.update.UpdateChecker.shouldPrompt]
+     *  for how this suppresses only that exact version, not updates in general. */
+    val dismissedUpdateVersion: Flow<String?> = context.dataStore.data.map { it[dismissedUpdateVersionKey] }
+    suspend fun setDismissedUpdateVersion(version: String) =
+        context.dataStore.edit { it[dismissedUpdateVersionKey] = version }
     suspend fun setInvestableCash(amount: Double) = context.dataStore.edit {
         it[investableCashKey] = amount.coerceAtLeast(0.0)
     }
@@ -96,6 +130,16 @@ class SettingsStore(private val context: Context) {
      *  without losing the configured service URL. The server's nightly scan is unaffected. */
     val aiAnalystEnabled: Flow<Boolean> = context.dataStore.data.map { it[aiAnalystEnabledKey] ?: true }
     suspend fun setAiAnalystEnabled(enabled: Boolean) = context.dataStore.edit { it[aiAnalystEnabledKey] = enabled }
+
+    /**
+     * MONEY-1: is the portfolio being rebalanced a TAXABLE brokerage account? Default true, so an
+     * install that has never touched this screen still gets the capital-gains weighing the backend
+     * has always been able to do — the alternative default (off) would silently hide it from most
+     * people, who ARE in a taxable account. Off for an IRA/401(k)/etc., where holding period is
+     * meaningless and the rebalance dialog must not pretend it matters.
+     */
+    val taxableAccount: Flow<Boolean> = context.dataStore.data.map { it[taxableAccountKey] ?: true }
+    suspend fun setTaxableAccount(taxable: Boolean) = context.dataStore.edit { it[taxableAccountKey] = taxable }
 
     /** epoch-ms of the last weekly watchlist digest we posted (0 = never). */
     val lastDigestAt: Flow<Long> = context.dataStore.data.map { it[lastDigestKey] ?: 0L }
@@ -269,4 +313,23 @@ class SettingsStore(private val context: Context) {
         it[watchlistGroupsKey] = Http.json.encodeToString(groups)
     }
     suspend fun setSignalsApiUrl(url: String) = context.dataStore.edit { it[signalsApiUrlKey] = url.trim().trimEnd('/') }
+
+    // --- Raw accessors for com.stocktracker.app.data.BackupManager only ---
+    //
+    // A backup restore touches [watchlistGroups] and [investableCash] alongside four other stores'
+    // keys in ONE atomic DataStore transaction, and takes a raw pre-import snapshot so a bad import
+    // can be undone exactly. Both need the literal bytes/value on disk, not the decoded (and lossily
+    // defaulted) Flow above.
+
+    internal fun rawWatchlistGroups(prefs: Preferences): String? = prefs[watchlistGroupsKey]
+
+    internal fun writeRawWatchlistGroups(prefs: MutablePreferences, raw: String?) {
+        if (raw == null) prefs.remove(watchlistGroupsKey) else prefs[watchlistGroupsKey] = raw
+    }
+
+    internal fun rawInvestableCash(prefs: Preferences): Double? = prefs[investableCashKey]
+
+    internal fun writeRawInvestableCash(prefs: MutablePreferences, raw: Double?) {
+        if (raw == null) prefs.remove(investableCashKey) else prefs[investableCashKey] = raw
+    }
 }

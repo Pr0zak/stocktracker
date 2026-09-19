@@ -1,5 +1,8 @@
 package com.stocktracker.app.ui.settings
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -41,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.stocktracker.app.data.remote.SignalsHealth
@@ -54,6 +60,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -62,14 +71,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stocktracker.app.BuildConfig
 import com.stocktracker.app.data.BackupManager
+import com.stocktracker.app.data.FidelityImportManager
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.notify.AlertDelivery
+import com.stocktracker.app.notify.AlertDeliveryStatus
+import com.stocktracker.app.notify.AlertNotifier
 import com.stocktracker.app.notify.SignalScanNotifier
+import androidx.compose.material3.AlertDialog
+import com.stocktracker.app.data.remote.WatchlistSyncRefusal
+import com.stocktracker.app.data.remote.watchlistSyncRefusal
 import com.stocktracker.app.update.UpdateDialog
 import com.stocktracker.app.update.UpdateUiState
 import com.stocktracker.app.update.rememberUpdateController
 import com.stocktracker.app.widget.WidgetRefreshScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.stocktracker.app.ui.theme.Signal
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.heightIn
@@ -105,6 +124,7 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
     val showVolume by settings.showVolume.collectAsState(initial = false)
     val savedSignalsUrl by settings.signalsApiUrl.collectAsState(initial = "")
     val aiOn by settings.aiAnalystEnabled.collectAsState(initial = true)
+    val taxableAccount by settings.taxableAccount.collectAsState(initial = true)
     val marketSummary by settings.marketSummaryEnabled.collectAsState(initial = true)
     val marketSummaryAfterHours by settings.marketSummaryAfterHours.collectAsState(initial = true)
     val marketSummaryMarketWide by settings.marketSummaryMarketWide.collectAsState(initial = false)
@@ -115,6 +135,9 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
     var showKey by remember { mutableStateOf(false) }
     var signalsUrlField by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedSignalsUrl) { if (signalsUrlField == null) signalsUrlField = savedSignalsUrl }
+    // A pending OPS-3 removal-guard refusal from "Sync now" — non-null shows the confirm/cancel
+    // dialog below. Cleared on either choice; never auto-retried with replace=true.
+    var syncRefusal by remember { mutableStateOf<WatchlistSyncRefusal?>(null) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -124,12 +147,53 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
             Toast.makeText(context, if (n >= 0) "Exported $n tickers" else "Export failed", Toast.LENGTH_SHORT).show()
         }
     }
+
+    // Restoring a backup is the single most destructive action in the app (DATA-8), so picking a
+    // file only ever READS and parses it (via [BackupManager.readForImport], on the screen's own
+    // scope — cancelling that loses nothing but a re-pick). Nothing is written until the user has
+    // seen concrete counts in [pendingImport]'s confirmation dialog and explicitly confirmed, and
+    // that write runs on [ServiceLocator.applicationScope] rather than [scope] so leaving this screen
+    // mid-import can't cancel it partway through.
+    var pendingImport by remember { mutableStateOf<BackupManager.ReadResult.Ready?>(null) }
+    var importErrorMessage by remember { mutableStateOf<String?>(null) }
+    var importInProgress by remember { mutableStateOf(false) }
+    var lastImport by remember { mutableStateOf<BackupManager.CommitResult.Success?>(null) }
+    var undoInProgress by remember { mutableStateOf(false) }
+
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) scope.launch {
-            val n = runCatching { BackupManager.importFrom(context, uri) }.getOrElse { -1 }
-            Toast.makeText(context, if (n >= 0) "Imported $n tickers" else "Import failed", Toast.LENGTH_SHORT).show()
+            importErrorMessage = null
+            lastImport = null
+            when (val result = BackupManager.readForImport(context, uri)) {
+                is BackupManager.ReadResult.Ready -> pendingImport = result
+                is BackupManager.ReadResult.Failed -> importErrorMessage = result.message
+            }
+        }
+    }
+
+    // MONEY-6: importing a Fidelity Positions CSV. Same read/confirm/commit split as the backup
+    // restore above — picking a file only ever parses it (safe to cancel), nothing is written until
+    // [pendingCsvImport]'s preview has been shown and explicitly confirmed.
+    var pendingCsvImport by remember { mutableStateOf<FidelityImportManager.ImportPreview?>(null) }
+    var csvImportErrorMessage by remember { mutableStateOf<String?>(null) }
+    var csvImportInProgress by remember { mutableStateOf(false) }
+    var lastCsvImport by remember { mutableStateOf<FidelityImportManager.CommitResult.Success?>(null) }
+    var csvUndoInProgress by remember { mutableStateOf(false) }
+    var applyCsvCashTotal by remember { mutableStateOf(false) }
+
+    val csvImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            csvImportErrorMessage = null
+            lastCsvImport = null
+            applyCsvCashTotal = false
+            when (val result = FidelityImportManager.readForImport(context, uri)) {
+                is FidelityImportManager.ReadResult.Ready -> pendingCsvImport = result.preview
+                is FidelityImportManager.ReadResult.Failed -> csvImportErrorMessage = result.message
+            }
         }
     }
 
@@ -393,13 +457,25 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                             Text(
                                 when {
                                     health.checking -> "Checking\u2026"
+                                    // Reachable is not the same as healthy. A backend whose
+                                    // settings.json was unreadable answers every request perfectly
+                                    // while running on the wrong watchlist with no API key, so
+                                    // "Connected" alone would be a true statement that misleads.
+                                    ok && health.settingsDegraded -> when (health.settingsSource) {
+                                        "backup" -> "Connected \u2014 settings recovered from backup"
+                                        "env" -> "Connected \u2014 settings file unreadable, using defaults"
+                                        else -> "Connected \u2014 settings source ${health.settingsSource}"
+                                    }
                                     ok -> "Connected"
                                     health.state == BackendState.OFFLINE ->
                                         health.lastError ?: "Can't reach the service"
                                     else -> "Not checked yet"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                // Amber is this app's "we have an opinion about our own data"
+                                // colour; a degraded settings source is exactly that.
+                                color = if (ok && health.settingsDegraded) Signal
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f),
                             )
                             TextButton(
@@ -415,11 +491,28 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                         if (savedSignalsUrl.isNotBlank()) {
                             OutlinedButton(onClick = {
                                 scope.launch {
-                                    val msg = runCatching { SignalScanNotifier.syncNow() }.fold(
-                                        { "Watchlist synced ($it symbols)" },
-                                        { "Sync failed: ${it.message ?: "network error"}" },
+                                    runCatching { SignalScanNotifier.syncNow() }.fold(
+                                        { n ->
+                                            Toast.makeText(
+                                                context, "Watchlist synced ($n symbols)", Toast.LENGTH_SHORT,
+                                            ).show()
+                                        },
+                                        { e ->
+                                            // A 409 means OPS-3's removal guard refused this sync — surface
+                                            // exactly what it would have removed and let the user decide,
+                                            // rather than folding it into a generic failure toast.
+                                            val refusal = watchlistSyncRefusal(e)
+                                            if (refusal != null) {
+                                                syncRefusal = refusal
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Sync failed: ${e.message ?: "network error"}",
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
+                                        },
                                     )
-                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 }
                             }) { Text("Sync now") }
                             TextButton(onClick = {
@@ -434,16 +527,277 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                         "detail screen. Your watchlist auto-syncs there about every 15 min — tap “Sync now” " +
                         "to push it immediately. Leave blank to keep it off. Decision support only — not advice.",
                 )
+                SwitchRow(
+                    "Taxable brokerage account",
+                    "The rebalance plan weighs short- vs long-term capital gains on sells (real dates on " +
+                        "your holdings, MONEY-1). Turn off for an IRA/401(k) or other tax-advantaged account, " +
+                        "where holding period doesn't matter.",
+                    taxableAccount,
+                ) { scope.launch { settings.setTaxableAccount(it) } }
             }
 
             SettingsSection("Backup") {
                 HelperText("Save your watchlist, holdings, cost, alerts, and lists to a file — or restore from one.")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { exportLauncher.launch("stocktracker-backup.json") }) { Text("Export") }
-                    OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) }) {
-                        Text("Import")
+                    OutlinedButton(
+                        onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) },
+                        enabled = !importInProgress,
+                    ) {
+                        Text(if (importInProgress) "Importing…" else "Import")
                     }
                 }
+                importErrorMessage?.let { message ->
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                lastImport?.let { success ->
+                    Text(
+                        "Backup restored. " + BackupManager.confirmationMessage(success.preview),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    TextButton(
+                        onClick = {
+                            undoInProgress = true
+                            ServiceLocator.applicationScope.launch {
+                                BackupManager.undo(context, success.snapshot)
+                                withContext(Dispatchers.Main) {
+                                    undoInProgress = false
+                                    lastImport = null
+                                    Toast.makeText(
+                                        context,
+                                        "Import undone — your previous data is back.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+                        },
+                        enabled = !undoInProgress,
+                    ) { Text(if (undoInProgress) "Undoing…" else "Undo this import") }
+                }
+            }
+            pendingImport?.let { ready ->
+                AlertDialog(
+                    onDismissRequest = { pendingImport = null },
+                    title = { Text("Restore this backup?") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(BackupManager.confirmationMessage(ready.preview))
+                            if (ready.corruptedNow.isNotEmpty()) {
+                                Text(
+                                    "Note: your current ${ready.corruptedNow.joinToString(" and ")} " +
+                                        "${if (ready.corruptedNow.size == 1) "is" else "are"} unreadable right " +
+                                        "now. This import replaces it; if you undo afterward, the same " +
+                                        "unreadable data comes back exactly as it is today.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Text(
+                                "You'll get an Undo button right here afterward — but only while you stay on " +
+                                    "this Settings screen; leaving it clears that option.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val data = ready.data
+                            pendingImport = null
+                            importInProgress = true
+                            ServiceLocator.applicationScope.launch {
+                                val result = BackupManager.commitImport(context, data)
+                                withContext(Dispatchers.Main) {
+                                    importInProgress = false
+                                    when (result) {
+                                        is BackupManager.CommitResult.Success -> {
+                                            lastImport = result
+                                            Toast.makeText(context, "Backup restored.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        is BackupManager.CommitResult.Failed -> importErrorMessage = result.message
+                                    }
+                                }
+                            }
+                        }) { Text("Replace my data") }
+                    },
+                    dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("Cancel") } },
+                )
+            }
+
+            SettingsSection("Import from broker") {
+                HelperText(
+                    "Import a Fidelity \"Positions\" CSV export. A Positions export reports a running " +
+                        "total and average cost per symbol — not individual purchases — so every symbol " +
+                        "lands as ONE lot with no purchase date. That means a tax-aware rebalance can't " +
+                        "tell short-term from long-term for anything imported this way.",
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            csvImportLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "*/*"))
+                        },
+                        enabled = !csvImportInProgress,
+                    ) { Text(if (csvImportInProgress) "Importing…" else "Import Fidelity CSV") }
+                }
+                csvImportErrorMessage?.let { message ->
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                lastCsvImport?.let { success ->
+                    Text(
+                        "Imported ${success.rowsImported} symbol" +
+                            "${if (success.rowsImported == 1) "" else "s"} from the CSV.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    TextButton(
+                        onClick = {
+                            csvUndoInProgress = true
+                            ServiceLocator.applicationScope.launch {
+                                FidelityImportManager.undo(context, success.undo)
+                                withContext(Dispatchers.Main) {
+                                    csvUndoInProgress = false
+                                    lastCsvImport = null
+                                    Toast.makeText(context, "CSV import undone.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        enabled = !csvUndoInProgress,
+                    ) { Text(if (csvUndoInProgress) "Undoing…" else "Undo this import") }
+                }
+            }
+            pendingCsvImport?.let { preview ->
+                AlertDialog(
+                    onDismissRequest = { pendingCsvImport = null },
+                    title = { Text("Import this CSV?") },
+                    text = {
+                        Column(
+                            modifier = Modifier
+                                .heightIn(max = 420.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                "${preview.newCount} new symbol${if (preview.newCount == 1) "" else "s"}, " +
+                                    "${preview.replaceCount} existing symbol" +
+                                    "${if (preview.replaceCount == 1) "" else "s"} will have shares/cost " +
+                                    "REPLACED, ${preview.skipped.size} row" +
+                                    "${if (preview.skipped.size == 1) "" else "s"} skipped.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            if (preview.currentWatchlistCorrupted) {
+                                Text(
+                                    "Note: your current watchlist is unreadable right now. This import " +
+                                        "replaces it entirely with what's in the CSV — whatever might " +
+                                        "have been recoverable in the old data will be gone.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                            if (preview.newCount > 0) {
+                                Text(
+                                    "New",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                preview.rows.filter { it.isNew }.forEach { row ->
+                                    Text(
+                                        "${row.symbol} — ${Formatting.shares(row.newShares)} sh @ " +
+                                            (row.newAvgCost?.let { Formatting.price(it) } ?: "unknown cost") +
+                                            "  (${row.accountLabels.joinToString(", ")})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                            if (preview.replaceCount > 0) {
+                                Text(
+                                    "Replace",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                preview.rows.filter { !it.isNew }.forEach { row ->
+                                    val was = row.existingAsset?.shares
+                                    Text(
+                                        "${row.symbol} — was ${was?.let { Formatting.shares(it) } ?: "0"} sh, " +
+                                            "now ${Formatting.shares(row.newShares)} sh @ " +
+                                            (row.newAvgCost?.let { Formatting.price(it) } ?: "unknown cost"),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    if (row.willDiscardDatedLots) {
+                                        Text(
+                                            "  discards ${row.discardedDatedLotCount} dated lot" +
+                                                "${if (row.discardedDatedLotCount == 1) "" else "s"} — " +
+                                                "purchase-date history for this symbol will be lost.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
+                                }
+                            }
+                            if (preview.skipped.isNotEmpty()) {
+                                Text(
+                                    "Skipped",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                preview.skipped.forEach { s ->
+                                    Text("• ${s.reason}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            if (preview.cash.isNotEmpty()) {
+                                Text(
+                                    "Cash detected",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                preview.cash.forEach { c ->
+                                    val guess = when (c.accountTaxGuess) {
+                                        FidelityImportManager.AccountTaxGuess.TAX_ADVANTAGED -> " (looks tax-advantaged)"
+                                        FidelityImportManager.AccountTaxGuess.TAXABLE -> " (looks taxable)"
+                                        FidelityImportManager.AccountTaxGuess.UNKNOWN -> ""
+                                    }
+                                    Text(
+                                        "${c.accountLabel}: " +
+                                            (c.amount?.let { Formatting.price(it) } ?: "amount unknown") + guess,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { applyCsvCashTotal = !applyCsvCashTotal },
+                                ) {
+                                    Switch(checked = applyCsvCashTotal, onCheckedChange = { applyCsvCashTotal = it })
+                                    Text(
+                                        "Also set investable cash to ${Formatting.price(preview.totalCash)} " +
+                                            "(this app tracks one cash total, not one per account)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val toCommit = preview
+                            val applyCash = applyCsvCashTotal
+                            pendingCsvImport = null
+                            csvImportInProgress = true
+                            ServiceLocator.applicationScope.launch {
+                                val result = FidelityImportManager.commitImport(context, toCommit, applyCash)
+                                withContext(Dispatchers.Main) {
+                                    csvImportInProgress = false
+                                    when (result) {
+                                        is FidelityImportManager.CommitResult.Success -> {
+                                            lastCsvImport = result
+                                            Toast.makeText(context, "CSV imported.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        is FidelityImportManager.CommitResult.Failed ->
+                                            csvImportErrorMessage = result.message
+                                    }
+                                }
+                            }
+                        }) { Text("Import") }
+                    },
+                    dismissButton = { TextButton(onClick = { pendingCsvImport = null }) { Text("Cancel") } },
+                )
             }
 
             SettingsSection("Updates") {
@@ -524,29 +878,95 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
             }
         }
     }
+
+    // OPS-3: "Sync now" was refused because it would have removed more than the backend's guard
+    // allows from a list a different install last wrote. Show exactly what, and require an explicit
+    // choice — this dialog is the ONLY path that may resend with replace=true.
+    syncRefusal?.let { refusal ->
+        val listName = if (refusal.field == "crypto_watchlist") "crypto watchlist" else "watchlist"
+        AlertDialog(
+            onDismissRequest = { syncRefusal = null },
+            title = { Text("Sync would remove ${refusal.removedCount} symbol${if (refusal.removedCount == 1) "" else "s"}") },
+            text = {
+                Text(
+                    "Another device set the $listName last. Syncing from this one would shrink it from " +
+                        "${refusal.nBefore} to ${refusal.nAfter} symbols, removing:\n\n" +
+                        refusal.removed.joinToString(", ") +
+                        "\n\nForce the sync to apply anyway, or cancel and leave the backend's list as it is.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    syncRefusal = null
+                    scope.launch {
+                        runCatching { SignalScanNotifier.syncNow(replace = true) }.fold(
+                            { n ->
+                                Toast.makeText(
+                                    context, "Watchlist synced ($n symbols, forced)", Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                            { e ->
+                                Toast.makeText(
+                                    context, "Sync failed: ${e.message ?: "network error"}", Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                        )
+                    }
+                }) { Text("Force sync") }
+            },
+            dismissButton = {
+                TextButton(onClick = { syncRefusal = null }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 /**
- * Whether the background job that evaluates price alerts is actually running.
+ * Whether the background job that evaluates price alerts is actually running, AND — NOTIF-1 —
+ * whether a post it makes has any chance of reaching the user. These are independent dimensions: a
+ * worker ticking exactly on schedule with zero reported failures tells you nothing about whether
+ * every [AlertNotifier.notify] call it made was silently swallowed by a blocked app, a muted channel,
+ * or a missing permission. This composable used to only measure the first and call the result
+ * "Running normally" — which is exactly the label you'd see with alerts fully, silently dead.
  *
  * Alerts are only checked when this job runs (every ~15 min via WorkManager). Nothing in the app
- * previously said whether it had — so "my jump/drop alerts never fire" had two very different causes
- * that looked identical: no thresholds configured, or the job not running at all. Android defers or
- * kills background work aggressively under battery optimisation, and the app cannot fix that; it can
- * at least stop pretending everything is armed.
+ * previously said whether it had — so "my jump/drop alerts never fire" had three very different
+ * causes that looked identical: no thresholds configured, the job not running at all, or the job
+ * running fine and being ignored by the notification system. Android defers or kills background work
+ * aggressively under battery optimisation, and the app cannot fix that; it can at least stop
+ * pretending everything is armed.
  */
 @Composable
 private fun BackgroundRunStatus() {
+    val context = LocalContext.current
     val settings = ServiceLocator.settingsStore
     val lastRun by settings.lastBackgroundRunAt.collectAsState(initial = 0L)
     val failures by settings.lastBackgroundFailures.collectAsState(initial = "")
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
 
+    // AlertDelivery reads live OS state (permission, the app-wide notification toggle, the channel's
+    // mute state, battery-optimisation exemption) that Compose has no observable API for. None of it
+    // changes while this screen just sits open — it only changes when the user leaves for a system
+    // settings screen (one of the buttons below sends them to exactly one) and comes back — so refresh
+    // on ON_RESUME rather than polling.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var delivery by remember { mutableStateOf(AlertDeliveryStatus.OK) }
+    DisposableEffect(lifecycleOwner, context) {
+        fun refresh() { delivery = AlertDelivery.current(context) }
+        refresh()
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val now = System.currentTimeMillis()
     val ageMin = if (lastRun > 0) (now - lastRun) / 60_000 else -1
     // The job is scheduled every 15 min; Android may stretch that, so an hour is the point at which
     // it has clearly stopped rather than merely slipped.
-    val healthy = ageMin in 0..59 && failures.isBlank()
+    val workerHealthy = ageMin in 0..59 && failures.isBlank()
+    val healthy = workerHealthy && delivery == AlertDeliveryStatus.OK
     val color = when {
         lastRun <= 0 -> neutral
         healthy -> GainGreen
@@ -568,15 +988,68 @@ private fun BackgroundRunStatus() {
                         "Open the app once with a network connection to start it."
                 failures.isNotBlank() ->
                     "Last run had failures: $failures. Alerts still ran unless 'alerts' is listed."
-                !healthy ->
+                !workerHealthy ->
                     "It should run about every 15 minutes. This long a gap usually means Android is " +
-                        "deferring it — exclude StockTracker from battery optimisation to fix it."
-                else -> "Running normally. Set per-ticker thresholds on a stock's detail screen."
+                        "deferring it."
+                healthy -> "Running normally. Set per-ticker thresholds on a stock's detail screen."
+                // delivery != OK but the worker itself looks fine — the specific reason and its fix
+                // render below, not folded into this line, so "Running normally" is never shown
+                // alongside a delivery block.
+                else -> "The worker is running, but alerts may not reach you — see below."
             },
             style = MaterialTheme.typography.labelSmall,
             color = neutral,
         )
+        if (delivery != AlertDeliveryStatus.OK) {
+            DeliveryBlockedNotice(delivery)
+        }
     }
+}
+
+/**
+ * The specific reason [status] is blocking delivery, with a button straight to the system screen that
+ * fixes it. NOTIF-1 point 4: a paragraph of prose telling the user to go find a setting is not a fix;
+ * three of these four need no special permission to launch, including battery optimisation
+ * (ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) — the one this screen used to only describe in text.
+ */
+@Composable
+private fun DeliveryBlockedNotice(status: AlertDeliveryStatus) {
+    val context = LocalContext.current
+    if (status == AlertDeliveryStatus.OK) return
+    val (message, buttonLabel, intent) = when (status) {
+        AlertDeliveryStatus.PERMISSION_DENIED -> Triple(
+            "Notification permission is off — alerts cannot be delivered at all.",
+            "Grant permission",
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+        )
+        AlertDeliveryStatus.APP_BLOCKED -> Triple(
+            "Notifications are turned off for StockTracker — alerts cannot be delivered at all.",
+            "App notification settings",
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+        )
+        AlertDeliveryStatus.CHANNEL_MUTED -> Triple(
+            "The \"Price alerts\" channel is muted — other StockTracker notifications still work, " +
+                "but price alerts will not arrive.",
+            "Channel settings",
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, AlertNotifier.CHANNEL_ID),
+        )
+        AlertDeliveryStatus.BATTERY_RESTRICTED -> Triple(
+            "Battery optimisation may delay or skip the background check entirely.",
+            "Exclude from battery optimisation",
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                .setData(Uri.parse("package:${context.packageName}")),
+        )
+        AlertDeliveryStatus.OK -> return
+    }
+    Text(message, style = MaterialTheme.typography.labelSmall, color = Signal)
+    TextButton(
+        onClick = { runCatching { context.startActivity(intent) } },
+        contentPadding = PaddingValues(vertical = 4.dp, horizontal = 0.dp),
+    ) { Text(buttonLabel) }
 }
 
 /** A titled group of settings on one surfaceVariant card, with a primary-tinted eyebrow above it. */

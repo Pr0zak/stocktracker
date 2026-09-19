@@ -16,6 +16,17 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
+ * The quote, sparkline and 52-week range parsed from ONE Yahoo chart payload (DATA-6). Any of the
+ * three may be null/empty on their own terms — a snapshot for a symbol Yahoo has no data for is
+ * `ChartSnapshot(null, emptyList(), null)`, not an exception.
+ */
+data class ChartSnapshot(
+    val quote: Quote?,
+    val sparkline: List<PricePoint>,
+    val fiftyTwoWeek: Pair<Double, Double>?,
+)
+
+/**
  * Yahoo Finance chart endpoint — free, no key, supports intraday + pre/post-market.
  * Used for stock history (Finnhub free has no candles; Stooq blocks non-browser clients).
  * Unofficial endpoint; failures degrade to an empty chart.
@@ -44,6 +55,20 @@ class YahooFinanceService {
         val enc = yahooSymbol(symbol)
         val path = "v8/finance/chart/$enc?${rangeParams(range)}&includePrePost=$prePost"
         val result = fetchChart(path).chart.result?.firstOrNull() ?: return emptyList()
+        return pricePointsFrom(result, prePost)
+    }
+
+    /**
+     * The bars of one chart [result] as [PricePoint]s. Pulled out of [history] so [chartSnapshot]
+     * can build its sparkline from the exact same logic without a second network call.
+     *
+     * Classifies each point by its time-of-day in the exchange timezone when [prePost] is set:
+     * regular session = 09:30–16:00; anything else within the returned data is pre/post-market.
+     * Using a real ZoneId per timestamp keeps this correct across a DST transition within the 1W
+     * view. [prePost] false (the sparkline / [chartSnapshot] case, since Yahoo was asked for
+     * regular-session bars only) always yields `extended = false`.
+     */
+    private fun pricePointsFrom(result: YahooResult, prePost: Boolean): List<PricePoint> {
         val timestamps = result.timestamp ?: return emptyList()
         val quote0 = result.indicators?.quote?.firstOrNull()
         val closes = quote0?.close ?: return emptyList()
@@ -54,9 +79,6 @@ class YahooFinanceService {
         val lows = quote0.low
         val opens = quote0.open
 
-        // Classify each point by its time-of-day in the exchange timezone. Regular session =
-        // 09:30–16:00; anything else within the returned data is pre/post-market. Using a real
-        // ZoneId per timestamp keeps this correct across a DST transition within the 1W view.
         val zone = result.meta?.exchangeTimezoneName?.let { runCatching { ZoneId.of(it) }.getOrNull() }
             ?: EXCHANGE_ZONE
 
@@ -148,28 +170,48 @@ class YahooFinanceService {
      * GET a chart-endpoint [path] and parse it, failing over query1 → query2. The failover also
      * triggers when query1 returns a 200 whose body isn't the JSON we expect (Yahoo serves HTML
      * consent / rate-limit pages that way), because the parse happens *inside* the failover. A
-     * Yahoo `error` object is likewise treated as a failure, so a rate-limited response fails over
-     * (and, if both hosts fail, throws) instead of being mistaken for "no data". Serialized through
-     * [gate] so one detail-screen open can't fan five simultaneous requests into a 429.
+     * Yahoo `error` object is likewise treated as a failure, so a garbled/erroring response fails
+     * over (and, if both hosts fail, throws) instead of being mistaken for "no data" — EXCEPT a 429,
+     * which does not fail over (see [RetryPolicy.shouldFailoverToOtherHost]): rate limiting is a
+     * property of the caller, not of query1 specifically, so retrying the identical ladder against
+     * query2 would only double the request volume at the moment Yahoo is asking for less of it.
+     *
+     * Checks [Http.throwIfBreakerOpen] for query1 *before* touching [gate], so once query1 is known
+     * to be rate-limiting, further calls fail immediately instead of queueing for one of its 2
+     * permits only to hit the same wall.
      */
-    private suspend fun fetchChart(path: String): YahooChartResponse = gate.withPermit {
-        try {
-            parseChart(Http.getString("https://query1.finance.yahoo.com/$path"))
-        } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
-            throw ce
-        } catch (_: Throwable) {
-            // query1 failed (transport error, garbled/HTML body, or a Yahoo error object) — fail over.
+    private suspend fun fetchChart(path: String): YahooChartResponse {
+        val primaryUrl = "https://query1.finance.yahoo.com/$path"
+        Http.throwIfBreakerOpen(primaryUrl)
+        return gate.withPermit {
             try {
-                parseChart(Http.getString("https://query2.finance.yahoo.com/$path"))
+                parseChart(Http.getString(primaryUrl))
             } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
                 throw ce
             } catch (e: HttpStatusException) {
-                // A definitive 404 = delisted/unknown symbol = genuine no-data, not a transient
-                // failure. Return empty so the UI shows "no data" instead of a Retry that can't
-                // succeed; everything else (429/5xx/timeout) propagates so stale-while-error/retry
-                // can kick in.
-                if (e.code == 404) YahooChartResponse() else throw e
+                if (!RetryPolicy.shouldFailoverToOtherHost(e.code)) throw e
+                failoverToQuery2(path)
+            } catch (_: Throwable) {
+                // query1 failed (transport error, garbled/HTML body, or a Yahoo error object) — fail over.
+                failoverToQuery2(path)
             }
+        }
+    }
+
+    /** The query2 half of [fetchChart]'s failover, also breaker-gated. */
+    private suspend fun failoverToQuery2(path: String): YahooChartResponse {
+        val secondaryUrl = "https://query2.finance.yahoo.com/$path"
+        Http.throwIfBreakerOpen(secondaryUrl)
+        return try {
+            parseChart(Http.getString(secondaryUrl))
+        } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+            throw ce
+        } catch (e: HttpStatusException) {
+            // A definitive 404 = delisted/unknown symbol = genuine no-data, not a transient
+            // failure. Return empty so the UI shows "no data" instead of a Retry that can't
+            // succeed; everything else (429/5xx/timeout) propagates so stale-while-error/retry
+            // can kick in.
+            if (e.code == 404) YahooChartResponse() else throw e
         }
     }
 
@@ -197,10 +239,13 @@ class YahooFinanceService {
         ChartRange.ALL -> "range=max&interval=1wk"
     }
 
-    /** Ex-dividend dates + amounts within [range], from the chart endpoint's dividend events. */
+    /** Ex-dividend dates + amounts within [range], from the chart endpoint's dividend events.
+     *  Also requests split events on the same call (MONEY-4) — one Yahoo hit gets both — but a
+     *  range as narrow as 1D/1W will not carry an old split, so this is NOT split detection; use
+     *  [splitsSince] for that. */
     suspend fun dividends(symbol: String, range: ChartRange): List<Pair<Long, Double>> {
         val enc = yahooSymbol(symbol)
-        val path = "v8/finance/chart/$enc?${rangeParams(range)}&events=div"
+        val path = "v8/finance/chart/$enc?${rangeParams(range)}&events=div,splits"
         // Decorative overlay — a failure here should quietly yield no markers, not surface an error.
         val result = runCatching { fetchChart(path) }.getOrNull()?.chart?.result?.firstOrNull()
             ?: return emptyList()
@@ -208,29 +253,79 @@ class YahooFinanceService {
         return divs.values.map { it.date * 1000L to it.amount }.sortedBy { it.first }
     }
 
-    /** 52-week high/low straight from Yahoo's chart meta (a tiny range=1d request suffices). */
-    suspend fun fiftyTwoWeek(symbol: String): Pair<Double, Double>? {
+    /**
+     * Stock splits on or after [sinceEpochMs] (MONEY-4). Always fetched over the symbol's FULL
+     * history (`range=max`) rather than whatever range a chart happens to be showing — a held lot's
+     * acquisition date is routinely far older than the visible chart window, and a split just
+     * outside that window is exactly the one that corrupts the share count silently.
+     */
+    suspend fun splitsSince(symbol: String, sinceEpochMs: Long): List<SplitEvent> {
         val enc = yahooSymbol(symbol)
-        val path = "v8/finance/chart/$enc?range=1d&interval=1d"
-        val meta = fetchChart(path).chart.result?.firstOrNull()?.meta
+        val path = "v8/finance/chart/$enc?range=max&interval=1mo&events=splits"
+        val result = runCatching { fetchChart(path) }.getOrNull()?.chart?.result?.firstOrNull()
+            ?: return emptyList()
+        val raw = result.events?.splits ?: return emptyList()
+        return raw.values.mapNotNull { s ->
+            if (s.numerator <= 0.0 || s.denominator <= 0.0) return@mapNotNull null
+            val epochMs = s.date * 1000L
+            if (epochMs < sinceEpochMs) return@mapNotNull null
+            SplitEvent(epochMs, s.numerator / s.denominator, s.splitRatio ?: formatRatio(s.numerator, s.denominator))
+        }.sortedBy { it.epochMs }
+    }
+
+    private fun formatRatio(numerator: Double, denominator: Double): String {
+        fun trim(v: Double) = if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString()
+        return "${trim(numerator)}:${trim(denominator)}"
+    }
+
+    /**
+     * DATA-6 — quote, sparkline and 52-week range from ONE chart fetch.
+     *
+     * These used to be three independent requests (`quote()`, `history(DAY)`, `fiftyTwoWeek()`),
+     * each asking Yahoo's chart endpoint for the same symbol on the same day — the meta block Yahoo
+     * attaches (live price, previous close, day high/low, 52-week high/low) is identical regardless
+     * of which range/interval is requested, and the DAY-range bars a sparkline needs already carry
+     * everything the other two calls were re-downloading it to get. A watchlist refresh that wants
+     * all three for N symbols made ~3N requests; this makes N.
+     *
+     * `includePrePost=false` matches the sparkline's own historical params exactly (a sparkline is
+     * decorative shape and must stay regular-session-only — see [MarketRepository.sparkline]), so
+     * merging costs the sparkline nothing. It costs the quote its (already-dead) post-market meta
+     * fields: Yahoo stopped populating `postMarketPrice`/`postMarketChangePercent` regardless of the
+     * prePost flag (see [YahooMeta]), so dropping the flag changes nothing that still worked.
+     */
+    suspend fun chartSnapshot(symbol: String): ChartSnapshot {
+        val enc = yahooSymbol(symbol)
+        val path = "v8/finance/chart/$enc?${rangeParams(ChartRange.DAY)}&includePrePost=false"
+        // fetchChart throws on a transient failure (so the repo can serve a stale snapshot) and
+        // returns a null result only when Yahoo genuinely has no data for the symbol.
+        return parseChartSnapshot(symbol, fetchChart(path))
+    }
+
+    /** Pure parse behind [chartSnapshot] — split out so a fixture payload can exercise it directly
+     *  without a network call (DATA-6). */
+    internal fun parseChartSnapshot(symbol: String, response: YahooChartResponse): ChartSnapshot {
+        val result = response.chart.result?.firstOrNull()
+            ?: return ChartSnapshot(quote = null, sparkline = emptyList(), fiftyTwoWeek = null)
+        val sparkline = pricePointsFrom(result, prePost = false)
+        return ChartSnapshot(
+            quote = quoteFrom(symbol, result),
+            sparkline = sparkline,
+            fiftyTwoWeek = fiftyTwoWeekFrom(result.meta),
+        )
+    }
+
+    private fun fiftyTwoWeekFrom(meta: YahooMeta?): Pair<Double, Double>? {
         val hi = meta?.fiftyTwoWeekHigh
         val lo = meta?.fiftyTwoWeekLow
         return if (hi != null && lo != null) hi to lo else null
     }
 
     /**
-     * Live stock/ETF quote straight from Yahoo's chart meta — no API key, so this is the app's
-     * primary quote source (Finnhub is an optional fallback). Returns null if the symbol is unknown.
+     * Live stock/ETF quote straight from a chart result's meta — no API key, so this is the app's
+     * primary quote source (Finnhub is an optional fallback). Returns null if Yahoo has nothing.
      */
-    suspend fun quote(symbol: String): Quote? {
-        val enc = yahooSymbol(symbol)
-        // includePrePost=true so the meta carries postMarketPrice / marketState during & after the
-        // post session. With interval=1d the timestamp array is still a single daily bar, so the
-        // regular open/high/low read below is unaffected.
-        val path = "v8/finance/chart/$enc?range=1d&interval=1d&includePrePost=true"
-        // fetchChart throws on a transient failure (so the repo can serve a stale quote) and returns
-        // a null result only when Yahoo genuinely has no data for the symbol.
-        val result = fetchChart(path).chart.result?.firstOrNull() ?: return null
+    private fun quoteFrom(symbol: String, result: YahooResult): Quote? {
         val meta = result.meta ?: return null
         val price = meta.regularMarketPrice ?: return null
         val prev = meta.chartPreviousClose ?: meta.previousClose
@@ -250,9 +345,14 @@ class YahooFinanceService {
             price = price,
             change = change,
             changePercent = pct,
-            open = q0?.open?.firstOrNull(),
-            high = meta.regularMarketDayHigh ?: q0?.high?.firstOrNull(),
-            low = meta.regularMarketDayLow ?: q0?.low?.firstOrNull(),
+            // The first bar with an actual open — not just the first bar, which [chartSnapshot]'s
+            // minute-resolution payload can pad with a null when the session's first tick is a gap.
+            open = q0?.open?.firstNotNullOfOrNull { it },
+            // Day high/low: prefer the live meta (correct regardless of bar granularity); fall back
+            // to the max/min OF THE WHOLE ARRAY rather than its first element. With [chartSnapshot]'s
+            // one-minute bars, the first element is only the opening minute's high — not the day's.
+            high = meta.regularMarketDayHigh ?: q0?.high?.filterNotNull()?.maxOrNull(),
+            low = meta.regularMarketDayLow ?: q0?.low?.filterNotNull()?.minOrNull(),
             prevClose = prev,
             volume = meta.regularMarketVolume?.toDouble(),
             currency = meta.currency ?: "USD",
@@ -338,8 +438,9 @@ class YahooFinanceService {
         const val REG_END_SEC = 16L * 3600            // 16:00
         val EXCHANGE_ZONE: ZoneId = ZoneId.of("America/New_York")
 
-        // Yahoo throttles by IP; cap concurrent chart requests so one detail-screen open (quote +
-        // history + 52-week + dividends + benchmark) doesn't fan five simultaneous calls into a 429.
+        // Yahoo throttles by IP; cap concurrent chart requests so one detail-screen open (the merged
+        // quote+52-week snapshot, DATA-6 + history + dividends + benchmark) doesn't fan simultaneous
+        // calls into a 429.
         val gate = Semaphore(2)
     }
 }
@@ -371,10 +472,27 @@ data class YahooResult(
 )
 
 @Serializable
-data class YahooEvents(val dividends: Map<String, YahooDividend>? = null)
+data class YahooEvents(
+    val dividends: Map<String, YahooDividend>? = null,
+    val splits: Map<String, YahooSplitDto>? = null,
+)
 
 @Serializable
 data class YahooDividend(val amount: Double = 0.0, val date: Long = 0L)
+
+/** Raw split event from Yahoo's chart `events=splits`: [numerator] new shares per [denominator] old
+ *  ones (4/1 = a 4-for-1; 1/10 = a 1-for-10 reverse split). */
+@Serializable
+data class YahooSplitDto(
+    val date: Long = 0L,
+    val numerator: Double = 0.0,
+    val denominator: Double = 0.0,
+    val splitRatio: String? = null,
+)
+
+/** A stock split (MONEY-4). [ratio] is new shares per old share — multiply shares by it, divide
+ *  cost-per-share by it. 4.0 = a 4-for-1 split; 0.1 = a 1-for-10 reverse split. */
+data class SplitEvent(val epochMs: Long, val ratio: Double, val label: String)
 
 @Serializable
 data class YahooMeta(

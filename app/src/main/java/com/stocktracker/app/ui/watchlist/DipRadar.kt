@@ -4,6 +4,8 @@ import com.stocktracker.app.data.remote.DipCounts
 import com.stocktracker.app.data.remote.DipReject
 import com.stocktracker.app.data.remote.ScanLatest
 import com.stocktracker.app.data.remote.ScanResult
+import com.stocktracker.app.util.RESTORED_DISCLOSURE_AFTER_MS
+import com.stocktracker.app.util.agePhrase
 
 /**
  * SWT-5 — what the dip radar is allowed to SAY, given what it actually knows.
@@ -268,5 +270,31 @@ object DipRadar {
         if (incoming is DipRadarState.Loading) return StripUpdate(held, null)
         if (incoming !is DipRadarState.Unreachable) return StripUpdate(incoming, null)
         return StripUpdate(held, incoming.message ?: "Couldn't refresh the scan.")
+    }
+
+    /**
+     * DATA-9 — the note for a [Ready][DipRadarState.Ready] reading that has not been reconfirmed by
+     * a successful fetch in a long while: a scan restored from disk on a cold start, or one that has
+     * simply failed to refresh for a long offline stretch. Null when the reading is recent enough
+     * that its age is not worth saying, or [state] is not Ready at all — there is nothing to caveat
+     * about a state that already says it holds no scan.
+     *
+     * Deliberately a SEPARATE note from [holdThroughBlip]'s `stale` (a same-session refresh failure,
+     * which already names what went wrong): this one fires even before any refresh has been
+     * attempted this session, which `dipStale` cannot — it is only ever set inside a refresh's own
+     * result. Call-site convention is `dipStale ?: restoredNote(...)`, so an actual failure's own
+     * words always win over a plain age disclosure.
+     */
+    fun restoredNote(
+        state: DipRadarState,
+        fetchedAtMs: Long,
+        nowMs: Long,
+        maxAgeMs: Long = RESTORED_DISCLOSURE_AFTER_MS,
+    ): String? {
+        if (state !is DipRadarState.Ready) return null
+        if (fetchedAtMs <= 0L) return null
+        val age = (nowMs - fetchedAtMs).coerceAtLeast(0L)
+        if (age <= maxAgeMs) return null
+        return "Showing a scan from ${agePhrase(age, fetchedAtMs)} — not yet refreshed this session."
     }
 }

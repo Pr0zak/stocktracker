@@ -47,7 +47,9 @@ import com.stocktracker.app.ui.theme.GainGreen
 private sealed interface CalState {
     data object Loading : CalState
     data class Ready(val resp: CalendarResponse) : CalState
-    data class Error(val message: String) : CalState
+    // [needsSetup] is true only for the blank-URL case: a "Try again" there would just repeat the
+    // same non-answer, where "Set up signals" actually goes somewhere.
+    data class Error(val message: String, val needsSetup: Boolean = false) : CalState
 }
 
 /**
@@ -60,6 +62,7 @@ fun CalendarScreen(
     onBack: () -> Unit,
     symbol: String? = null,
     onOpenDetail: (com.stocktracker.app.data.model.Asset) -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val openSymbol = com.stocktracker.app.ui.rememberOpenSymbol(onOpenDetail)
     // Keyed on `reload` as well as `symbol` so the retry below can actually re-run the fetch — the
@@ -69,7 +72,10 @@ fun CalendarScreen(
         value = CalState.Loading
         val base = ServiceLocator.settingsStore.signalsApiUrl.first()
         value = if (base.isBlank()) {
-            CalState.Error("Set your Signals service URL in Settings → AI analyst to see the calendar.")
+            CalState.Error(
+                "Set your Signals service URL in Settings → AI analyst to see the calendar.",
+                needsSetup = true,
+            )
         } else {
             runCatching { SignalsApiService().calendar(base, symbol) }.getOrNull()
                 ?.let { CalState.Ready(it) }
@@ -106,7 +112,11 @@ fun CalendarScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                androidx.compose.material3.OutlinedButton(onClick = { reload++ }) { Text("Try again") }
+                if (s.needsSetup) {
+                    androidx.compose.material3.Button(onClick = onOpenSignalsSettings) { Text("Set up signals") }
+                } else {
+                    androidx.compose.material3.OutlinedButton(onClick = { reload++ }) { Text("Try again") }
+                }
             }
             is CalState.Ready -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),

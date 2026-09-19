@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The portfolio widget's own preview. It previously pointed at widget_preview_watchlist, so the
+  picker offered two visibly identical cards and the difference only became apparent after placing
+  one. A total above a small holdings list is what this widget actually draws.
+
+  Colours are the shipping tokens from ui/theme/Color.kt — SurfaceContainerDark, GainGreen and
+  LossRed — not the pastel pair INK-2 retired.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="140dp"
+    android:viewportWidth="200"
+    android:viewportHeight="140">
+    <path android:fillColor="#151A21" android:pathData="M6,6 h188 a12,12 0 0 1 12,12 v104 a12,12 0 0 1 -12,12 h-188 a12,12 0 0 1 -12,-12 v-104 a12,12 0 0 1 12,-12 z" />
+    <!-- "Portfolio" label -->
+    <path android:fillColor="#8A94A2" android:pathData="M18,20 h42 v6 h-42 z" />
+    <!-- the total, the one figure this widget exists to show -->
+    <path android:fillColor="#E6EAF0" android:pathData="M18,34 h96 v16 h-96 z" />
+    <!-- day change, in the current gain green -->
+    <path android:fillColor="#5EDD9C" android:pathData="M18,58 h52 v9 h-52 z" />
+    <!-- two holding rows -->
+    <path android:fillColor="#CAC4D3" android:pathData="M18,84 h30 v7 h-30 z" />
+    <path android:fillColor="#5EDD9C" android:pathData="M152,83 h32 v9 h-32 z" />
+    <path android:fillColor="#CAC4D3" android:pathData="M18,106 h30 v7 h-30 z" />
+    <path android:fillColor="#E8663F" android:pathData="M152,105 h32 v9 h-32 z" />
+</vector>

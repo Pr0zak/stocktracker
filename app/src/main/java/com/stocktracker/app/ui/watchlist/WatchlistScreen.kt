@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -90,6 +91,7 @@ import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.util.Formatting
 import com.stocktracker.app.util.Freshness
 import com.stocktracker.app.util.listFreshness
+import com.stocktracker.app.util.readingAgeLabel
 import com.stocktracker.app.util.staleRowCount
 import com.stocktracker.app.util.MarketClock
 import kotlinx.coroutines.delay
@@ -117,6 +119,7 @@ fun WatchlistScreen(
     onOpenDips: () -> Unit = {},
     onOpenHeatmap: () -> Unit = {},
     onOpenMarketScan: () -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsState()
@@ -394,7 +397,11 @@ fun WatchlistScreen(
                     if (contextOpen) {
                         item(key = "hdr:dips") {
                             DipStripSection(
-                                stale = state.dipStale,
+                                // A same-session refresh failure names itself; short of that, a
+                                // reading merely old (restored from disk, or unrefreshed a long
+                                // while) still says its age rather than passing for current (DATA-9).
+                                stale = state.dipStale
+                                    ?: DipRadar.restoredNote(state.dipRadar, state.scanFetchedAtMs, nowMs),
                                 state = state.dipRadar,
                                 onOpenAll = onOpenDips,
                                 onRetry = { vm.reloadDips() },
@@ -414,7 +421,16 @@ fun WatchlistScreen(
                         if (showVix) {
                             vix?.let { v ->
                                 item(key = "hdr:vix") {
-                                    FearGauge(v, onClick = onOpenVix, stale = marketContext.vixFailed)
+                                    FearGauge(
+                                        v,
+                                        onClick = onOpenVix,
+                                        // DATA-9: a fetch failure still wins ("Update failed"), but a
+                                        // reading merely restored from disk (or unconfirmed a long
+                                        // while) now says its age instead of looking current.
+                                        ageLabel = readingAgeLabel(
+                                            marketContext.vixFetchedAtMs, nowMs, failed = marketContext.vixFailed,
+                                        ),
+                                    )
                                 }
                             }
                         }
@@ -549,6 +565,7 @@ fun WatchlistScreen(
             ui = state.marketNow,
             onRefresh = { vm.loadMarketNow(force = true) },
             onDismiss = { vm.dismissMarketNow() },
+            onOpenSignalsSettings = onOpenSignalsSettings,
         )
     }
 
@@ -1065,7 +1082,11 @@ private fun ModeChip(label: String, onClick: () -> Unit) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
+fun DipListScreen(
+    onBack: () -> Unit,
+    onOpenDetail: (Asset) -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
+) {
     // The scan comes from the shared market context, not from a fetch of this screen's own. This
     // screen used to hold a `remember` of the state and call latestScan() itself, while the strip on
     // the watchlist did the same in its view model — two fetches of one nightly file, and two
@@ -1133,6 +1154,7 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
                         title = "No scan service configured",
                         body = "Set the Signals service URL in Settings and the dip radar starts working.",
                         onRetry = null,
+                        onSetUpSignals = onOpenSignalsSettings,
                     )
                 }
                 // The server answered and told us it has nothing. Its answer, in its words.
@@ -1162,9 +1184,15 @@ fun DipListScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit = {}) {
     }
 }
 
-/** An error/absence panel: what happened, and (when retrying could help) a way to try again. */
+/** An error/absence panel: what happened, and (when retrying could help) a way to try again — or,
+ *  for the not-configured case where no retry ever helps, a way to go set it up instead. */
 @Composable
-private fun DipNotice(title: String, body: String, onRetry: (() -> Unit)?) {
+private fun DipNotice(
+    title: String,
+    body: String,
+    onRetry: (() -> Unit)?,
+    onSetUpSignals: (() -> Unit)? = null,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1184,6 +1212,9 @@ private fun DipNotice(title: String, body: String, onRetry: (() -> Unit)?) {
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (onRetry != null) {
             TextButton(onClick = onRetry) { Text("Try again") }
+        }
+        if (onSetUpSignals != null) {
+            Button(onClick = onSetUpSignals) { Text("Set up signals") }
         }
     }
 }
@@ -1631,6 +1662,7 @@ private fun MarketNowDialog(
     ui: MarketNowUi,
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val snap = ui.result?.snapshot
     AlertDialog(
@@ -1661,7 +1693,15 @@ private fun MarketNowDialog(
                         Spacer(Modifier.width(10.dp))
                         Text("Reading the tape…")
                     }
-                    ui.error != null -> Text(ui.error, color = MaterialTheme.colorScheme.error)
+                    ui.error != null -> Column {
+                        Text(ui.error, color = MaterialTheme.colorScheme.error)
+                        if (ui.needsSetup) {
+                            TextButton(
+                                onClick = onOpenSignalsSettings,
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) { Text("Set up signals") }
+                        }
+                    }
                     ui.result != null && snap != null -> {
                         val idx = snap.indices.filter { it.pct != null }
                         if (idx.isNotEmpty() || snap.vix.pct != null) {

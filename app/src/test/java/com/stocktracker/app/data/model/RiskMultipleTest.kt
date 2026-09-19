@@ -145,6 +145,20 @@ class RiskMultipleTest {
         assertNull(RiskMultiple.rFor(exercised))
     }
 
+    @Test fun `an assigned close has no option-leg exit either, same as exercised`() {
+        val assigned = closed(exit = null, outcome = CallOutcome.ASSIGNED)
+        assertNull(RiskMultiple.rFor(assigned))
+    }
+
+    @Test fun `a SHORT position is never scored, even with a stop recorded -- not silently sign-flipped`() {
+        // RiskMultiple is documented LONG-ONLY (see its class doc): stopPriceFromPct always places the
+        // stop BELOW the entry, which is backwards for a credit position. MONEY-3's short wheel
+        // positions never populate a stop from the UI, but this pins the belt-and-suspenders check
+        // even if one somehow arrives on a SHORT record.
+        val short = closed(exit = 3.00, stopPct = 50.0).copy(side = PositionSide.SHORT)
+        assertNull("a SHORT must come back null, not a confidently wrong R", RiskMultiple.rFor(short))
+    }
+
     // ------------------------------------------------------------------ aggregates
 
     /**

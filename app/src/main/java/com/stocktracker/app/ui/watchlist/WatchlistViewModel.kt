@@ -47,6 +47,9 @@ data class MarketNowUi(
     val loading: Boolean = false,
     val result: MarketNowResponse? = null,
     val error: String? = null,
+    // True only for the two "you haven't configured this" errors below — a real backend failure
+    // isn't fixed by a trip to Settings, so it doesn't get the "Set up signals" button.
+    val needsSetup: Boolean = false,
 )
 
 /** State for the auto-loaded market-regime banner (Theme D). */
@@ -99,6 +102,10 @@ data class WatchlistUiState(
      * last read rather than the current one.
      */
     val dipStale: String? = null,
+    /** DATA-9 — when [dipRadar] was last confirmed by a successful fetch (this session, or restored
+     *  from disk on cold start). 0 means never. Paired with [dipStale] at the call site so a reading
+     *  that is merely old — not failed — still discloses its age (see [DipRadar.restoredNote]). */
+    val scanFetchedAtMs: Long = 0L,
     val marketNow: MarketNowUi = MarketNowUi(),
     val regime: RegimeUi = RegimeUi(),
     /** SWT-13 — the five-leg gate. Free (no LLM), so it loads regardless of the AI master switch. */
@@ -299,12 +306,13 @@ class WatchlistViewModel : ViewModel() {
                         loading = false,
                         error = if (base.isBlank()) "Set the Signals service URL in Settings to use this."
                         else "The AI analyst is off — turn it on in Settings.",
+                        needsSetup = true,
                     ))
                 }
                 return@launch
             }
             if (!force && _state.value.marketNow.result != null) return@launch
-            _state.update { it.copy(marketNow = it.marketNow.copy(loading = true, error = null)) }
+            _state.update { it.copy(marketNow = it.marketNow.copy(loading = true, error = null, needsSetup = false)) }
             val res = runCatching { signalsApi.marketNow(base) }
             _state.update { st ->
                 st.copy(marketNow = st.marketNow.copy(
@@ -363,6 +371,7 @@ class WatchlistViewModel : ViewModel() {
                         },
                         dipRadar = m.dipRadar,
                         dipStale = m.dipStale,
+                        scanFetchedAtMs = m.scanFetchedAtMs,
                     )
                 }
             }
@@ -560,12 +569,10 @@ class WatchlistViewModel : ViewModel() {
                                     prevClose = it.price - it.change,
                                 )
                             }
-                            if (quote != null) cache.putQuote(asset.id, quote)
                             Fetched(asset, quote, (m?.sparkline ?: emptyList()).downsample(40))
                         }
                         AssetType.STOCK -> {
                             val fresh = runCatching { repo.quote(asset) }.getOrNull()
-                            if (fresh != null) cache.putQuote(asset.id, fresh)
                             // REAL intraday history, the same source the detail chart uses, rather
                             // than the rolling observed-price buffer. Crypto always had a genuine
                             // series; stocks were drawing whatever prices this app happened to see,
@@ -577,6 +584,13 @@ class WatchlistViewModel : ViewModel() {
                     }
                 }
             }.awaitAll()
+        }
+
+        // Batch-write all fetched quotes in a single DataStore edit, pruning symbols no longer in
+        // the watchlist. This replaces 50 putQuote() calls (each re-encoding both maps) with one.
+        val quotesToCache = fetched.mapNotNull { f -> f.quote?.let { f.asset.id to it } }.toMap()
+        if (quotesToCache.isNotEmpty()) {
+            cache.putQuotes(quotesToCache, assets.map { it.id }.toSet())
         }
 
         // ...then read the cache maps ONCE (avoids O(N^2) full-map decodes).

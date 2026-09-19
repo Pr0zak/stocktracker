@@ -79,6 +79,7 @@ fun PortfolioScreen(
     onOpenIdeas: () -> Unit = {},
     onOpenJournal: () -> Unit = {},
     onOpenDetail: (Asset) -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val vm: PortfolioViewModel = viewModel()
     val state by vm.state.collectAsState()
@@ -92,6 +93,7 @@ fun PortfolioScreen(
             onRefresh = { vm.loadReview(force = true) },
             onDismiss = { vm.dismissReview() },
             onOpenSymbol = { vm.dismissReview(); openSymbol(it) },
+            onOpenSignalsSettings = onOpenSignalsSettings,
         )
     }
     if (state.rebalance.open) {
@@ -101,6 +103,7 @@ fun PortfolioScreen(
             onTarget = { vm.setRebalanceTarget(it) },
             onDismiss = { vm.dismissRebalance() },
             onOpenSymbol = { vm.dismissRebalance(); openSymbol(it) },
+            onOpenSignalsSettings = onOpenSignalsSettings,
         )
     }
     Scaffold(
@@ -205,8 +208,12 @@ fun PortfolioScreen(
             }
             if (state.hasCostBasis) {
                 val gUp = state.totalGain >= 0
+                // MONEY-5: this is price movement only — current value vs. what was paid, on shares
+                // still held. Dividends are fetched elsewhere in the app (the detail chart's ex-div
+                // markers) but never summed in here, and nothing sold is in this number either. Call
+                // it what it is rather than "total return", which promises both.
                 Text(
-                    text = "${Formatting.changeLine(state.totalGain, state.totalGainPercent, gUp, hideZeroCents)} total return",
+                    text = "${Formatting.changeLine(state.totalGain, state.totalGainPercent, gUp, hideZeroCents)} unrealized gain (price only)",
                     color = if (gUp) GainGreen else LossRed,
                     fontWeight = FontWeight.Medium,
                 )
@@ -216,7 +223,7 @@ fun PortfolioScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     state.vsSpyPct?.let { v ->
                         Text(
-                            "vs S&P ${if (v >= 0) "+" else ""}${"%.1f".format(v)}%",
+                            "Today's mix vs S&P ${if (v >= 0) "+" else ""}${"%.1f".format(v)}%",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (v >= 0) GainGreen else LossRed,
                             fontWeight = FontWeight.Medium,
@@ -229,6 +236,17 @@ fun PortfolioScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                // MONEY-5: this is not a record of what the account actually did — it prices TODAY's
+                // share counts across the whole window, as if that exact mix had been held throughout,
+                // then compares that hypothetical curve to the S&P. A rebalance yesterday rewrites this
+                // number for the whole year. Said once, here, rather than implied by "vs S&P" alone.
+                if (state.vsSpyPct != null) {
+                    Text(
+                        "Hypothetical: today's holdings priced back over the window, not your real history.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
@@ -471,6 +489,7 @@ private fun PortfolioReviewDialog(
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
     onOpenSymbol: (String) -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val amber = Signal
@@ -533,7 +552,15 @@ private fun PortfolioReviewDialog(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Text("Reviewing your book…")
                     }
-                    ui.error != null -> Text(ui.error, color = MaterialTheme.colorScheme.error)
+                    ui.error != null -> Column {
+                        Text(ui.error, color = MaterialTheme.colorScheme.error)
+                        if (ui.needsSetup) {
+                            TextButton(
+                                onClick = onOpenSignalsSettings,
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) { Text("Set up signals") }
+                        }
+                    }
                     r != null -> {
                         Text(r.health, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                         if (r.concentration.isNotEmpty()) {
@@ -615,6 +642,7 @@ private fun RebalancePlanDialog(
     onTarget: (Int) -> Unit,
     onDismiss: () -> Unit,
     onOpenSymbol: (String) -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val amber = Signal
@@ -681,7 +709,15 @@ private fun RebalancePlanDialog(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Text("Planning the moves…")
                     }
-                    ui.error != null -> Text(ui.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp))
+                    ui.error != null -> Column(modifier = Modifier.padding(top = 12.dp)) {
+                        Text(ui.error, color = MaterialTheme.colorScheme.error)
+                        if (ui.needsSetup) {
+                            TextButton(
+                                onClick = onOpenSignalsSettings,
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) { Text("Set up signals") }
+                        }
+                    }
                     plan != null -> {
                         Spacer(Modifier.height(8.dp))
                         Text(plan.summary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
@@ -719,6 +755,11 @@ private fun RebalancePlanDialog(
                                     }
                                     Text(head, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                     Text(m.reason, style = MaterialTheme.typography.bodySmall, color = neutral)
+                                    // MONEY-1: computed client-side from this device's own dated lots
+                                    // (never from the model) — see PortfolioViewModel.taxWarnings.
+                                    ui.taxWarnings[m.symbol.uppercase()]?.let { warn ->
+                                        Text(warn, style = MaterialTheme.typography.labelSmall, color = amber)
+                                    }
                                 }
                                 Icon(
                                     Icons.AutoMirrored.Filled.KeyboardArrowRight,

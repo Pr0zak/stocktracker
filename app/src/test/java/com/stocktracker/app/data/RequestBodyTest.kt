@@ -93,7 +93,25 @@ class RequestBodyTest {
         assertTrue("refresh dropped from the review body: $rev", rev.contains("\"refresh\""))
         val reb = Http.json.encodeToString(
             com.stocktracker.app.data.remote.RebalanceRequestBody(
-                cash = 0.0, deep = false, refresh = false, maxPositionPct = 25.0, holdings = emptyList()))
+                cash = 0.0, deep = false, refresh = false, maxPositionPct = 25.0, holdings = emptyList(),
+                taxableAccount = true))
         assertTrue("refresh dropped from the rebalance body: $reb", reb.contains("\"refresh\""))
+    }
+
+    @Test
+    fun `taxable_account survives serialization on the rebalance body`() {
+        // Same trap as refresh: taxableAccount's class default would be true (the common case), so
+        // declaring it with that default would mean re-enabling it after trying "tax-advantaged"
+        // serialized to {} and the server kept skipping the capital-gains annotation forever.
+        val off = Http.json.encodeToString(
+            com.stocktracker.app.data.remote.RebalanceRequestBody(
+                cash = 0.0, deep = false, refresh = false, maxPositionPct = 25.0, holdings = emptyList(),
+                taxableAccount = false))
+        assertTrue("taxable_account dropped when false: $off", off.contains("\"taxable_account\":false"))
+        val on = Http.json.encodeToString(
+            com.stocktracker.app.data.remote.RebalanceRequestBody(
+                cash = 0.0, deep = false, refresh = false, maxPositionPct = 25.0, holdings = emptyList(),
+                taxableAccount = true))
+        assertTrue("taxable_account dropped when true: $on", on.contains("\"taxable_account\":true"))
     }
 }

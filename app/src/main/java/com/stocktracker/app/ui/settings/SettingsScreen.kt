@@ -76,6 +76,9 @@ import com.stocktracker.app.notify.AlertDelivery
 import com.stocktracker.app.notify.AlertDeliveryStatus
 import com.stocktracker.app.notify.AlertNotifier
 import com.stocktracker.app.notify.SignalScanNotifier
+import androidx.compose.material3.AlertDialog
+import com.stocktracker.app.data.remote.WatchlistSyncRefusal
+import com.stocktracker.app.data.remote.watchlistSyncRefusal
 import com.stocktracker.app.update.UpdateDialog
 import com.stocktracker.app.update.UpdateUiState
 import com.stocktracker.app.update.rememberUpdateController
@@ -126,6 +129,9 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
     var showKey by remember { mutableStateOf(false) }
     var signalsUrlField by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedSignalsUrl) { if (signalsUrlField == null) signalsUrlField = savedSignalsUrl }
+    // A pending OPS-3 removal-guard refusal from "Sync now" — non-null shows the confirm/cancel
+    // dialog below. Cleared on either choice; never auto-retried with replace=true.
+    var syncRefusal by remember { mutableStateOf<WatchlistSyncRefusal?>(null) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -426,11 +432,28 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                         if (savedSignalsUrl.isNotBlank()) {
                             OutlinedButton(onClick = {
                                 scope.launch {
-                                    val msg = runCatching { SignalScanNotifier.syncNow() }.fold(
-                                        { "Watchlist synced ($it symbols)" },
-                                        { "Sync failed: ${it.message ?: "network error"}" },
+                                    runCatching { SignalScanNotifier.syncNow() }.fold(
+                                        { n ->
+                                            Toast.makeText(
+                                                context, "Watchlist synced ($n symbols)", Toast.LENGTH_SHORT,
+                                            ).show()
+                                        },
+                                        { e ->
+                                            // A 409 means OPS-3's removal guard refused this sync — surface
+                                            // exactly what it would have removed and let the user decide,
+                                            // rather than folding it into a generic failure toast.
+                                            val refusal = watchlistSyncRefusal(e)
+                                            if (refusal != null) {
+                                                syncRefusal = refusal
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Sync failed: ${e.message ?: "network error"}",
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
+                                        },
                                     )
-                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 }
                             }) { Text("Sync now") }
                             TextButton(onClick = {
@@ -534,6 +557,47 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                 }
             }
         }
+    }
+
+    // OPS-3: "Sync now" was refused because it would have removed more than the backend's guard
+    // allows from a list a different install last wrote. Show exactly what, and require an explicit
+    // choice — this dialog is the ONLY path that may resend with replace=true.
+    syncRefusal?.let { refusal ->
+        val listName = if (refusal.field == "crypto_watchlist") "crypto watchlist" else "watchlist"
+        AlertDialog(
+            onDismissRequest = { syncRefusal = null },
+            title = { Text("Sync would remove ${refusal.removedCount} symbol${if (refusal.removedCount == 1) "" else "s"}") },
+            text = {
+                Text(
+                    "Another device set the $listName last. Syncing from this one would shrink it from " +
+                        "${refusal.nBefore} to ${refusal.nAfter} symbols, removing:\n\n" +
+                        refusal.removed.joinToString(", ") +
+                        "\n\nForce the sync to apply anyway, or cancel and leave the backend's list as it is.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    syncRefusal = null
+                    scope.launch {
+                        runCatching { SignalScanNotifier.syncNow(replace = true) }.fold(
+                            { n ->
+                                Toast.makeText(
+                                    context, "Watchlist synced ($n symbols, forced)", Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                            { e ->
+                                Toast.makeText(
+                                    context, "Sync failed: ${e.message ?: "network error"}", Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                        )
+                    }
+                }) { Text("Force sync") }
+            },
+            dismissButton = {
+                TextButton(onClick = { syncRefusal = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 

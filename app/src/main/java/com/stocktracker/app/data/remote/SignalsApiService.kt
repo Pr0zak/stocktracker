@@ -82,10 +82,28 @@ class SignalsApiService {
         return Http.json.decodeFromString<ScanLatest>(body)
     }
 
-    /** Push the app's watchlist up so the backend's nightly scan tracks what the user tracks. */
-    suspend fun syncWatchlist(baseUrl: String, stocks: List<String>, cryptos: List<String>) {
+    /**
+     * Push the app's watchlist up so the backend's nightly scan tracks what the user tracks.
+     *
+     * [clientId] is this install's stable OPS-3 id (see [com.stocktracker.app.data.prefs.InstallId])
+     * — without it, every client that omits one looks like the same client to the backend's removal
+     * guard, and the guard does nothing. [replace] forces the sync past that guard; only ever set
+     * true after the user has explicitly confirmed a refusal (see [watchlistSyncRefusal]) — never
+     * automatically, or the guard is pointless. Throws [HttpStatusException] with code 409 when the
+     * guard trips and [replace] is false.
+     */
+    suspend fun syncWatchlist(
+        baseUrl: String,
+        stocks: List<String>,
+        cryptos: List<String>,
+        clientId: String,
+        replace: Boolean = false,
+    ) {
         if (baseUrl.isBlank()) return
-        sPost("${baseUrl.trimEnd('/')}/api/settings", Http.json.encodeToString(WatchlistSync(stocks, cryptos)))
+        sPost(
+            "${baseUrl.trimEnd('/')}/api/settings",
+            Http.json.encodeToString(WatchlistSync(stocks, cryptos, clientId, replace)),
+        )
     }
 
     /** Short-pressure read (FINRA SI + short volume + SEC FTDs) — free, no LLM call. Stocks only. */
@@ -1926,7 +1944,42 @@ data class RecommendationsResponse(
 data class WatchlistSync(
     val watchlist: List<String>,
     @SerialName("crypto_watchlist") val cryptoWatchlist: List<String>,
+    @SerialName("client_id") val clientId: String? = null,
+    val replace: Boolean = false,
 )
+
+/**
+ * The body a 409 from `POST /api/settings` carries when OPS-3's removal guard refuses a sync (see
+ * ~/stocktracker-signals app/settings_store.py `WatchlistSyncRefused.detail()`) — everything the UI
+ * needs to tell the user what would have been removed, in plain terms, and let them choose.
+ */
+@Serializable
+data class WatchlistSyncRefusal(
+    /** "watchlist" or "crypto_watchlist" — which list tripped the guard. */
+    val field: String,
+    @SerialName("n_before") val nBefore: Int,
+    @SerialName("n_after") val nAfter: Int,
+    @SerialName("removed_count") val removedCount: Int,
+    val removed: List<String> = emptyList(),
+    val threshold: Int,
+    val message: String = "",
+)
+
+@Serializable
+private data class WatchlistSyncRefusalEnvelope(val detail: WatchlistSyncRefusal)
+
+/**
+ * Parses [e] as an OPS-3 watchlist-sync refusal — a 409 from `POST /api/settings` whose body is
+ * `{"detail": {...}}` — or returns null when it isn't one: a plain network failure, a
+ * differently-shaped 4xx, or no exception at all. Callers use this to show exactly which symbols
+ * would have been removed instead of a bare "sync failed".
+ */
+fun watchlistSyncRefusal(e: Throwable?): WatchlistSyncRefusal? {
+    val http = e as? HttpStatusException ?: return null
+    if (http.code != 409) return null
+    val body = http.body ?: return null
+    return runCatching { Http.json.decodeFromString<WatchlistSyncRefusalEnvelope>(body).detail }.getOrNull()
+}
 
 /**
  * GET /scan/latest — the nightly scan, or the server saying it hasn't got one.

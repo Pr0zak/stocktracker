@@ -22,7 +22,10 @@ object SignalScanNotifier {
         if (base.isBlank()) return
 
         // Keep the backend's nightly-scan watchlist in sync with the app's — so there's no separate
-        // list to maintain on the server; the app is the source of truth.
+        // list to maintain on the server; the app is the source of truth. Never forced past OPS-3's
+        // removal guard from this background path: a 409 here just fails like any other transient
+        // error (nothing was lost — the backend kept the prior list). Only the user-initiated
+        // "Sync now" in Settings surfaces a refusal, because only there is someone present to decide.
         runCatching { pushWatchlist(base) }
 
         val scan = runCatching { api.latestScan(base) }.getOrNull() ?: return
@@ -98,11 +101,15 @@ object SignalScanNotifier {
      * Force an immediate watchlist push to the configured service (the "Sync now" button). Returns
      * the number of symbols pushed; throws on a missing URL or a network/HTTP failure so the caller
      * can surface it. Unlike the periodic [check], errors here are not swallowed.
+     *
+     * [replace] forces the sync past OPS-3's removal guard. Only ever pass true from an explicit
+     * user confirmation of a prior 409 (see [com.stocktracker.app.data.remote.watchlistSyncRefusal])
+     * — never automatically retried, or the guard is pointless.
      */
-    suspend fun syncNow(): Int {
+    suspend fun syncNow(replace: Boolean = false): Int {
         val base = ServiceLocator.settingsStore.signalsApiUrl.first()
         require(base.isNotBlank()) { "Set the Signals service URL first" }
-        return pushWatchlist(base)
+        return pushWatchlist(base, replace)
     }
 
     /** Once every 7 days, post a roundup of the watchlist's current signals + short-pressure — a
@@ -133,11 +140,12 @@ object SignalScanNotifier {
         store.setLastDigestAt(now)
     }
 
-    private suspend fun pushWatchlist(base: String): Int {
+    private suspend fun pushWatchlist(base: String, replace: Boolean = false): Int {
         val assets = ServiceLocator.watchlistStore.snapshot()
         val stocks = assets.filter { it.type == AssetType.STOCK }.map { it.symbol.uppercase() }
         val cryptos = assets.filter { it.type == AssetType.CRYPTO }.map { "${it.symbol.uppercase()}-USD" }
-        api.syncWatchlist(base, stocks, cryptos)
+        val clientId = ServiceLocator.settingsStore.installId()
+        api.syncWatchlist(base, stocks, cryptos, clientId, replace)
         return stocks.size + cryptos.size
     }
 }

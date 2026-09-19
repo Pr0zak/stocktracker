@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.stocktracker.app.data.remote.Http
 import com.stocktracker.app.widget.WidgetBackground
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -39,6 +40,7 @@ class SettingsStore(private val context: Context) {
     private val chartLogScaleKey = booleanPreferencesKey("chart_log_scale")
     private val watchlistGroupsKey = stringPreferencesKey("watchlist_groups")
     private val signalsApiUrlKey = stringPreferencesKey("signals_api_url")
+    private val installIdKey = stringPreferencesKey("install_id")
     private val lastScanNotifiedKey = longPreferencesKey("last_scan_notified_at")
     private val investableCashKey = doublePreferencesKey("investable_cash")
     private val aiAnalystEnabledKey = booleanPreferencesKey("ai_analyst_enabled")
@@ -65,6 +67,24 @@ class SettingsStore(private val context: Context) {
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
+
+    /**
+     * This install's stable OPS-3 id — see [InstallId] for what it is and isn't. Generated on first
+     * call and persisted from then on, so every later call (this session or after a restart) returns
+     * the same value; sent as `client_id` on every watchlist sync in [SignalScanNotifier][com.stocktracker.app.notify.SignalScanNotifier].
+     */
+    suspend fun installId(): String {
+        val current = context.dataStore.data.map { it[installIdKey] }.first()
+        if (!current.isNullOrBlank()) return current
+        val fresh = InstallId.resolve(null)
+        context.dataStore.edit { prefs ->
+            // DataStore serializes concurrent edit() calls, but another caller may have already run
+            // this same read-then-write between our read above and this block executing — never
+            // clobber an id that's already there.
+            if (prefs[installIdKey].isNullOrBlank()) prefs[installIdKey] = fresh
+        }
+        return context.dataStore.data.map { it[installIdKey] }.first()!!
+    }
 
     /**
      * When the background worker last completed, and which of its steps failed (comma-separated,

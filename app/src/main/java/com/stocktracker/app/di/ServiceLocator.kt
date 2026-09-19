@@ -77,7 +77,7 @@ object ServiceLocator {
     fun init(context: Context) {
         if (initialized) return
         val app = context.applicationContext
-        marketContext = MarketContextStore(scope)
+        marketContext = MarketContextStore(app, scope)
         watchlistStore = WatchlistStore(app)
         settingsStore = SettingsStore(app)
         priceCache = PriceCache(app)

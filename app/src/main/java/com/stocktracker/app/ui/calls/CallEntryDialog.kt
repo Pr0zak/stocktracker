@@ -42,7 +42,15 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/** Pre-fill payload for the entry form (Path A), built from an OC-2 "Play with calls" suggestion. */
+/**
+ * Pre-fill payload for the entry form (Path A), built from an OC-2 "Play with calls" suggestion.
+ *
+ * `java.io.Serializable` so `rememberSaveable` can hold a half-typed draft across a rotation. This
+ * is NOT decoration: rememberSaveable throws at runtime — not at compile time — when asked to save
+ * a type the SaveableStateRegistry cannot store, and the only moment it would be asked is the one
+ * this exists to survive. Every field below is a primitive or a String; keep it that way, or add a
+ * Saver instead.
+ */
 data class CallDraft(
     val symbol: String = "",
     val contractSymbol: String = "",
@@ -51,7 +59,7 @@ data class CallDraft(
     val expiryTs: Long? = null,
     val contracts: Int = 1,
     val fillPrice: Double? = null,
-)
+) : java.io.Serializable
 
 /** Build a pre-fill draft from a shown call suggestion — the contract's own expiry ts is carried through. */
 fun callDraftFrom(symbol: String, options: OptionsResponse, c: OptionCandidate): CallDraft = CallDraft(

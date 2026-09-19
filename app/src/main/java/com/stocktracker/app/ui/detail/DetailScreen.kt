@@ -67,6 +67,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
@@ -181,6 +182,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onOpenCalendar: () -> Unit = {},
     onOpenCalls: () -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
 ) {
     val vm: DetailViewModel = viewModel(key = asset.id) { DetailViewModel(asset) }
     val state by vm.state.collectAsState()
@@ -193,9 +195,9 @@ fun DetailScreen(
     val scope = rememberCoroutineScope()
     var showIndicatorSheet by remember { mutableStateOf(false) }
     var showNewListDialog by remember { mutableStateOf(false) }
-    var newListName by remember { mutableStateOf("") }
+    var newListName by rememberSaveable { mutableStateOf("") }
     // Non-null while the OC-3 call-tracker entry form is open (pre-filled from a "Track this" tap).
-    var callDraft by remember { mutableStateOf<CallDraft?>(null) }
+    var callDraft by rememberSaveable { mutableStateOf<CallDraft?>(null) }
     val context = LocalContext.current
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val quote = state.quote
@@ -793,6 +795,14 @@ fun DetailScreen(
             )
             val notApplicable = lenses.filter { it.second.isNotApplicable }.map { it.first.label }
             val checkedEmpty = lenses.filter { it.second.isEmpty }.map { it.first.label }
+            // PLAT-3: LensStatus.IDLE means nobody asked — almost always because no signals backend
+            // is configured yet. Every other status gets a rendering (READY the card, FAILED a retry
+            // row, NOT_APPLICABLE/EMPTY the footers above); IDLE got none, so a fresh install showed
+            // this whole area as if it did not exist rather than as a layer waiting to be switched on.
+            val idleLenses = lenses.filter { it.second.status == LensStatus.IDLE }.map { it.first.label }
+            if (idleLenses.isNotEmpty()) {
+                IdleLensNotice(idleLenses, onOpenSignalsSettings)
+            }
 
             if (notApplicable.isNotEmpty()) {
                 Text(
@@ -1354,6 +1364,38 @@ private fun LensRetryRow(id: LensId, onRetry: () -> Unit) {
             )
         }
         TextButton(onClick = onRetry) { Text("Retry") }
+    }
+}
+
+/**
+ * Lens.IDLE, rendered — this is the fix for PLAT-3's third item.
+ *
+ * Every other lens status draws something: READY the card, FAILED [LensRetryRow], NOT_APPLICABLE and
+ * EMPTY the footers above. IDLE drew nothing, anywhere, ever — so a fresh install with no signals
+ * backend showed a Detail screen with no SIGNALS & FLOWS section, no PATTERNS & HISTORY section, and
+ * nothing to suggest either had ever existed. The feature read as absent rather than as a quiet layer
+ * waiting to be switched on. This says what it is and sends the reader straight to the one setting
+ * that turns it on.
+ */
+@Composable
+private fun IdleLensNotice(labels: List<String>, onOpenSignalsSettings: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("AI analyst layer", style = MaterialTheme.typography.labelLarge)
+            Text(
+                labels.joinToString(" · ") +
+                    " read from a self-hosted signals backend, and none of it has been asked for yet.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onOpenSignalsSettings) { Text("Set up signals") }
     }
 }
 
@@ -3399,12 +3441,12 @@ private fun EditPositionSheet(
     onDismiss: () -> Unit,
     onSave: (Double?, Double?, AssetAlerts) -> Unit,
 ) {
-    var sharesText by remember { mutableStateOf(shares?.let { numText(it) } ?: "") }
-    var costText by remember { mutableStateOf(avgCost?.let { numText(it) } ?: "") }
-    var above by remember { mutableStateOf(alerts.priceAbove?.let { numText(it) } ?: "") }
-    var below by remember { mutableStateOf(alerts.priceBelow?.let { numText(it) } ?: "") }
-    var pctUp by remember { mutableStateOf(alerts.percentUp?.let { numText(it) } ?: "") }
-    var pctDown by remember { mutableStateOf(alerts.percentDown?.let { numText(it) } ?: "") }
+    var sharesText by rememberSaveable { mutableStateOf(shares?.let { numText(it) } ?: "") }
+    var costText by rememberSaveable { mutableStateOf(avgCost?.let { numText(it) } ?: "") }
+    var above by rememberSaveable { mutableStateOf(alerts.priceAbove?.let { numText(it) } ?: "") }
+    var below by rememberSaveable { mutableStateOf(alerts.priceBelow?.let { numText(it) } ?: "") }
+    var pctUp by rememberSaveable { mutableStateOf(alerts.percentUp?.let { numText(it) } ?: "") }
+    var pctDown by rememberSaveable { mutableStateOf(alerts.percentDown?.let { numText(it) } ?: "") }
     val decimal = KeyboardOptions(keyboardType = KeyboardType.Decimal)
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
 

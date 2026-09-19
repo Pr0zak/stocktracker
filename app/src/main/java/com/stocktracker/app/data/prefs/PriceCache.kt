@@ -32,6 +32,44 @@ class PriceCache(private val context: Context) {
         prefs[quotesKey] = Http.json.encodeToString(map)
 
         val buffers = decodeBuffers(prefs[bufferKey]).toMutableMap()
+        updateBuffer(buffers, assetId, quote, prefs)
+    }
+
+    /**
+     * Batch write many quotes in a single DataStore edit.
+     *
+     * When refreshing a watchlist of 50 symbols, putQuote called 50 times would cause 50 full
+     * re-encodings of both the quotes and buffers maps. This version takes a map of quotes
+     * and performs one atomic edit instead.
+     *
+     * Also prunes entries whose symbols are no longer in [activeSymbols], so the cache does not
+     * grow forever as the user removes items from their watchlist.
+     */
+    suspend fun putQuotes(quotes: Map<String, Quote>, activeSymbols: Set<String>) = context.priceCacheStore.edit { prefs ->
+        val map = decodeQuotes(prefs[quotesKey]).toMutableMap()
+        // Prune symbols no longer in the watchlist
+        map.keys.retainAll(activeSymbols)
+        // Update with new quotes
+        map.putAll(quotes)
+        prefs[quotesKey] = Http.json.encodeToString(map)
+
+        val buffers = decodeBuffers(prefs[bufferKey]).toMutableMap()
+        // Prune buffers for removed symbols
+        buffers.keys.retainAll(activeSymbols)
+        // Update buffers for each quote
+        for ((assetId, quote) in quotes) {
+            updateBuffer(buffers, assetId, quote, prefs)
+        }
+        prefs[bufferKey] = Http.json.encodeToString(buffers)
+    }
+
+    /** Update the buffer for a single asset; does not write to prefs (caller handles the full write). */
+    private fun updateBuffer(
+        buffers: MutableMap<String, List<Sample>>,
+        assetId: String,
+        quote: Quote,
+        prefs: androidx.datastore.preferences.core.MutablePreferences,
+    ) {
         val series = buffers[assetId] ?: emptyList()
         val now = System.currentTimeMillis()
         // Only append when the price actually moved — avoids flooding the buffer with duplicates.
@@ -40,7 +78,6 @@ class PriceCache(private val context: Context) {
             // describes a bounded, recent period rather than an open-ended history of refreshes.
             val recent = (series + Sample(now, quote.price)).filter { now - it.ts <= BUFFER_WINDOW_MS }
             buffers[assetId] = recent.takeLast(MAX_SAMPLES)
-            prefs[bufferKey] = Http.json.encodeToString(buffers)
         }
     }
 

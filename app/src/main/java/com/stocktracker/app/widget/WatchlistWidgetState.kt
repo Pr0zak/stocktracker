@@ -22,6 +22,10 @@ data class WatchlistRow(
      *  row served from PriceCache carries its ORIGINAL fetch time here, not the time of this refresh,
      *  which is what lets the widget stop drawing an old move in a confident colour. */
     val asOfEpochMs: Long = 0L,
+    /** Absolute (dollar) change over the day, alongside [changePercent] — WGT-5's dollar-vs-percent
+     *  toggle needs both. Defaults to 0.0 so a row cached before this field existed still decodes;
+     *  such a row simply can't show a dollar figure until the next refresh repopulates it. */
+    val changeAbs: Double = 0.0,
 ) {
     val isUp: Boolean get() = changePercent >= 0.0
 }
@@ -37,8 +41,20 @@ object WatchlistWidgetState {
     /** When [ROWS] last came from a refresh that loaded at least one price. Mirrors
      *  [TickerWidgetState.LAST_SUCCESS] / [PortfolioWidgetState.LAST_SUCCESS]. */
     val LAST_SUCCESS = longPreferencesKey("last_success")
+    /** This instance's serialized [WatchlistWidgetConfig] — WGT-5. Absent on a widget placed before
+     *  the watchlist widget could be configured, or one whose config JSON somehow fails to parse;
+     *  [readConfig] falls back to the default config in both cases rather than erroring. */
+    val CONFIG = stringPreferencesKey("config")
+    /** When a refresh was last ATTEMPTED for THIS instance — mirrors [TickerWidgetState.LAST_REFRESH]
+     *  (stamped before the fetch, for the same reason: gating on attempts rather than successes so a
+     *  worker tick landing just inside the window doesn't get skipped and halve the effective rate). */
+    val LAST_REFRESH = longPreferencesKey("last_refresh")
 
     fun readRows(prefs: Preferences): List<WatchlistRow> =
         prefs[ROWS]?.let { runCatching { Http.json.decodeFromString<List<WatchlistRow>>(it) }.getOrNull() }
             ?: emptyList()
+
+    fun readConfig(prefs: Preferences): WatchlistWidgetConfig =
+        prefs[CONFIG]?.let { runCatching { Http.json.decodeFromString<WatchlistWidgetConfig>(it) }.getOrNull() }
+            ?: WatchlistWidgetConfig()
 }

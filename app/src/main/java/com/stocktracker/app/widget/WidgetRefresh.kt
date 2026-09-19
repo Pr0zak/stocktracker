@@ -102,10 +102,41 @@ object WidgetRefresh {
             .forEach { refreshTicker(context, it, force = false) }
     }
 
+    /**
+     * Refresh every placed watchlist widget, each against its OWN configured list/sort/refresh
+     * cadence (WGT-5).
+     *
+     * This used to fetch ONE shared set of rows and write it to every instance — so two watchlist
+     * widgets were always the same widget twice, and there was no way to point one at "Crypto" and
+     * the other at "All". [refreshWatchlistInstance] is where the actual per-instance fetch lives;
+     * this just fans the periodic worker's tick out to every placed id.
+     */
     suspend fun refreshWatchlist(context: Context) {
-        val ids = GlanceAppWidgetManager(context).getGlanceIds(WatchlistWidget::class.java)
-        if (ids.isEmpty()) return
-        val assets = ServiceLocator.watchlistStore.snapshot()
+        GlanceAppWidgetManager(context).getGlanceIds(WatchlistWidget::class.java)
+            .forEach { refreshWatchlistInstance(context, it, force = false) }
+    }
+
+    /**
+     * @param force refresh regardless of this instance's configured interval (used right after
+     * config, mirrors [refreshTicker]).
+     */
+    suspend fun refreshWatchlistInstance(context: Context, glanceId: GlanceId, force: Boolean = false) {
+        val prefs: Preferences = getAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId)
+        val config = WatchlistWidgetState.readConfig(prefs)
+        val lastRefresh = prefs[WatchlistWidgetState.LAST_REFRESH] ?: 0L
+        val now = System.currentTimeMillis()
+        // Same attempt-before-fetch stamping as refreshTicker, for the same reason: stamping only on
+        // success skews the next gate check just inside the window on a worker-driven cadence.
+        if (!force && now - lastRefresh < config.refreshMinutes * 60_000L - REFRESH_SLACK_MS) {
+            if (shouldRepaintWatchlistForStaleness(prefs[WatchlistWidgetState.LAST_SUCCESS] ?: 0L, now)) {
+                WatchlistWidget().update(context, glanceId)
+            }
+            return // not due yet
+        }
+        updateAppWidgetState(context, glanceId) { it[WatchlistWidgetState.LAST_REFRESH] = now }
+
+        val allAssets = ServiceLocator.watchlistStore.snapshot()
+        val assets = filterWatchlistAssets(allAssets, config.listName)
         val fetchStartMs = System.currentTimeMillis()
         val rows = buildList {
             val markets = runCatching { ServiceLocator.repository.cryptoMarkets(assets) }.getOrDefault(emptyMap())
@@ -116,7 +147,12 @@ object WidgetRefresh {
                         // CoinMarket carries no timestamp of its own (it's a batched snapshot) — the
                         // fetch just happened, so the moment this refresh started is as close to
                         // exact as this data gets.
-                        if (m != null) add(WatchlistRow(asset.symbol, asset.displayName, m.price, m.changePercent, asOfEpochMs = fetchStartMs))
+                        if (m != null) {
+                            add(WatchlistRow(
+                                symbol = asset.symbol, name = asset.displayName, price = m.price,
+                                changePercent = m.changePercent, changeAbs = m.change, asOfEpochMs = fetchStartMs,
+                            ))
+                        }
                     }
                     AssetType.STOCK -> {
                         // Fall back to the cache like the app's own screens do. Dropping the row
@@ -126,32 +162,36 @@ object WidgetRefresh {
                             ?: ServiceLocator.priceCache.getQuote(asset.id)
                         if (q != null) {
                             ServiceLocator.priceCache.putQuote(asset.id, q)
-                            add(WatchlistRow(asset.symbol, asset.displayName, q.price, q.changePercent, q.currency, q.asOfEpochMs))
+                            add(WatchlistRow(
+                                symbol = asset.symbol, name = asset.displayName, price = q.price,
+                                changePercent = q.changePercent, currency = q.currency,
+                                asOfEpochMs = q.asOfEpochMs, changeAbs = q.change,
+                            ))
                         }
                     }
                 }
             }
         }
-        // A fetch failure (non-empty watchlist but no rows) is distinct from an empty watchlist.
-        // A PARTIAL failure counts too: showing 6 of 9 tickers with no indication reads as a
-        // complete list, so treat any missing row as a failure the widget must surface.
+        val sorted = sortWatchlistRows(rows, config.sortOrder)
+        // A fetch failure (non-empty list but no rows) is distinct from an empty list -- and a
+        // PARTIAL failure counts too: showing 6 of 9 tickers with no indication reads as a complete
+        // list, so treat any missing row as a failure the widget must surface.
         val fetchFailed = assets.isNotEmpty() && rows.size < assets.size
         val hideZeroCents = ServiceLocator.settingsStore.hideZeroCents.first()
-        val json = Http.json.encodeToString(rows)
-        ids.forEach { id ->
-            updateAppWidgetState(context, id) { mutable ->
-                mutable[WatchlistWidgetState.ROWS] = json
-                mutable[WatchlistWidgetState.EXPECTED_COUNT] = assets.size
-                mutable[WatchlistWidgetState.HIDE_ZERO_CENTS] = hideZeroCents
-                if (rows.isNotEmpty()) mutable[WatchlistWidgetState.LAST_SUCCESS] = fetchStartMs
-                if (fetchFailed) {
-                    mutable[WatchlistWidgetState.ERROR] = "Couldn't load prices"
-                } else {
-                    mutable.remove(WatchlistWidgetState.ERROR)
-                }
+        val json = Http.json.encodeToString(sorted)
+        updateAppWidgetState(context, glanceId) { mutable ->
+            mutable[WatchlistWidgetState.ROWS] = json
+            mutable[WatchlistWidgetState.EXPECTED_COUNT] = assets.size
+            mutable[WatchlistWidgetState.HIDE_ZERO_CENTS] = hideZeroCents
+            mutable[WatchlistWidgetState.LAST_REFRESH] = System.currentTimeMillis()
+            if (rows.isNotEmpty()) mutable[WatchlistWidgetState.LAST_SUCCESS] = fetchStartMs
+            if (fetchFailed) {
+                mutable[WatchlistWidgetState.ERROR] = "Couldn't load prices"
+            } else {
+                mutable.remove(WatchlistWidgetState.ERROR)
             }
         }
-        WatchlistWidget().updateAll(context)
+        WatchlistWidget().update(context, glanceId)
     }
 
     suspend fun refreshPortfolio(context: Context) {

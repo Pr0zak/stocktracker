@@ -56,6 +56,7 @@ class WatchlistWidget : GlanceAppWidget() {
         provideContent {
             val prefs = currentState<Preferences>()
             WatchlistContent(
+                config = WatchlistWidgetState.readConfig(prefs),
                 rows = WatchlistWidgetState.readRows(prefs),
                 expectedCount = prefs[WatchlistWidgetState.EXPECTED_COUNT] ?: 0,
                 loaded = prefs.contains(WatchlistWidgetState.ROWS),
@@ -71,6 +72,7 @@ class WatchlistWidget : GlanceAppWidget() {
 
 @Composable
 private fun WatchlistContent(
+    config: WatchlistWidgetConfig,
     rows: List<WatchlistRow>,
     expectedCount: Int,
     loaded: Boolean,
@@ -83,7 +85,9 @@ private fun WatchlistContent(
 ) {
     val context = LocalContext.current
     val heightDp = LocalSize.current.height.value
-    val display = watchlistDisplay(rows, expectedCount, error, loaded, heightDp, lastSuccessMs, nowMs)
+    val listLabel = watchlistListLabel(config.listName)
+    val display = watchlistDisplay(rows, expectedCount, error, loaded, heightDp, lastSuccessMs, nowMs, listLabel)
+    val accent = Color(config.accentArgb.toInt())
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
@@ -97,12 +101,23 @@ private fun WatchlistContent(
     ) {
         Text(
             text = "Watchlist",
-            style = TextStyle(color = ColorProvider(OnSurface), fontSize = 14.sp, fontWeight = FontWeight.Bold),
+            style = TextStyle(color = ColorProvider(accent), fontSize = 14.sp, fontWeight = FontWeight.Bold),
+            maxLines = 1,
         )
+        // Two instances scoped to different lists must not look identical -- the subtitle is the
+        // one thing on screen that says which list THIS widget is, independent of its (now also
+        // per-instance) rows.
+        listLabel?.let { label ->
+            Text(
+                text = label,
+                style = TextStyle(color = ColorProvider(Muted), fontSize = 11.sp),
+                maxLines = 1,
+            )
+        }
         Spacer(GlanceModifier.height(6.dp))
         when (display) {
             is WatchlistDisplay.Rows -> {
-                display.visible.forEach { row -> WatchlistRowItem(row, hideZeroCents, nowMs) }
+                display.visible.forEach { row -> WatchlistRowItem(row, config.valueMode, hideZeroCents, nowMs) }
                 // A partial load (or a truncated list) must not read as the complete, current
                 // watchlist -- the same amber the rest of the app uses for "not the whole story".
                 display.footerLabel?.let { label ->
@@ -125,7 +140,7 @@ private fun Message(text: String) {
 }
 
 @Composable
-private fun WatchlistRowItem(row: WatchlistRow, hideZeroCents: Boolean, nowMs: Long) {
+private fun WatchlistRowItem(row: WatchlistRow, valueMode: WatchlistValueMode, hideZeroCents: Boolean, nowMs: Long) {
     // A stale row's move is not today's -- drop the confident green/red rather than assert a
     // direction the data can no longer back up. Mirrors TickerWidgetState's age handling.
     val stale = watchlistRowIsStale(row, nowMs)
@@ -148,7 +163,7 @@ private fun WatchlistRowItem(row: WatchlistRow, hideZeroCents: Boolean, nowMs: L
         )
         Spacer(GlanceModifier.width(10.dp))
         Text(
-            text = "${Formatting.arrow(row.isUp)} ${Formatting.percent(row.changePercent)}",
+            text = watchlistChangeText(row, valueMode, hideZeroCents),
             style = TextStyle(color = ColorProvider(color), fontSize = 12.sp, fontWeight = FontWeight.Medium),
             maxLines = 1,
         )

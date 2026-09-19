@@ -397,6 +397,27 @@ fun PortfolioScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // MONEY-7: the app can already suggest covered calls, but only after
+                        // navigating into the ticker and opening the Options section — so a >=100
+                        // FREE-share position (see Holding.coveredCallEligible) sat there unmarked.
+                        // A share-count fact, not a quote: deliberately no premium/yield fetch per
+                        // holding here, which would be a network call per row for a number that
+                        // already lives one tap away on the detail screen.
+                        if (h.coveredCallEligible) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 2.dp)
+                                    .background(GainGreen.copy(alpha = 0.16f), RoundedCornerShape(50))
+                                    .padding(horizontal = 8.dp, vertical = 1.dp),
+                            ) {
+                                Text(
+                                    "Income eligible · covered call",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GainGreen,
+                                )
+                            }
+                        }
                     }
                     // Tabular, like the watchlist rows: three stacked figures the eye runs down,
                     // where a proportional font puts every digit in a different place and the column

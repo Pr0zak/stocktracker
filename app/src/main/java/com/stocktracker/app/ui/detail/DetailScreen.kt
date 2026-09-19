@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -79,6 +80,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -489,6 +494,17 @@ fun DetailScreen(
                         points = chartPoints,
                         up = chartUp,
                         modifier = Modifier.fillMaxSize(),
+                        // PLAT-4: the canvas draws no semantics of its own — this is the only way a
+                        // screen reader learns what's plotted, over what range, and where it ends.
+                        chartDescription = com.stocktracker.app.ui.components.priceChartDescription(
+                            symbol = asset.symbol,
+                            rangeLabel = state.range.label,
+                            percentMode = percentMode,
+                            currentValueText = chartValueFormatter(chartPoints.last().price),
+                            changeLine = quote?.takeIf { !percentMode }?.let {
+                                Formatting.changeLine(it.change, it.changePercent, up, hideZeroCents)
+                            },
+                        ),
                         showVolume = showVolume,
                         showHighLow = true,
                         showReadout = false,
@@ -3346,16 +3362,30 @@ private fun HoldingsAndAlertsSection(
         ) {
             Switch(
                 checked = armed,
-                onCheckedChange = { checked ->
-                    when {
-                        // Off: keep the number, stop it firing.
-                        !checked -> onSave(shares, avgCost, alerts.copy(disarmed = alerts.disarmed + kind))
-                        // On with a level already set: just arm it. No sheet, no surprise.
-                        level != null -> onSave(shares, avgCost, alerts.copy(disarmed = alerts.disarmed - kind))
-                        // On with nothing to arm: there is genuinely a number to collect first.
-                        else -> showSheet = true
-                    }
-                },
+                // The toggling itself moves to the wrapping `toggleable` below, which is what
+                // carries the accessibility semantics (Role.Switch + a label + a stateDescription
+                // naming this specific alert). Leaving onCheckedChange set here as well would give
+                // TalkBack two separate switch nodes fighting over the same tap.
+                onCheckedChange = null,
+                modifier = Modifier
+                    .toggleable(
+                        value = armed,
+                        role = Role.Switch,
+                        onValueChange = { checked ->
+                            when {
+                                // Off: keep the number, stop it firing.
+                                !checked -> onSave(shares, avgCost, alerts.copy(disarmed = alerts.disarmed + kind))
+                                // On with a level already set: just arm it. No sheet, no surprise.
+                                level != null -> onSave(shares, avgCost, alerts.copy(disarmed = alerts.disarmed - kind))
+                                // On with nothing to arm: there is genuinely a number to collect first.
+                                else -> showSheet = true
+                            }
+                        },
+                    )
+                    .semantics {
+                        contentDescription = label
+                        stateDescription = alertLevelSwitchStateDescription(level, armed, format)
+                    },
             )
             Text(
                 label,
@@ -3432,10 +3462,22 @@ private fun HoldingsAndAlertsSection(
                 )
                 Switch(
                     checked = on,
-                    onCheckedChange = { checked ->
-                        val next = if (checked) alerts.conditions + cond else alerts.conditions - cond
-                        onSave(shares, avgCost, alerts.copy(conditions = next))
-                    },
+                    // See the price-alert AlertRow above: the toggle handler and the accessibility
+                    // semantics both live on the wrapping `toggleable`, not here.
+                    onCheckedChange = null,
+                    modifier = Modifier
+                        .toggleable(
+                            value = on,
+                            role = Role.Switch,
+                            onValueChange = { checked ->
+                                val next = if (checked) alerts.conditions + cond else alerts.conditions - cond
+                                onSave(shares, avgCost, alerts.copy(conditions = next))
+                            },
+                        )
+                        .semantics {
+                            contentDescription = cond.label
+                            stateDescription = alertConditionSwitchStateDescription(on)
+                        },
                 )
             }
         }

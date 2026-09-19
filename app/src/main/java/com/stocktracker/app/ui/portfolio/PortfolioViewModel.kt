@@ -8,6 +8,7 @@ import com.stocktracker.app.data.model.PricePoint
 import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.model.Quote
 import com.stocktracker.app.data.model.saleTaxNote
+import com.stocktracker.app.data.model.sharesCommittedToShortCalls
 import com.stocktracker.app.data.model.toDisplayText
 import com.stocktracker.app.data.remote.HoldingSync
 import com.stocktracker.app.data.remote.PortfolioReviewResponse
@@ -33,9 +34,31 @@ data class Holding(
     val value: Double,
     val dayChange: Double,
     val costBasis: Double? = null, // shares × avg cost, when the user entered a cost
+    /** Shares of this symbol already promised away by an OPEN short call (MONEY-3) — see
+     *  [sharesCommittedToShortCalls]. Subtracted from [shares] below before the covered-call gate is
+     *  checked, so a position that already sold its free shares away doesn't get offered twice. */
+    val committedShares: Int = 0,
 ) {
     val gain: Double? get() = costBasis?.let { value - it }
     val gainPercent: Double? get() = costBasis?.takeIf { it != 0.0 }?.let { (value - it) / it * 100.0 }
+
+    /**
+     * MONEY-7: surfaces the SAME gate DetailScreen's CoveredCallCard uses (>=100 FREE shares) right
+     * on the Portfolio row, so the opportunity is visible where the position is instead of only after
+     * navigating into the ticker. Free shares = raw shares minus [committedShares], never the raw
+     * count alone — a holding that already sold its 100 shares away via an open short call is not
+     * eligible again, which is exactly the bug [sharesCommittedToShortCalls] exists to prevent.
+     *
+     * Deliberately does NOT fetch a live option premium/yield here: that's a network call per
+     * eligible holding for a number nobody asked for on this screen, and it belongs one tap away on
+     * the detail screen where CoveredCallCard already shows it. This is a share-count fact, not a
+     * quote.
+     *
+     * Crypto has no options chain (see DetailScreen's `!isCrypto` gate), so it is never eligible
+     * regardless of share count.
+     */
+    val coveredCallEligible: Boolean
+        get() = asset.type == AssetType.STOCK && (shares.toInt() - committedShares) >= 100
 }
 
 /** State for the on-demand AI portfolio review dialog. */
@@ -133,6 +156,7 @@ class PortfolioViewModel : ViewModel() {
 
     private val repo = ServiceLocator.repository
     private val store = ServiceLocator.watchlistStore
+    private val callPositionStore = ServiceLocator.callPositionStore
     private val signalsApi = SignalsApiService()
     private val settings = ServiceLocator.settingsStore
 
@@ -386,11 +410,16 @@ class PortfolioViewModel : ViewModel() {
         val currencies = quotes.mapNotNull { (_, q) -> q?.currency?.uppercase()?.takeIf { it.isNotBlank() } }
             .distinct()
         val foreign = currencies.filterNot { it == "USD" }
+        // MONEY-7: shares already promised away by an OPEN short call (MONEY-3), so the covered-call
+        // eligibility badge below doesn't offer the same 100 shares twice — same source DetailViewModel
+        // reads for its own CoveredCallCard gate.
+        val callPositions = runCatching { callPositionStore.snapshot() }.getOrDefault(emptyList())
         val rows = quotes.mapNotNull { (asset, q) ->
             if (q == null) null else {
                 val shares = asset.shares ?: 0.0
                 val costBasis = asset.avgCost?.let { it * shares }
-                Holding(asset, shares, q.price, shares * q.price, shares * q.change, costBasis)
+                val committed = callPositions.sharesCommittedToShortCalls(asset.symbol)
+                Holding(asset, shares, q.price, shares * q.price, shares * q.change, costBasis, committed)
             }
         }.sortedByDescending { it.value }
 

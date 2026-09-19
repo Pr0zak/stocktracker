@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -240,6 +242,14 @@ fun PriceChart(
     onScrubChange: (PricePoint?) -> Unit = {},
     valueFormatter: (Double) -> String = { it.toString() },
     timeFormatter: (Long) -> String = { "" },
+    /**
+     * PLAT-4: the plot is a bare [Canvas] — no children, no semantics of its own — so without this
+     * it is entirely invisible to a screen reader, not merely terse. Optional and null by default
+     * because this composable is shared by five callers (detail, portfolio equity, two sandbox NAV
+     * curves, the VIX history); a caller that hasn't been given a description yet is exactly as
+     * silent as before, not broken by one that has.
+     */
+    chartDescription: String? = null,
 ) {
     val color = if (up) GainGreen else LossRed
     val onSurface = MaterialTheme.colorScheme.onSurface
@@ -283,6 +293,13 @@ fun PriceChart(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .then(
+                    if (chartDescription != null) {
+                        Modifier.semantics { contentDescription = chartDescription }
+                    } else {
+                        Modifier
+                    },
+                )
                 // A separate detector from the slop-tuned gesture loop below, deliberately: that loop
                 // arbitrates scrub against pinch on five call sites and is the last place to add a
                 // third mode. detectTapGestures only claims a tap.

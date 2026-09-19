@@ -9,6 +9,20 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 
 /**
+ * MONEY-7: builds the `/daily_brief` query string from [deep] and [holdings] — a top-level pure
+ * function (rather than inlined in the suspend network call) so the string-building is unit
+ * testable without a fake server. Holdings are uppercased and comma-joined, same shape [SignalsApiService.sectors]
+ * already sends its `symbols` param in; empty when there's nothing to add, never a bare trailing `?`.
+ */
+internal fun dailyBriefQuery(deep: Boolean, holdings: List<String>): String {
+    val params = buildList {
+        if (deep) add("deep=true")
+        if (holdings.isNotEmpty()) add("holdings=" + holdings.joinToString(",") { it.uppercase() })
+    }
+    return if (params.isEmpty()) "" else "?" + params.joinToString("&")
+}
+
+/**
  * Client for the self-hosted Tier-2 "signals" analyst service (see ~/stocktracker-signals). It
  * returns a Claude-authored buy/sell verdict for a symbol. Optional — only used when the user has
  * set a base URL in Settings. Decision support only, not advice.
@@ -340,12 +354,19 @@ class SignalsApiService {
      * snapshot [marketNow] uses plus today's watchlist catalysts. Server-side watchlist; cached ~30 min.
      * Runs the analyst, so gate on the AI switch. Returns null on a blank URL / any failure so the
      * notifier just skips this morning rather than erroring.
+     *
+     * MONEY-7: [holdings] is what the user actually OWNS — bare uppercased symbols only (same comma-
+     * joined shape [sectors] sends), never shares/cost basis/lot dates/the taxable flag [HoldingSync]
+     * also carries. The brief only ever says whether today's tape touches the book, never anything
+     * about size or tax, so that is all it is handed. Omit or pass empty for the pre-MONEY-7 behavior.
      */
-    suspend fun dailyBrief(baseUrl: String, deep: Boolean = false): DailyBriefResponse? {
+    suspend fun dailyBrief(
+        baseUrl: String, deep: Boolean = false, holdings: List<String> = emptyList(),
+    ): DailyBriefResponse? {
         if (baseUrl.isBlank()) return null
         return runCatching {
-            val d = if (deep) "?deep=true" else ""
-            val body = sGet("${baseUrl.trimEnd('/')}/daily_brief$d", slow = true) // LLM latency
+            val q = dailyBriefQuery(deep, holdings)
+            val body = sGet("${baseUrl.trimEnd('/')}/daily_brief$q", slow = true) // LLM latency
             Http.json.decodeFromString<DailyBriefResponse>(body)
         }.getOrNull()
     }
@@ -1445,6 +1466,9 @@ data class DailyBriefResponse(
     val body: String = "",
     val tone: String = "",      // risk-on | risk-off | mixed
     @SerialName("catalysts_today") val catalystsToday: List<String> = emptyList(),
+    /** MONEY-7: the subset of the [holdings] sent up that the brief's own text speaks to — a mover or
+     *  a same-day catalyst. Empty whenever holdings wasn't sent, not a claim the book was untouched. */
+    @SerialName("holdings_touched_today") val holdingsTouchedToday: List<String> = emptyList(),
     val session: String = "",   // PRE | REGULAR | AFTER | CLOSED
     val model: String = "",
     val cached: Boolean = false,

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
@@ -69,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -952,7 +954,13 @@ private fun dipPct(d: DipEntry): String =
 
 /** One list tab as a soft card: a colour dot (list identity), the name, and its live count. Selected
  *  gets the primary tint. Replaces the flat Material filter-chips with something that scales to many
- *  custom lists and calls out the value-signal "Below 200w" tab in its own colour. */
+ *  custom lists and calls out the value-signal "Below 200w" tab in its own colour.
+ *
+ *  PLAT-4: a raw `clickable` here left the tint as the only sign of which list was active — a
+ *  screen-reader user had no way to tell. `selectable` with [Role.Tab] fixes that (TalkBack adds
+ *  "selected" to the one that is), chosen over Role.RadioButton because this is a horizontally
+ *  scrollable strip that swaps the whole list below it, the same shape as a TabRow, not a vertical
+ *  set of options in a form (that's what the widget colour-swatch picker uses RadioButton for). */
 @Composable
 private fun ListChip(label: String, count: Int, dotColor: Color?, selected: Boolean, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
@@ -962,7 +970,7 @@ private fun ListChip(label: String, count: Int, dotColor: Color?, selected: Bool
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
-            .clickable { onClick() }
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),

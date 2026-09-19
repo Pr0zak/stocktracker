@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
@@ -366,7 +368,12 @@ private fun TileBox(
             .background(colourFor(t))
             .clickable(enabled = !t.symbol.endsWith("-USD")) {
                 onOpen(Asset(t.symbol, AssetType.STOCK, t.name.ifBlank { t.symbol }, null))
-            },
+            }
+            // PLAT-4: names the tile and speaks its move regardless of whether the tile is big
+            // enough to draw either as text — see heatmapTileDescription's KDoc. clearAndSetSemantics
+            // rather than a plain contentDescription so a large tile's own child Text (ticker,
+            // percent label) doesn't also get merged in and read twice.
+            .clearAndSetSemantics { contentDescription = heatmapTileDescription(t) },
         contentAlignment = Alignment.Center,
     ) {
         // A ticker that does not fit is not drawn, and "fit" has to be arithmetic rather than a
@@ -460,7 +467,10 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                     // instead of silently inert.
                     .clickable(enabled = !t.symbol.endsWith("-USD")) {
                         onOpen(Asset(t.symbol, AssetType.STOCK, t.name.ifBlank { t.symbol }, null))
-                    },
+                    }
+                    // PLAT-4: see the sibling note in TileBox — names the tile and speaks its move
+                    // no matter how small it is drawn.
+                    .clearAndSetSemantics { contentDescription = heatmapTileDescription(t) },
                 contentAlignment = Alignment.Center,
             ) {
                 // Content degrades with area: a label either FITS or is not drawn. Truncating a

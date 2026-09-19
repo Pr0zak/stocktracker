@@ -2,6 +2,7 @@ package com.stocktracker.app.widget
 
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.stocktracker.app.data.remote.Http
 import kotlinx.serialization.Serializable
@@ -26,6 +27,11 @@ object PortfolioWidgetState {
     val SUMMARY = stringPreferencesKey("portfolio_summary")
     val ERROR = stringPreferencesKey("error")
     val HIDE_ZERO_CENTS = booleanPreferencesKey("hide_zero_cents")
+    /** When [SUMMARY] last came from a successful refresh. A later failure leaves the old summary
+     *  in place (see [com.stocktracker.app.widget.WidgetRefresh.refreshPortfolio]) so the widget has
+     *  something to show, and this is what lets it disclose how old that something is rather than
+     *  presenting it as current. Mirrors [TickerWidgetState.LAST_SUCCESS]. */
+    val LAST_SUCCESS = longPreferencesKey("last_success")
 
     fun readSummary(prefs: Preferences): PortfolioSummary? =
         prefs[SUMMARY]?.let { runCatching { Http.json.decodeFromString<PortfolioSummary>(it) }.getOrNull() }

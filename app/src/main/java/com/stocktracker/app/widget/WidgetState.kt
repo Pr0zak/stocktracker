@@ -18,8 +18,12 @@ object TickerWidgetState {
      *  attempts rather than successes (stamping after made every other run fall just inside the
      *  window and get skipped). */
     val LAST_REFRESH = longPreferencesKey("last_refresh")
-    /** When data last actually arrived. The widget renders staleness from this, not from the
-     *  attempt time — otherwise a failing widget looks freshly updated. */
+    /** When a fetch last actually SUCCEEDED (as opposed to [LAST_REFRESH], which advances on every
+     *  attempt). Kept for parity with the other two widgets' state and for diagnosing the refresh
+     *  cadence; the displayed staleness itself is derived from [Quote.asOfEpochMs] (see
+     *  [tickerDisplay]), not from this, because [com.stocktracker.app.data.MarketRepository]'s
+     *  stale-while-error cache can hand back a successful call carrying an old quote — stamping
+     *  "now" here for that call would suppress the age label on an hours-old price. */
     val LAST_SUCCESS = longPreferencesKey("last_success")
     val HIDE_ZERO_CENTS = booleanPreferencesKey("hide_zero_cents")
 

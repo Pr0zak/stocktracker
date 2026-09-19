@@ -30,6 +30,7 @@ import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.OnSurfaceDark
 import com.stocktracker.app.ui.theme.OnSurfaceVariantDark
+import com.stocktracker.app.ui.theme.Signal
 
 private val OnSurface = OnSurfaceDark
 private val Muted = OnSurfaceVariantDark
@@ -50,6 +51,7 @@ class PortfolioWidget : GlanceAppWidget() {
                 summary = PortfolioWidgetState.readSummary(prefs),
                 loaded = prefs.contains(PortfolioWidgetState.SUMMARY),
                 error = prefs[PortfolioWidgetState.ERROR],
+                lastSuccessMs = prefs[PortfolioWidgetState.LAST_SUCCESS] ?: 0L,
                 hideZeroCents = prefs[PortfolioWidgetState.HIDE_ZERO_CENTS] ?: false,
                 backgroundArgb = backgroundArgb,
                 backgroundTransparency = backgroundTransparency,
@@ -64,10 +66,13 @@ private fun PortfolioContent(
     loaded: Boolean,
     error: String?,
     hideZeroCents: Boolean,
+    lastSuccessMs: Long = 0L,
+    nowMs: Long = System.currentTimeMillis(),
     backgroundArgb: Long = WidgetBackground.DEFAULT_ARGB,
     backgroundTransparency: Int = WidgetBackground.DEFAULT_TRANSPARENCY,
 ) {
     val context = LocalContext.current
+    val display = portfolioDisplay(summary, loaded, error, lastSuccessMs, nowMs)
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
@@ -80,28 +85,43 @@ private fun PortfolioContent(
             style = TextStyle(color = ColorProvider(Muted), fontSize = 12.sp, fontWeight = FontWeight.Medium),
         )
         Spacer(GlanceModifier.height(4.dp))
-        when {
-            summary != null && summary.holdingCount > 0 -> {
+        when (display) {
+            is PortfolioDisplay.Priced -> {
+                val priced = display.summary
                 Text(
-                    text = Formatting.price(summary.totalValue, hideZeroCents = hideZeroCents),
+                    text = Formatting.price(priced.totalValue, hideZeroCents = hideZeroCents),
                     style = TextStyle(color = ColorProvider(OnSurface), fontSize = 22.sp, fontWeight = FontWeight.Bold),
                     maxLines = 1,
                 )
                 Spacer(GlanceModifier.height(2.dp))
                 Text(
-                    text = "${Formatting.arrow(summary.isUp)} " +
-                        "${Formatting.change(summary.dayChange, hideZeroCents)} (${Formatting.percent(summary.dayChangePercent)})",
+                    text = "${Formatting.arrow(priced.isUp)} " +
+                        "${Formatting.change(priced.dayChange, hideZeroCents)} (${Formatting.percent(priced.dayChangePercent)})",
                     style = TextStyle(
-                        color = ColorProvider(if (summary.isUp) Up else Down),
+                        color = ColorProvider(if (priced.isUp) Up else Down),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                     ),
                     maxLines = 1,
                 )
+                // Only part of the portfolio is in the number above — say so in the same amber the
+                // rest of the app uses for "this figure is not the whole story".
+                display.partialLabel?.let { label ->
+                    Text(
+                        text = label,
+                        style = TextStyle(color = ColorProvider(Signal), fontSize = 11.sp, fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                    )
+                }
+                display.ageLabel?.let { label ->
+                    Text(
+                        text = label,
+                        style = TextStyle(color = ColorProvider(Muted), fontSize = 10.sp),
+                        maxLines = 1,
+                    )
+                }
             }
-            error != null -> Message(error)
-            !loaded -> Message("Loading…")
-            else -> Message("Set shares on a ticker to track value")
+            is PortfolioDisplay.Message -> Message(display.text)
         }
     }
 }

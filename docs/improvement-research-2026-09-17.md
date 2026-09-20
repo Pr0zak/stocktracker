@@ -16,7 +16,7 @@ and most of them are a matter of wiring a value that already exists to a rendere
 
 ---
 
-## Status — 43 of 43 built
+## Status — 43 of 43 built; backend deployed to CT 237 on 2026-09-19
 
 Tracked as **#F51** in `docs/TODO.md`; this table, that section, and the published page are kept
 in step — when one changes, all three change. "Status" is `open` → `built` (code written, suites
@@ -25,30 +25,30 @@ is the release that carried the fix; a rejected item says so instead.
 
 | Mnemonic | Effort | Status | Version |
 |---|---|---|---|
-| OPS-1 | S | built | — |
-| OPS-2 | S | built | — |
-| OPS-3 | S | built | — |
-| OPS-4 | S | built | — |
+| OPS-1 | S | shipped | deployed 2026-09-19 |
+| OPS-2 | S | shipped | deployed 2026-09-19 |
+| OPS-3 | S | shipped | deployed 2026-09-19 |
+| OPS-4 | S | shipped | deployed 2026-09-19 |
 | WGT-1 | S | built | — |
 | WGT-2 | S | built | — |
 | WGT-3 | S | built | — |
 | DATA-1 | S | built | — |
-| DATA-2 | S | built | — |
+| DATA-2 | S | shipped | deployed 2026-09-19 |
 | DATA-3 | S | built | — |
 | NOTIF-1 | M | built | — |
-| SEC-2 | M | built | — |
-| CI-1 | S | built | — |
-| CI-2 | M | built | — |
+| SEC-2 | M | shipped | deployed 2026-09-19 |
+| CI-1 | S | shipped | deployed 2026-09-19 |
+| CI-2 | M | shipped | deployed 2026-09-19 |
 | CI-3 | S | built | — |
-| OPS-5 | S | built | — |
-| OPS-6 | S | built | — |
-| DATA-4 | S | built | — |
+| OPS-5 | S | shipped | deployed 2026-09-19 |
+| OPS-6 | S | shipped | deployed 2026-09-19 |
+| DATA-4 | S | shipped | deployed 2026-09-19 |
 | DATA-5 | M | built | — |
 | DATA-6 | M | built | v1.7.0 |
 | DATA-7 | S | built | — |
 | DATA-8 | M | built | — |
 | MONEY-2 | L | built | — |
-| MONEY-1 | M | built | v1.7.0 |
+| MONEY-1 | M | shipped | deployed 2026-09-19 |
 | MONEY-3 | M | built | v1.7.0 |
 | MONEY-4 | S | built | v1.7.0 |
 | MONEY-5 | S/M | built | v1.7.0 |

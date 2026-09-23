@@ -16,6 +16,11 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.11.0" to listOf(
+            "New: \"Re-check\" the daily pick with live prices during the day",
+            "The pick card is shorter — one line per fact, details behind More and Why",
+            "A dip in a strong stock now counts as a buying chance, not a strike against it",
+        ),
         "1.10.2" to listOf(
             "Daily pick times now show in your own time zone instead of Eastern",
         ),

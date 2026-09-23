@@ -100,7 +100,7 @@ data class MarketScanUiState(
                 over != null -> "that night's scan of $over names"
                 else -> "that night's scan"
             }
-            return "Percentiles are ranks within $where — not scores, and not a buy signal."
+            return "“Top 4%” means only 4% of stocks in $where ranked higher. A rank, not a score, and not a buy signal."
         }
 
     /** "Nightly scan · 2026-08-21 · 3h ago · 3,113 of 3,147 scanned · …" — never blank. */

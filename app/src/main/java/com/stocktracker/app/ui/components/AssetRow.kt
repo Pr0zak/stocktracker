@@ -110,7 +110,8 @@ fun AssetRow(
                     if (belowLine) {
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "200w",
+                            // Below its 200-week (about 4-year) average — the long-term value marker.
+                            "↓ 4-yr avg",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = Signal,

@@ -76,31 +76,38 @@ object MetricRank {
     }
 
     /**
-     * "96th percentile of 3,101 scanned", or "96th percentile of the night's scan" when the server
-     * did not say how many names it ranked. Null when there is no rank — the caller then renders the
-     * raw value alone rather than a sentence with a hole in it.
+     * The rank in plain words: "top 4%" for the 96th percentile, "bottom 30%" for the 30th. Readers
+     * who do not already know what a percentile is read "top 4%" correctly; "96th percentile" they
+     * often read as a score out of 100. The ends are floored at 1% so a real rank never reads "top 0%".
      */
-    fun label(pctile: Double?, scannedOver: Int? = null): String? {
-        val ord = ordinal(pctile) ?: return null
-        // A denominator of zero or less cannot have produced a rank, so it is treated as unsaid
-        // rather than printed: "96th percentile of 0 scanned" is a sentence that refutes itself.
-        val over = scannedOver?.takeIf { it > 0 }
-        return if (over != null) {
-            "$ord percentile of ${count(over)} scanned"
-        } else {
-            "$ord percentile of the night's scan"
-        }
+    fun words(pctile: Double?): String? {
+        val p = usable(pctile) ?: return null
+        val n = p.roundToInt()
+        return if (n >= 50) "top ${(100 - n).coerceAtLeast(1)}%" else "bottom ${n.coerceAtLeast(1)}%"
     }
 
     /**
-     * The tight form for a table cell: "96th pctile". Still not a bare number (rule 2), and still
-     * null when unranked. The population belongs beside it on the screen — see
-     * [MarketScanUiState.rankFooter] for the one line that carries it for a whole list.
+     * "top 4% of 3,101 stocks", or "top 4% of last night's scan" when the server did not say how
+     * many names it ranked. Null when there is no rank — the caller then renders the raw value alone
+     * rather than a sentence with a hole in it.
      */
-    fun short(pctile: Double?): String? = ordinal(pctile)?.let { "$it pctile" }
+    fun label(pctile: Double?, scannedOver: Int? = null): String? {
+        val w = words(pctile) ?: return null
+        // A denominator of zero or less cannot have produced a rank, so it is treated as unsaid
+        // rather than printed: "top 4% of 0 stocks" is a sentence that refutes itself.
+        val over = scannedOver?.takeIf { it > 0 }
+        return if (over != null) "$w of ${count(over)} stocks" else "$w of last night's scan"
+    }
 
     /**
-     * "1.40× (96th percentile of 3,101 scanned)" — the value first, because the rank is a rank OF
+     * The tight form for a table cell: "top 4%". Still not a bare number (rule 2), and still null
+     * when unranked. The population belongs beside it on the screen — see
+     * [MarketScanUiState.rankFooter] for the one line that carries it for a whole list.
+     */
+    fun short(pctile: Double?): String? = words(pctile)
+
+    /**
+     * "1.40× (top 4% of 3,101 stocks)" — the value first, because the rank is a rank OF
      * something and the reader needs both.
      *
      * [valueText] absent or blank renders as [NA] ALONE: with no measurement there is nothing for a
@@ -112,6 +119,17 @@ object MetricRank {
         if (v.isEmpty() || v == NA) return NA
         val l = label(pctile, scannedOver) ?: return v
         return "$v ($l)"
+    }
+
+    /**
+     * "+750.2% · top 1%" — the row form. The population is said once for the whole list, in the
+     * footer, rather than repeated on every row. Same null rules as [line].
+     */
+    fun lineShort(valueText: String?, pctile: Double?): String {
+        val v = valueText?.trim().orEmpty()
+        if (v.isEmpty() || v == NA) return NA
+        val w = words(pctile) ?: return v
+        return "$v · $w"
     }
 
     /**

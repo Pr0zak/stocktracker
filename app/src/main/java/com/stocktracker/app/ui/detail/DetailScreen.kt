@@ -2050,7 +2050,7 @@ private fun HalvingCycleCard(ci: CycleResponse) {
         if (!open) {
             val parts = listOfNotNull(
                 hc?.let { "${it.daysToNextEst}d to next halving (est.)" },
-                lt?.priceVs200wSmaPct?.let { "%+.1f%% vs 200w SMA".format(it) },
+                lt?.priceVs200wSmaPct?.let { "%+.1f%% vs its 4-year (200-week) average".format(it) },
                 lt?.mayerMultiple?.let { "Mayer %.2f".format(it) },
             )
             Text(
@@ -2103,7 +2103,7 @@ private fun HalvingCycleCard(ci: CycleResponse) {
             lt?.let { t ->
                 Row(modifier = Modifier.fillMaxWidth()) {
                     t.priceVs200wSmaPct?.let {
-                        StatCell("vs 200w SMA", "%+.1f%%".format(it), modifier = Modifier.weight(1f))
+                        StatCell("vs 4-yr avg", "%+.1f%%".format(it), modifier = Modifier.weight(1f))
                     }
                     t.mayerMultiple?.let {
                         StatCell("Mayer multiple", "%.2f".format(it), modifier = Modifier.weight(1f))
@@ -3845,7 +3845,7 @@ private fun PlayWithCallsCard(
             // Earnings-before-expiry heads-up (IV-crush trap).
             options.earnings?.takeIf { it.inWindow }?.let { e ->
                 Text(
-                    "Earnings ${e.date ?: "soon"} falls before expiry — expect an IV drop after, even if the stock moves your way.",
+                    "Earnings ${e.date ?: "soon"} falls before expiry — option prices usually drop right after the report, even if the stock moves your way.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TrafficAmber,
                 )
@@ -3926,8 +3926,8 @@ private fun CallCandidateBlock(
         c.breakeven?.let { be ->
             "Break-even ${usd(be)}" + (c.breakevenPct?.let { " (%+.1f%%)".format(it) } ?: "")
         },
-        c.delta?.let { "Δ%.2f".format(it) },
-        c.iv?.let { "IV %.0f%%".format(it * 100) },
+        c.delta?.let { optDelta(it) },
+        c.iv?.let { optIv(it) },
         c.theta?.let { fmtTheta(it) },
     )
     if (greeks.isNotEmpty()) {
@@ -3944,13 +3944,14 @@ private fun CallCandidateBlock(
     // IV rank (OC-6) — where implied vol sits in its own 1-year range. Null while the server is still
     // building the history; "rich" IV (high rank) is when the cheaper spread alternative shines.
     Text(
-        "IV rank: " + (options.ivRank?.let { "%.0f".format(it) } ?: "building"),
+        "Option prices vs the past year: " +
+            (options.ivRank?.let { "%.0f/100 (higher = pricier)".format(it) } ?: "still collecting a year of history"),
         style = MaterialTheme.typography.labelSmall,
         color = neutral,
     )
     if (options.recommendAlternative) {
         Text(
-            "IV is rich — the cheaper spread below may be the smarter structure.",
+            "Options are expensive right now — the cheaper two-option version below may be the better buy.",
             style = MaterialTheme.typography.labelSmall,
             color = TrafficAmber,
         )
@@ -4017,7 +4018,7 @@ private fun DebitSpreadBlock(spread: DebitSpread, primaryTotal: Double?) {
     var expanded by remember { mutableStateOf(false) }
 
     val strikes = listOfNotNull(spread.longStrike, spread.shortStrike).joinToString("/") { usd(it) }
-    val title = "Cheaper alternative" + (if (strikes.isNotBlank()) " — $strikes debit spread" else " — debit spread")
+    val title = "Cheaper alternative" + (if (strikes.isNotBlank()) " — $strikes spread (buy one, sell one)" else " — buy one option, sell another")
 
     Column(
         modifier = Modifier
@@ -4257,10 +4258,10 @@ private fun PutCandidateBlock(
     // Break-even $10.85 · Δ−0.34 · IV 62% · θ +$3/day · OI 1,240
     val greeks = listOfNotNull(
         c.breakeven?.let { "Break-even ${usd(it)}" },
-        c.delta?.let { "Δ%.2f".format(it) },
-        c.iv?.let { "IV %.0f%%".format(it * 100) },
+        c.delta?.let { optDelta(it) },
+        c.iv?.let { optIv(it) },
         c.theta?.let { fmtTheta(it) },
-        c.openInterest?.let { "OI %,d".format(it) },
+        c.openInterest?.let { optOi(it) },
     )
     if (greeks.isNotEmpty()) {
         Text(greeks.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = neutral)
@@ -4422,11 +4423,13 @@ private fun CoveredCallCard(
 
             // ≈32% chance called away · Δ0.30 · IV 28% · θ +$2/day · OI 3,410
             val stats = listOfNotNull(
-                c.assignmentProbPct?.let { "≈%.0f%% chance called away".format(it) },
-                c.delta?.let { "Δ%.2f".format(it) },
-                c.iv?.let { "IV %.0f%%".format(it * 100) },
+                c.assignmentProbPct?.let { "≈%.0f%% chance your shares get sold".format(it) },
+                // Delta says the same thing as the line above, in a less readable form; it is only
+                // shown when the server gave no probability of its own.
+                c.delta?.takeIf { c.assignmentProbPct == null }?.let { optDelta(it) },
+                c.iv?.let { optIv(it) },
                 c.theta?.let { fmtTheta(it) },
-                c.openInterest?.let { "OI %,d".format(it) },
+                c.openInterest?.let { optOi(it) },
             )
             if (stats.isNotEmpty()) {
                 Text(stats.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = neutral)
@@ -4499,11 +4502,21 @@ private fun fmtCallExpiry(iso: String?): String {
     }.getOrDefault(iso)
 }
 
-/** Theta ($/day per contract, usually negative) → "θ −$4/day". */
-private fun fmtTheta(theta: Double): String {
-    val sign = if (theta < 0) "−" else "+"
-    return "θ $sign${usd(kotlin.math.abs(theta))}/day"
-}
+/**
+ * Theta ($/day per contract) in words: a bought option loses value to time ("loses $4/day to time"),
+ * a sold one earns it ("earns $3/day from time").
+ */
+private fun fmtTheta(theta: Double): String =
+    if (theta < 0) "loses ${usd(kotlin.math.abs(theta))}/day to time" else "earns ${usd(theta)}/day from time"
+
+/** Delta, read as the rough chance the option finishes in the money — what most readers want from it. */
+private fun optDelta(delta: Double): String = "~%.0f%% chance it ends in the money".format(kotlin.math.abs(delta) * 100)
+
+/** Implied volatility as the yearly swing the option price assumes. */
+private fun optIv(iv: Double): String = "prices in ±%.0f%%/yr swings".format(iv * 100)
+
+/** Open interest: how many of these contracts exist — a thin number means a wide, costly spread. */
+private fun optOi(oi: Long): String = "%,d contracts open".format(oi)
 
 /** Small labeled stat: caption above a bold value — used inside the Holdings card. */
 @Composable

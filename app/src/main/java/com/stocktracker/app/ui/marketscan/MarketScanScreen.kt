@@ -239,8 +239,7 @@ fun MarketScanScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit) {
                     if (anyRank) {
                         ui.rankFooter
                     } else {
-                        "No percentiles for this night yet — the ranking pass has not run for it. " +
-                            "Raw measurements only."
+                        "No rankings for this night yet — showing the raw numbers only."
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -264,7 +263,7 @@ fun MarketScanScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit) {
                 highLowDiff = ui.breadth?.highLowDiff,
             )?.let {
                 Text(
-                    "Breadth: $it",
+                    "How many stocks are rising: $it",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -305,7 +304,7 @@ fun MarketScanScreen(onBack: () -> Unit, onOpenDetail: (Asset) -> Unit) {
                     item {
                         Text(
                             when {
-                                !ui.loaded -> "Loading the night's cross-section…"
+                                !ui.loaded -> "Loading last night's scan…"
                                 // Which question came back empty matters: the market did not fail to
                                 // produce leaders, THIS filter matched nothing, and the chips above
                                 // say which filter.
@@ -424,8 +423,8 @@ private fun ScanFilterSheet(
         ) {
             Text("Filters", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Filters run over the whole night's ~3,100 names, not over the rows on screen. " +
-                    "Percentiles stay ranked against the full scan either way.",
+                "Filters search all ~3,100 stocks from last night's scan, not just the rows on screen. " +
+                    "Rankings are always against the full scan.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -630,7 +629,7 @@ private fun MetricLine(metric: ScanMetric, row: MarketScanRow, scannedOver: Int?
         // The raw number and its rank, from the one helper that knows the null rules. When the rank
         // is absent this is just the number — no "0th", no placeholder ordinal.
         Text(
-            metric.line(row, scannedOver),
+            MetricRank.lineShort(metric.text(row), metric.percentile(row)),
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f),
         )

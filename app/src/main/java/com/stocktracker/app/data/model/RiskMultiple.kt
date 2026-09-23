@@ -252,6 +252,8 @@ object RiskMultiple {
     /** "+1.5R" / "−2.0R" for display. Callers must skip the row entirely when R is null. */
     fun format(r: Double): String {
         val sign = if (r >= 0.0) "+" else "−"
-        return "$sign${"%.1f".format(kotlin.math.abs(r))}R"
+        // "× risk", not the trader's "R": "+2.0× risk" reads as "made twice what was risked" to
+        // someone who has never met the notation.
+        return "$sign${"%.1f".format(kotlin.math.abs(r))}× risk"
     }
 }

@@ -270,9 +270,9 @@ fun CallEntryDialog(
                         Text(
                             when {
                                 isShort && stopText.isBlank() ->
-                                    "Optional — a short isn't scored in R here regardless (see My Calls)."
+                                    "Optional — a short isn't scored against its risk here regardless (see My Calls)."
                                 stopText.isBlank() ->
-                                    "Required — without it this trade can never be scored in R."
+                                    "Required — without it this trade can never be scored against its risk."
                                 !stopUsable ->
                                     "Enter a number above 0 and up to 100. You cannot risk more than " +
                                         "the premium " + (if (isShort) "you collected." else "you paid.")

@@ -206,7 +206,7 @@ class PairedStatTest {
         )
         val fwd = stat.forwardReading
         assertTrue(fwd is PairedStat.Reading.Measured)
-        assertEquals("+0.3R", (fwd as PairedStat.Reading.Measured).text)
+        assertEquals("+0.3× risk", (fwd as PairedStat.Reading.Measured).text)
         assertEquals(6, fwd.n)
         assertTrue(stat.anyUnderFloor)
         assertNotNull(stat.smallSampleNote)

@@ -280,7 +280,7 @@ private fun HeadlineCard(record: VerdictJournal.ActualRecord, paired: JournalCom
         if (overall != null) {
             PairedStatBlock(
                 stat = PairedStat(
-                    label = "Your expectancy, over every close you have",
+                    label = "Your average result per trade, over every close you have",
                     unit = PairedStat.StatUnit.R_MULTIPLE,
                     backtest = PairedStat.Side.backtest(
                         subject = "the plan, over these same closes",
@@ -305,16 +305,16 @@ private fun HeadlineCard(record: VerdictJournal.ActualRecord, paired: JournalCom
             if (record.unscoreable > 0) {
                 Text(
                     "${record.unscoreable} of your ${record.closedCount} closes are not scored at all — " +
-                        "the plan snapshot carried no stop, so there is no risk to divide by.",
+                        "the plan had no exit price, so there is no risk to measure the result against.",
                     style = MaterialTheme.typography.labelSmall,
                     color = neutral,
                 )
             }
         } else if (record.closedCount > 0) {
             Text(
-                "No expectancy in R yet — none of your ${record.closedCount} closed entries could be " +
-                    "scored. R needs the stop the plan was written with, and a plan snapshotted " +
-                    "without one can never be scored after the fact.",
+                "No average result yet — none of your ${record.closedCount} closed entries could be " +
+                    "scored. Results are measured against the risk to the plan's exit price, and a " +
+                    "plan saved without one can never be scored after the fact.",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
                 modifier = Modifier.padding(top = 6.dp),
@@ -332,7 +332,7 @@ private fun HeadlineCard(record: VerdictJournal.ActualRecord, paired: JournalCom
             val population = JournalComparison.populationSentence(paired)
             PairedStatBlock(
                 stat = PairedStat(
-                    label = "Expectancy per trade, over the entries both sides could take",
+                    label = "Average result per trade, over the entries both you and the plan could take",
                     unit = PairedStat.StatUnit.R_MULTIPLE,
                     backtest = PairedStat.Side.backtest(
                         subject = "the plan as written, replayed bar by bar",
@@ -699,7 +699,7 @@ private fun JournalEntryDialog(
                 if (!entry.plan.hasLevels) {
                     Text(
                         "This plan was snapshotted with no stop and no target, so nothing about it can be " +
-                            "scored in R or bucketed by how it ended.",
+                            "scored against its risk or grouped by how it ended.",
                         style = MaterialTheme.typography.labelSmall,
                         color = neutral,
                     )
@@ -713,7 +713,7 @@ private fun JournalEntryDialog(
                 entry.exitPrice?.let { StatRow("Your exit", usd(it)) }
                 entry.exitDateIso?.let { StatRow("Sold", it) }
                 entry.realizedPnl?.let { StatRow("Realized", usd(it)) }
-                entry.rMultiple?.let { StatRow("Your R", RiskMultiple.format(it)) }
+                entry.rMultiple?.let { StatRow("Your result", RiskMultiple.format(it)) }
                 entry.exitKind?.let { StatRow("Ended", ExitTaxonomy.label(it)) }
                 if (entry.taken == TakenState.NOT_TAKEN) {
                     Text(
@@ -743,11 +743,11 @@ private fun JournalEntryDialog(
                     // A MARK, never in the exit row: the plan is still open and has not sold anything.
                     r.markPrice?.let { StatRow("Marked at", usd(it) + (r.markDate?.let { d -> " on $d" } ?: "")) }
                     r.barsHeld?.let { StatRow("Sessions held", it.toString()) }
-                    r.scoredR?.let { StatRow("Plan's R", RiskMultiple.format(it)) }
+                    r.scoredR?.let { StatRow("Plan's result", RiskMultiple.format(it)) }
                     if (r.isResolved && r.scoredR == null) {
                         Text(
-                            "The replay finished but carries no R — the plan named no stop, so there is no " +
-                                "risk to divide by. Not 0R, which would say it made exactly what it risked.",
+                            "The replay finished but has no result against risk — the plan named no exit price, " +
+                                "so there is no risk to measure against. That is not the same as breaking even.",
                             style = MaterialTheme.typography.labelSmall,
                             color = neutral,
                         )
@@ -937,9 +937,9 @@ private fun FillDialog(
                     val risk = p - entry.plan.stop!!
                     Text(
                         if (risk > 0) {
-                            "Risk ${usd(risk)}/share to the plan's stop — that is your 1R."
+                            "You risk ${usd(risk)} a share down to the plan's exit price. Results are shown as multiples of this: +2× risk means you made twice what you risked."
                         } else {
-                            "The plan's stop is at or above this fill, so this entry can't be scored in R."
+                            "The plan's exit price is at or above this fill, so this entry can't be scored against its risk."
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = neutral,

@@ -135,12 +135,12 @@ class MarketScanFiltersTest {
         assertEquals(4, chips.size)
         assertEquals(4, f.activeCount)
         assertTrue(chips.contains("Above 200-day"))
-        assertTrue(chips.contains("MAs not stacked"))
-        assertTrue(chips.contains("RSI (14) ≥ 30"))
-        assertTrue(chips.contains("RSI (14) ≤ 70"))
+        assertTrue(chips.contains("Averages not in order"))
+        assertTrue(chips.contains("Overheated? (RSI) ≥ 30"))
+        assertTrue(chips.contains("Overheated? (RSI) ≤ 70"))
         val line = f.summary()
         assertTrue(line.contains("Above 200-day"))
-        assertTrue(line.contains("RSI (14) ≤ 70"))
+        assertTrue(line.contains("Overheated? (RSI) ≤ 70"))
     }
 
     @Test

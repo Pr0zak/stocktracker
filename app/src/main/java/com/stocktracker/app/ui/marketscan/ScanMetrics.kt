@@ -40,6 +40,8 @@ class ScanMetric(
 }
 
 private fun signed1(v: Double): String = String.format(Locale.US, "%+.1f%%", v)
+/** Percentage POINTS against the S&P — a difference of two returns, so not a "%" of anything. */
+private fun points1(v: Double): String = String.format(Locale.US, "%+.1f pts", v)
 private fun pct1(v: Double): String = String.format(Locale.US, "%.1f%%", v)
 private fun num1(v: Double): String = String.format(Locale.US, "%.1f", v)
 private fun ratio(v: Double): String = String.format(Locale.US, "%.2f×", v)
@@ -54,19 +56,19 @@ private fun dollars(v: Double): String = "$" + Formatting.compact(v)
  * inventing a rank for its near-duplicate on the client would be manufacturing a number.
  */
 val RANKED_SCAN_METRICS: List<ScanMetric> = listOf(
-    ScanMetric("rel_strength_3mo", "Rel. strength (3mo)", { it.relStrength3mo }, { it.relStrength3moPctile }, format = ::signed1),
-    ScanMetric("mom_20d", "Momentum (20d)", { it.mom20d }, { it.mom20dPctile }, format = ::signed1),
-    ScanMetric("mom_60d", "Momentum (60d)", { it.mom60d }, { it.mom60dPctile }, format = ::signed1),
-    ScanMetric("adx14", "Trend strength (ADX)", { it.adx14 }, { it.adx14Pctile }, format = ::num1),
-    ScanMetric("rsi14", "RSI (14)", { it.rsi14 }, { it.rsi14Pctile }, format = ::num1),
-    ScanMetric("adr20_pct", "Avg daily range", { it.adr20Pct }, { it.adr20PctPctile }, format = ::pct1),
-    ScanMetric("rel_volume", "Relative volume", { it.relVolume }, { it.relVolumePctile }, format = ::ratio),
-    ScanMetric("dollar_volume_20d", "Dollar volume (20d)", { it.dollarVolume20d }, { it.dollarVolume20dPctile }, format = ::dollars),
-    ScanMetric("pct_off_52w_high", "Off 52-week high", { it.pctOff52wHigh }, { it.pctOff52wHighPctile }, format = ::signed1),
-    ScanMetric("ema20_slope_pct", "20-EMA slope", { it.ema20SlopePct }, { it.ema20SlopePctPctile }, format = ::signed1),
+    ScanMetric("rel_strength_3mo", "Vs S&P 500 (3 mo)", { it.relStrength3mo }, { it.relStrength3moPctile }, format = ::points1),
+    ScanMetric("mom_20d", "1-month change", { it.mom20d }, { it.mom20dPctile }, format = ::signed1),
+    ScanMetric("mom_60d", "3-month change", { it.mom60d }, { it.mom60dPctile }, format = ::signed1),
+    ScanMetric("adx14", "Trend strength", { it.adx14 }, { it.adx14Pctile }, format = ::num1),
+    ScanMetric("rsi14", "Overheated? (RSI)", { it.rsi14 }, { it.rsi14Pctile }, format = ::num1),
+    ScanMetric("adr20_pct", "Daily swings", { it.adr20Pct }, { it.adr20PctPctile }, format = ::pct1),
+    ScanMetric("rel_volume", "Volume vs normal", { it.relVolume }, { it.relVolumePctile }, format = ::ratio),
+    ScanMetric("dollar_volume_20d", "Dollars traded a day", { it.dollarVolume20d }, { it.dollarVolume20dPctile }, format = ::dollars),
+    ScanMetric("pct_off_52w_high", "From yearly high", { it.pctOff52wHigh }, { it.pctOff52wHighPctile }, format = ::signed1),
+    ScanMetric("ema20_slope_pct", "Short-term direction", { it.ema20SlopePct }, { it.ema20SlopePctPctile }, format = ::signed1),
     // Measured, sortable, and NOT ranked by the server. The null is the point: it renders as a bare
     // number, not as a rank of zero.
-    ScanMetric("atr14_pct", "ATR (14) %", { it.atr14Pct }, { null }, rankedByServer = false, format = ::pct1),
+    ScanMetric("atr14_pct", "Typical daily move", { it.atr14Pct }, { null }, rankedByServer = false, format = ::pct1),
 )
 
 /**

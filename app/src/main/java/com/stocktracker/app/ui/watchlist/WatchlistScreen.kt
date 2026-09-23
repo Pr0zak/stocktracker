@@ -109,7 +109,7 @@ import com.stocktracker.app.ui.theme.CategoricalRamp
 private const val TAB_ALL = "All"
 private const val TAB_STOCKS = "Stocks"
 private const val TAB_CRYPTO = "Crypto"
-private const val TAB_BELOW = "Below 200w" // computed tab, shown only when a name is below its 200-week line
+private const val TAB_BELOW = "Below 4-yr avg" // computed tab, shown only when a name is below its 200-week line
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

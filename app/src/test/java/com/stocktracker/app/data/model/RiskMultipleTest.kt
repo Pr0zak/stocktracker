@@ -392,8 +392,8 @@ class RiskMultipleTest {
     // ------------------------------------------------------------------ display
 
     @Test fun `R formats with an explicit sign and never renders an absent value`() {
-        assertEquals("+1.0R", RiskMultiple.format(1.0))
-        assertEquals("−2.5R", RiskMultiple.format(-2.5))
-        assertEquals("+0.0R", RiskMultiple.format(0.0)) // a scratch is a result; callers skip null instead
+        assertEquals("+1.0× risk", RiskMultiple.format(1.0))
+        assertEquals("−2.5× risk", RiskMultiple.format(-2.5))
+        assertEquals("+0.0× risk", RiskMultiple.format(0.0)) // a scratch is a result; callers skip null instead
     }
 }

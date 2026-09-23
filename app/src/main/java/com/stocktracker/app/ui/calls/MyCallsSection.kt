@@ -215,8 +215,8 @@ private fun CallRowItem(row: CallRow, onClick: () -> Unit) {
 @Composable
 private fun MoneynessChip(itm: Boolean?) {
     val (label, color) = when (itm) {
-        true -> "ITM" to GainGreen
-        false -> "OTM" to MaterialTheme.colorScheme.onSurfaceVariant
+        true -> "In the money" to GainGreen
+        false -> "Out of the money" to MaterialTheme.colorScheme.onSurfaceVariant
         null -> "—" to MaterialTheme.colorScheme.onSurfaceVariant
     }
     PillChip(label, color)
@@ -719,8 +719,8 @@ private fun RTrackRecord(r: RiskMultiple.Aggregate) {
     if (r.scored == 0) {
         if (r.closedCount > 0) {
             Text(
-                "No expectancy in R — none of these ${r.closedCount} closes could be scored. R needs the stop " +
-                    "the position was opened with, and that can't be recovered after the close.",
+                "No average result — none of these ${r.closedCount} closes could be scored. Results are measured " +
+                    "against the stop the position was opened with, and that can't be recovered after the close.",
                 style = MaterialTheme.typography.labelSmall,
                 color = neutral,
                 modifier = Modifier.padding(top = 4.dp),

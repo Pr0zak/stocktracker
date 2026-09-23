@@ -23,7 +23,7 @@ object MarketScanProvenance {
     fun coverage(scanned: Int?, universeSize: Int?): String? = when {
         scanned != null && universeSize != null -> "${n(scanned)} of ${n(universeSize)} scanned"
         scanned != null -> "${n(scanned)} scanned"
-        universeSize != null -> "${n(universeSize)} in the universe"
+        universeSize != null -> "${n(universeSize)} on the stock list"
         else -> null
     }
 
@@ -36,8 +36,8 @@ object MarketScanProvenance {
      */
     fun shortfall(fetchFailed: Int?, tooShort: Int?): String? {
         val parts = buildList {
-            fetchFailed?.let { add("${n(it)} fetch-failed") }
-            tooShort?.let { add("${n(it)} too short") }
+            fetchFailed?.let { add("${n(it)} failed to load") }
+            tooShort?.let { add("${n(it)} too new to measure") }
         }
         return parts.joinToString(" · ").ifEmpty { null }
     }
@@ -120,8 +120,8 @@ object MarketScanProvenance {
     ): String? {
         if (available != true) return null
         val parts = buildList {
-            pctAboveSma50?.takeIf { it.isFinite() }?.let { add(pct(it) + " above the 50-day") }
-            pctAboveSma200?.takeIf { it.isFinite() }?.let { add(pct(it) + " above the 200-day") }
+            pctAboveSma50?.takeIf { it.isFinite() }?.let { add(pct(it) + " of stocks above their 50-day average") }
+            pctAboveSma200?.takeIf { it.isFinite() }?.let { add(pct(it) + " above their 200-day average") }
             // Signed on purpose. The reading that matters is a NEGATIVE one — more names sitting
             // near their lows than near their highs while the index holds up — and an unsigned
             // count would bury exactly that.
@@ -136,7 +136,7 @@ object MarketScanProvenance {
             }
         }
         if (parts.isEmpty()) return null
-        val counted = rows?.takeIf { it > 0 }?.let { parts + "${n(it)} names" } ?: parts
+        val counted = rows?.takeIf { it > 0 }?.let { parts + "${n(it)} stocks" } ?: parts
         return counted.joinToString(" · ")
     }
 
@@ -158,15 +158,15 @@ data class MarketScanSort(val key: String, val label: String)
  * which end of the ordering you are looking at, and it becomes false the moment the toggle flips.
  */
 val MARKET_SCAN_SORTS: List<MarketScanSort> = listOf(
-    MarketScanSort("rel_strength_3mo", "Rel. strength (3mo)"),
-    MarketScanSort("mom_20d", "Momentum (20d)"),
-    MarketScanSort("mom_60d", "Momentum (60d)"),
-    MarketScanSort("adx14", "Trend strength (ADX)"),
-    MarketScanSort("rsi14", "RSI (14)"),
-    MarketScanSort("adr20_pct", "Avg daily range"),
-    MarketScanSort("atr14_pct", "ATR (14) %"),
-    MarketScanSort("rel_volume", "Relative volume"),
-    MarketScanSort("dollar_volume_20d", "Dollar volume (20d)"),
-    MarketScanSort("pct_off_52w_high", "Off 52-week high"),
-    MarketScanSort("ema20_slope_pct", "20-EMA slope"),
+    MarketScanSort("rel_strength_3mo", "Vs S&P 500 (3 mo)"),
+    MarketScanSort("mom_20d", "1-month change"),
+    MarketScanSort("mom_60d", "3-month change"),
+    MarketScanSort("adx14", "Trend strength"),
+    MarketScanSort("rsi14", "Overheated? (RSI)"),
+    MarketScanSort("adr20_pct", "Daily swings"),
+    MarketScanSort("atr14_pct", "Typical daily move"),
+    MarketScanSort("rel_volume", "Volume vs normal"),
+    MarketScanSort("dollar_volume_20d", "Dollars traded a day"),
+    MarketScanSort("pct_off_52w_high", "From yearly high"),
+    MarketScanSort("ema20_slope_pct", "Short-term direction"),
 )

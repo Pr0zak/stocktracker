@@ -29,7 +29,7 @@ class MarketScanProvenanceTest {
     fun `an unknown count is never printed as a number`() {
         // "0 of 3,147 scanned" would say the sweep ran and measured nothing — a market claim built
         // out of a missing key.
-        assertEquals("3,147 in the universe", MarketScanProvenance.coverage(null, 3147))
+        assertEquals("3,147 on the stock list", MarketScanProvenance.coverage(null, 3147))
         assertEquals("3,113 scanned", MarketScanProvenance.coverage(3113, null))
         assertNull(MarketScanProvenance.coverage(null, null))
     }
@@ -37,18 +37,18 @@ class MarketScanProvenanceTest {
     @Test
     fun `fetch failures and short histories are reported side by side, never summed`() {
         val line = MarketScanProvenance.shortfall(12, 34)!!
-        assertTrue(line.contains("12 fetch-failed"))
-        assertTrue(line.contains("34 too short"))
+        assertTrue(line.contains("12 failed to load"))
+        assertTrue(line.contains("34 too new to measure"))
         assertFalse("the two counters were merged into one number", line.contains("46"))
     }
 
     @Test
     fun `a known zero is stated and an absent counter is dropped`() {
-        // "0 fetch-failed" is the evidence that the run was healthy. Hiding it makes a clean run and
+        // "0 failed to load" is the evidence that the run was healthy. Hiding it makes a clean run and
         // an unreported one look the same.
-        assertEquals("0 fetch-failed · 34 too short", MarketScanProvenance.shortfall(0, 34))
-        assertEquals("34 too short", MarketScanProvenance.shortfall(null, 34))
-        assertEquals("12 fetch-failed", MarketScanProvenance.shortfall(12, null))
+        assertEquals("0 failed to load · 34 too new to measure", MarketScanProvenance.shortfall(0, 34))
+        assertEquals("34 too new to measure", MarketScanProvenance.shortfall(null, 34))
+        assertEquals("12 failed to load", MarketScanProvenance.shortfall(12, null))
         assertNull(MarketScanProvenance.shortfall(null, null))
     }
 
@@ -87,8 +87,8 @@ class MarketScanProvenanceTest {
         assertTrue(s.contains("2026-08-21"))
         assertTrue(s.contains("3h ago"))
         assertTrue(s.contains("3,113 of 3,147 scanned"))
-        assertTrue(s.contains("0 fetch-failed"))
-        assertTrue(s.contains("34 too short"))
+        assertTrue(s.contains("0 failed to load"))
+        assertTrue(s.contains("34 too new to measure"))
         assertFalse(s.contains("universe stale"))
     }
 
@@ -124,12 +124,12 @@ class MarketScanProvenanceTest {
     @Test
     fun `a real breadth reading names both halves and what it counted`() {
         assertEquals(
-            "58.4% above the 50-day · 67.6% above the 200-day · 3,113 names",
+            "58.4% of stocks above their 50-day average · 67.6% above their 200-day average · 3,113 stocks",
             MarketScanProvenance.breadthLine(true, 58.4, 67.6, 3113),
         )
         // Half a reading is printed as half a reading, never padded out with a zero.
-        assertEquals("58.4% above the 50-day", MarketScanProvenance.breadthLine(true, 58.4, null, null))
+        assertEquals("58.4% of stocks above their 50-day average", MarketScanProvenance.breadthLine(true, 58.4, null, null))
         // A measured 0% IS a reading and is printed — only an absent number is dropped.
-        assertEquals("0.0% above the 200-day", MarketScanProvenance.breadthLine(true, null, 0.0, 0))
+        assertEquals("0.0% above their 200-day average", MarketScanProvenance.breadthLine(true, null, 0.0, 0))
     }
 }

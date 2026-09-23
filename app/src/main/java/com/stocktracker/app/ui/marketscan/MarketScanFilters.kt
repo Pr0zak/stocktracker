@@ -35,7 +35,7 @@ data class ScanBoolFilter(
 val SCAN_BOOL_FILTERS: List<ScanBoolFilter> = listOf(
     ScanBoolFilter("above_sma50", "Above 50-day", "Below 50-day"),
     ScanBoolFilter("above_sma200", "Above 200-day", "Below 200-day"),
-    ScanBoolFilter("ma_stacked", "MAs stacked", "MAs not stacked"),
+    ScanBoolFilter("ma_stacked", "Averages rising in order", "Averages not in order"),
 )
 
 /**

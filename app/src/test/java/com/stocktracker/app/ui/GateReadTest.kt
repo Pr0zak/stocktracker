@@ -246,4 +246,14 @@ class GatePlainWordsTest {
         val l = com.stocktracker.app.data.remote.GateLeg(name = "New leg > 1", key = "new_leg", ok = true)
         assertEquals("New leg > 1", GateRead.legTitle(l))
     }
+
+    @Test
+    fun `an up regime with a narrow market reads as one phrase`() {
+        val legs = listOf(leg("breadth_55", false, 35.5, 55.0), leg("vix_under_20", true))
+        val shut = GateRead.summary(GateResponse(passed = false, available = true, legs = legs))
+        assertEquals("Indexes up, most stocks lagging", GateRead.combinedStrip("up", shut))
+        assertNull(GateRead.combinedStrip("down", shut))
+        val open = GateRead.summary(GateResponse(passed = true, available = true, legs = listOf(leg("vix_under_20", true))))
+        assertNull(GateRead.combinedStrip("up", open))
+    }
 }

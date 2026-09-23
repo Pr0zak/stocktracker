@@ -214,7 +214,9 @@ fun PortfolioScreen(
                 // markers) but never summed in here, and nothing sold is in this number either. Call
                 // it what it is rather than "total return", which promises both.
                 Text(
-                    text = "${Formatting.changeLine(state.totalGain, state.totalGainPercent, gUp, hideZeroCents)} unrealized gain (price only)",
+                    // Price movement on shares still held — no dividends, nothing sold (MONEY-5).
+                    text = "${Formatting.changeLine(state.totalGain, state.totalGainPercent, gUp, hideZeroCents)} " +
+                        if (gUp) "above what you paid" else "below what you paid",
                     color = if (gUp) GainGreen else LossRed,
                     fontWeight = FontWeight.Medium,
                 )
@@ -224,7 +226,7 @@ fun PortfolioScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     state.vsSpyPct?.let { v ->
                         Text(
-                            "Today's mix vs S&P ${if (v >= 0) "+" else ""}${"%.1f".format(v)}%",
+                            "${"%.1f".format(kotlin.math.abs(v))} pts ${if (v >= 0) "ahead of" else "behind"} the S&P",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (v >= 0) GainGreen else LossRed,
                             fontWeight = FontWeight.Medium,
@@ -232,7 +234,7 @@ fun PortfolioScreen(
                     }
                     state.maxDrawdownPct?.let { d ->
                         Text(
-                            "Max drawdown ${"%.1f".format(d)}%",
+                            "Biggest dip ${"%.1f".format(d)}%",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -244,7 +246,7 @@ fun PortfolioScreen(
                 // number for the whole year. Said once, here, rather than implied by "vs S&P" alone.
                 if (state.vsSpyPct != null) {
                     Text(
-                        "Hypothetical: today's holdings priced back over the window, not your real history.",
+                        "Both figures price today's holdings back over the range shown — what this mix would have done, not your real history.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -323,7 +325,8 @@ fun PortfolioScreen(
                     label = { Text(if (percentMode) "%" else "$") },
                 )
             }
-            Text(
+            // Said once: when the S&P comparison is on screen, its caveat above already covers this.
+            if (state.vsSpyPct == null) Text(
                 "History reflects your current share counts across the whole period.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

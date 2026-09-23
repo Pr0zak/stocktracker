@@ -405,7 +405,13 @@ fun DetailScreen(
             )
 
             val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
-            val chartUp = if (percentMode) (chartPoints.lastOrNull()?.price ?: 0.0) >= 0.0 else up
+            // Coloured by the range on screen, not by today: a month that rose is drawn green even on
+            // a down day. 1D keeps today's direction, which is the same thing there.
+            val chartUp = when {
+                percentMode -> (chartPoints.lastOrNull()?.price ?: 0.0) >= 0.0
+                state.range == ChartRange.DAY -> up
+                else -> RangeChange.of(state.chart)?.let { it.first >= 0.0 } ?: up
+            }
             // Technical indicators are price-based, so only compute them in $ mode.
             val indicatorResult = if (!percentMode) buildIndicators(chartPoints, indicators)
             else IndicatorResult(emptyList(), emptyList())
@@ -482,6 +488,17 @@ fun DetailScreen(
             val offScaleAlerts = armedLevels.filter { it.isOffScale }
             val allOverlays = indicatorResult.overlays + listOfNotNull(benchOverlay) + levelOverlays + alertOverlays
 
+            // The move across the range on screen, in words and in the chart's colour. Hidden on 1D
+            // (today's line already says it) and while scrubbing (the header then reads the finger).
+            if (!percentMode && scrubbed == null && !state.loadingChart) {
+                RangeChange.line(state.chart, state.range)?.let { line ->
+                    Text(
+                        line,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (chartUp) GainGreen else LossRed,
+                    )
+                }
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3316,7 +3333,9 @@ private fun HoldingsAndAlertsSection(
                 val gain = shares * (quote.price - avgCost)
                 val gUp = gain >= 0.0
                 Text(
-                    "${Formatting.change(gain, hideZeroCents)} unrealized gain (price only)",
+                    // With its currency sign: "+1,144.80" alone did not say it was dollars.
+                    "${if (gUp) "+" else "−"}${Formatting.price(kotlin.math.abs(gain), quote.currency, hideZeroCents)} " +
+                        if (gUp) "above what you paid" else "below what you paid",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     color = if (gUp) GainGreen else LossRed,
@@ -3438,57 +3457,77 @@ private fun HoldingsAndAlertsSection(
                 }
             }
         }
-        AlertRow("Crosses above", alerts.priceAbove,
-            com.stocktracker.app.data.model.AlertKind.PRICE_ABOVE, { "$" + numText(it) }, GainGreen)
-        AlertRow("Falls below", alerts.priceBelow,
-            com.stocktracker.app.data.model.AlertKind.PRICE_BELOW, { "$" + numText(it) }, LossRed)
-        AlertRow("Jumps in a day", alerts.percentUp,
-            com.stocktracker.app.data.model.AlertKind.PERCENT_UP, { "≥ " + numText(it) + "%" }, GainGreen)
-        AlertRow("Drops in a day", alerts.percentDown,
-            com.stocktracker.app.data.model.AlertKind.PERCENT_DOWN, { "≥ " + numText(it) + "%" }, LossRed)
-        HorizontalDivider(Modifier.padding(vertical = 4.dp))
-        // Conditions, not levels. Each is a change of state rather than a price being touched, so
-        // they arm with a switch and carry no number to edit.
-        AlertCondition.entries.forEach { cond ->
-            val on = cond in alerts.conditions
+        // Only what is SET gets a row; everything else is one "+ add" chip. A stock with no alerts
+        // used to show nine switches, all off, in two different layouts (switch left for levels,
+        // right for conditions) — a wall of controls saying nothing, and the hint pointed at a ✎
+        // that was not there.
+        data class Level(val label: String, val add: String, val level: Double?, val kind: com.stocktracker.app.data.model.AlertKind,
+                         val fmt: (Double) -> String, val color: androidx.compose.ui.graphics.Color)
+        val levels = listOf(
+            Level("Crosses above", "Rises above", alerts.priceAbove, com.stocktracker.app.data.model.AlertKind.PRICE_ABOVE, { "$" + numText(it) }, GainGreen),
+            Level("Falls below", "Falls below", alerts.priceBelow, com.stocktracker.app.data.model.AlertKind.PRICE_BELOW, { "$" + numText(it) }, LossRed),
+            Level("Jumps in a day", "Jumps in a day", alerts.percentUp, com.stocktracker.app.data.model.AlertKind.PERCENT_UP, { "≥ " + numText(it) + "%" }, GainGreen),
+            Level("Drops in a day", "Drops in a day", alerts.percentDown, com.stocktracker.app.data.model.AlertKind.PERCENT_DOWN, { "≥ " + numText(it) + "%" }, LossRed),
+        )
+        levels.filter { it.level != null }.forEach { AlertRow(it.label, it.level, it.kind, it.fmt, it.color) }
+        AlertCondition.entries.filter { it in alerts.conditions }.forEach { cond ->
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    cond.label,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f),
-                )
                 Switch(
-                    checked = on,
-                    // See the price-alert AlertRow above: the toggle handler and the accessibility
-                    // semantics both live on the wrapping `toggleable`, not here.
+                    checked = true,
+                    // As in AlertRow: the handler and the accessibility semantics live on `toggleable`.
                     onCheckedChange = null,
                     modifier = Modifier
                         .toggleable(
-                            value = on,
+                            value = true,
                             role = Role.Switch,
-                            onValueChange = { checked ->
-                                val next = if (checked) alerts.conditions + cond else alerts.conditions - cond
-                                onSave(shares, avgCost, alerts.copy(conditions = next))
-                            },
+                            onValueChange = { onSave(shares, avgCost, alerts.copy(conditions = alerts.conditions - cond)) },
                         )
                         .semantics {
                             contentDescription = cond.label
-                            stateDescription = alertConditionSwitchStateDescription(on)
+                            stateDescription = alertConditionSwitchStateDescription(true)
                         },
                 )
+                Text(cond.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            }
+        }
+        val unsetLevels = levels.filter { it.level == null }
+        val offConds = AlertCondition.entries.filter { it !in alerts.conditions }
+        if (activeAlerts == 0 && levels.none { it.level != null } && alerts.conditions.isEmpty()) {
+            Text("No alerts set for $symbol.", style = MaterialTheme.typography.bodyMedium, color = neutral)
+        }
+        if (unsetLevels.isNotEmpty() || offConds.isNotEmpty()) {
+            Text("Add an alert", style = MaterialTheme.typography.labelMedium, color = neutral)
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                // A price level needs a number, so its chip opens the editor; a condition has none,
+                // so its chip turns it on directly (the switch then appears above to turn it off).
+                unsetLevels.forEach { AddAlertChip(it.add) { showSheet = true } }
+                offConds.forEach { cond ->
+                    // Short chip wording so two fit per row; the full sentence is the row's label
+                    // once the alert is on.
+                    val chip = when (cond) {
+                        AlertCondition.CLOSE_ABOVE_SMA50 -> "Above 50-day avg"
+                        AlertCondition.CLOSE_BELOW_SMA50 -> "Below 50-day avg"
+                        AlertCondition.CLOSE_ABOVE_SMA200 -> "Above 200-day avg"
+                        AlertCondition.CLOSE_BELOW_SMA200 -> "Below 200-day avg"
+                        AlertCondition.CLOSE_AT_52W_HIGH -> "New 52-week high"
+                    }
+                    AddAlertChip(chip) {
+                        onSave(shares, avgCost, alerts.copy(conditions = alerts.conditions + cond))
+                    }
+                }
             }
         }
         Text(
-            "Checked on daily closes, roughly every 15 minutes. A condition that cannot be " +
-                "evaluated says so rather than staying quiet.",
-            style = MaterialTheme.typography.labelSmall,
-            color = neutral,
-        )
-        Text(
-            "Flip a switch to disarm; tap ✎ to set or change a level.",
+            "Checked about every 15 minutes against the daily close. An alert that can't be " +
+                "checked says so instead of staying quiet.",
             style = MaterialTheme.typography.labelSmall,
             color = neutral,
         )
@@ -4585,5 +4624,26 @@ private fun ValueTrapCard(v: ValueTrapResponse) {
                 style = MaterialTheme.typography.labelSmall, color = neutral,
             )
         }
+    }
+}
+
+
+/** One "+ add" alert chip: dashed outline, accent text, a 48dp-tall touch target. */
+@Composable
+private fun AddAlertChip(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clickable(onClickLabel = "Add alert: $label", onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            "+ $label",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(50))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
     }
 }

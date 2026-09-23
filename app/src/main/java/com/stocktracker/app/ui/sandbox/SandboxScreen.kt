@@ -256,7 +256,9 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
                 val markers = ui.trades
                     .filter { it.status == "filled" && (it.side == "buy" || it.side == "sell") }
                     .take(40)
-                    .map { ChartMarker((it.ts * 1000).toLong(), if (it.side == "buy") GREEN else RED, it.symbol) }
+                    // No labels: a dot per trade on the line. The names are in the trade log below,
+                    // where they have room; forty of them on the chart could not be read.
+                    .map { ChartMarker((it.ts * 1000).toLong(), if (it.side == "buy") GREEN else RED, "") }
                 if (ui.nav.size >= 2) {
                     PriceChart(
                         points = ui.nav, up = up, showHighLow = true, showAxis = true,
@@ -268,6 +270,13 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
                             com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL)
                         },
                     )
+                    if (markers.isNotEmpty()) {
+                        Text(
+                            "Dots on the line are trades: green bought, red sold. Each one is listed in the trade log below.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = neutral,
+                        )
+                    }
                 } else {
                     InfoCard("The equity curve appears after the first daily tick.")
                 }
@@ -389,15 +398,21 @@ private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("$" + Formatting.compact(st.equity), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            // The full balance, not "$11.53K": a headline figure that rounds away real dollars reads
+            // as a different number from the one in the trade log.
+            Text(String.format(java.util.Locale.US, "$%,.2f", st.equity), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Pill("PAPER", neutral)
         }
         val ret = st.totalReturnPct
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (ret != null) Text(signedPct(ret) + " total", color = if (ret >= 0) GREEN else RED,
+            if (ret != null) Text(signedPct(ret) + " overall", color = if (ret >= 0) GREEN else RED,
                 style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             st.vsBenchmarkPct?.let {
-                Text("vs S&P " + signedPct(it), color = if (it >= 0) GREEN else RED, style = MaterialTheme.typography.titleSmall)
+                // A difference of two returns, in points. "vs S&P −1.9%" read as "the S&P fell 1.9%".
+                Text(
+                    String.format(java.util.Locale.US, "%.1f pts %s the S&P", kotlin.math.abs(it), if (it >= 0) "ahead of" else "behind"),
+                    color = if (it >= 0) GREEN else RED, style = MaterialTheme.typography.titleSmall,
+                )
             }
         }
         // Risk beside return. Without it "+2.48%" describes a book that could have got there in a
@@ -407,8 +422,8 @@ private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
         st.maxDrawdownPct?.let { maxDd ->
             val cur = st.currentDrawdownPct ?: 0.0
             Text(
-                "Max drawdown ${pctPlain(maxDd)}" +
-                    if (cur > 0.05) " · ${pctPlain(cur)} below peak" else " · at its peak",
+                "Biggest dip from a high: ${pctPlain(maxDd)}" +
+                    if (cur > 0.05) " · now ${pctPlain(cur)} below its high" else " · back at its high",
                 style = MaterialTheme.typography.labelMedium,
                 color = if (cur > 0.05) AMBER else neutral,
             )
@@ -418,8 +433,8 @@ private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
                 // Says what it excludes when there IS something to exclude. The equity curve above
                 // rises on a deposit and this figure does not, which looks like a contradiction
                 // unless the reason is on screen.
-                "Trending " + signedPct(rate) + " / month" +
-                    if (st.settings.monthlyDeposit > 0) " (excl. deposits)" else "",
+                "Trend: " + signedPct(rate) + " a month" +
+                    if (st.settings.monthlyDeposit > 0) " (not counting deposits)" else "",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
                 color = if (rate >= 0) GREEN else RED,

@@ -33,6 +33,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
@@ -321,22 +325,27 @@ internal fun ContextChips(resp: DailyPickResponse) {
 
 @Composable
 private fun NoPickBody(resp: DailyPickResponse, onWhy: () -> Unit, onOpenSymbol: (String, String?) -> Unit) {
-    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    Text(resp.noneReason ?: "Nothing was convincing enough today.", style = MaterialTheme.typography.bodyMedium)
-    ContextChips(resp)
-    resp.pick?.closest?.let { c ->
-        Row(
-            modifier = Modifier.fillMaxWidth().clickable { onOpenSymbol(c.symbol, c.name) },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Closest: ", style = MaterialTheme.typography.bodySmall, color = neutral)
-            Text(c.symbol, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = neutral)
-            c.price?.let { Text("  ${DailyPickRead.money(it)}", style = MaterialTheme.typography.bodySmall, color = neutral) }
-        }
+    // Kept to three lines on purpose: on a no-pick day this card sits above the whole watchlist.
+    // It used to say the same thing twice ("scored 63… needed 70", then "Its confidence was 63…
+    // it needed 70") and fill most of the first screen. The full reason is one tap away.
+    val p = resp.pick
+    val closest = p?.closest
+    val conv = p?.rejectedConviction
+    if (closest != null && conv != null) {
+        Text(
+            buildAnnotatedString {
+                append("Closest was ")
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(closest.symbol) }
+                append(": confidence $conv/100, and today it needed ${p.convictionFloor ?: 60}.")
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.clickable { onOpenSymbol(closest.symbol, closest.name) },
+        )
+    } else {
+        Text(resp.noneReason ?: "Nothing was convincing enough today.", style = MaterialTheme.typography.bodyMedium)
     }
-    resp.pick?.rejectedConviction?.let {
-        Text("Its confidence was $it out of 100; today it needed ${resp.pick.convictionFloor ?: 60}.",
-            style = MaterialTheme.typography.bodySmall, color = neutral)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) { ContextChips(resp) }
+        TextButton(onClick = onWhy) { Text("Details ›") }
     }
-    TextButton(onClick = onWhy) { Text("What came close · past picks") }
 }

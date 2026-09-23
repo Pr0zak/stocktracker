@@ -727,7 +727,9 @@ private fun MarketContext(
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val bits = buildList<Pair<String, Color>> {
         if (showMarketStatus) add(marketState.label to neutral)
-        if (hasRegime) {
+        val combined = if (hasRegime) GateRead.combinedStrip(regime.result?.regime?.trend, gate) else null
+        if (combined != null) add(combined to Signal)
+        if (combined == null && hasRegime) {
             regime.result?.regime?.label?.takeIf { it.isNotBlank() }?.let { lbl ->
                 val trend = regime.result?.regime?.trend
                 add(lbl to if (trend == "up") GainGreen else if (trend == "down") LossRed else neutral)
@@ -735,7 +737,7 @@ private fun MarketContext(
         }
         // Unmeasured gets the amber, never the red: a gate that couldn't read a leg has not
         // observed a bearish market, and one glance at this line is all most readings get.
-        gate?.let { g ->
+        gate?.takeIf { combined == null }?.let { g ->
             // The strip has room for a few words, so only the chip's lead ("Narrow market"); the card
             // below carries the number. A failed check is amber, not red: it is a caution about
             // conditions, not a loss, and the Daily Pick card colours it the same way.

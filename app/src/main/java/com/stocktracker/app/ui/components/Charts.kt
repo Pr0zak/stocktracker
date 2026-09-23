@@ -591,7 +591,7 @@ fun PriceChart(
             val candleStepPx = MIN_CANDLE_STEP_DP.dp.toPx()
             val drawCandles = style == ChartStyle.CANDLE && stepX >= candleStepPx
             if (style == ChartStyle.CANDLE && !drawCandles) {
-                plotNotes += "$visN bars — too many to draw as candles; showing the close line"
+                plotNotes += "Line view — too many days for candles here; pinch to zoom in"
             }
             if (drawCandles) {
                 val bodyW = (stepX * 0.7f).coerceIn(1f, 10.dp.toPx())
@@ -839,6 +839,16 @@ fun PriceChart(
                         if (d < bestD) { bestD = d; best = k }
                     }
                     val cx = xg(best)
+                    // An unlabelled marker is a dot ON the line. Labelled ones (dividends) keep the
+                    // dashed rule and bottom tag; forty labelled trades on one chart piled into
+                    // unreadable text ("IBITIITNVTISIS…"), so the sandbox now passes no labels and
+                    // lists its trades under the chart instead.
+                    if (mk.label.isBlank()) {
+                        val cy = y(points[best].price)
+                        drawCircle(surface, radius = 5.dp.toPx(), center = Offset(cx, cy))
+                        drawCircle(mk.color, radius = 3.5f.dp.toPx(), center = Offset(cx, cy))
+                        return@forEach
+                    }
                     drawLine(mk.color.copy(alpha = 0.5f), Offset(cx, 0f), Offset(cx, plotBottom), strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f)))
                     val tag = textMeasurer.measure(mk.label, TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = mk.color))
                     val tw = tag.size.width.toFloat()

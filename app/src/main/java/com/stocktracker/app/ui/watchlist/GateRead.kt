@@ -244,6 +244,19 @@ object GateRead {
         }
     }
 
+    /**
+     * One phrase for the collapsed strip when the AI's regime read and the market checks would
+     * otherwise contradict each other side by side ("Risk-on uptrend · Narrow market"). Both are
+     * true at once — the indexes are rising while most stocks are not — so say that. Null when there
+     * is no contradiction to resolve; the strip then shows the two readings as before.
+     */
+    fun combinedStrip(regimeTrend: String?, gate: GateSummary?): String? {
+        if (gate?.verdict != GateVerdict.SHUT) return null
+        if (regimeTrend != "up") return null
+        return if (gate.chip.startsWith("Narrow market")) "Indexes up, most stocks lagging"
+        else "Indexes up, but ${gate.chip.replaceFirstChar { it.lowercase() }}"
+    }
+
     /** A leg's display name, degrading to its key. Never blank — a nameless row is unreadable. */
     fun legLabel(leg: GateLeg): String =
         leg.name.takeIf { it.isNotBlank() } ?: leg.key.takeIf { it.isNotBlank() } ?: "Unnamed leg"

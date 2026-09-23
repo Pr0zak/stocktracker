@@ -16,7 +16,7 @@ import org.junit.Test
 class BearerHeaderTest {
 
     private fun headerFor(bearer: String?): String? {
-        val b = Request.Builder().url("http://10.0.0.1:8000/health")
+        val b = Request.Builder().url("http://192.0.2.1:8000/health")
         if (!bearer.isNullOrBlank()) b.header("Authorization", "Bearer $bearer")
         return b.build().header("Authorization")
     }

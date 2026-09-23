@@ -120,8 +120,7 @@ once per scan (`auth_probe` exists at `main.py:115-120`) and fall back for the w
 
 `settings_store.update()` (`app/settings_store.py:83-92`) replaces `watchlist` wholesale and records
 nothing about who sent it. On 2026-09-11 two clients alternated `POST /api/settings` every 10–20
-minutes: the phone via the Tailscale router (10.0.0.117) and the Windows host running the emulator
-(10.0.0.172). The last sync before the 06:30 scan was `06:10:35 10.0.0.172`. The scan logged
+minutes: the phone via the Tailscale router and the Windows host running the emulator. The last sync before the 06:30 scan was at 06:10:35, from the emulator host. The scan logged
 `scanned 14 · flips [] · $0.240444`; the phone restored 54 names at 06:36. Forty symbols have no verdict,
 no memory row and no diff for that night, and the next night re-entered the diff with no baseline.
 Nothing on the phone or the dashboard said the universe had changed.

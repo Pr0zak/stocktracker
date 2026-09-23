@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.9.0" to listOf(
+            "New: a Daily Pick card \u2014 one stock a morning (or \"no pick today\"), with the reasons for and against drawn out",
+            "New: a morning notification for the pick, and alerts when it reaches its buy zone, exit price or target",
+            "New: tap the market-checks chip to see the five market health tests in plain words",
+            "Plainer wording across the app: \"top 4%\" instead of percentiles, \"\u00d7 risk\" instead of R, options stats in words",
+        ),
         "1.8.0" to listOf(
             "New: a Wear OS tile and complication \u2014 your phone does the fetching, the watch just shows it",
             "New: holdings with 100+ shares are marked income-eligible on the portfolio screen",

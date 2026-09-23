@@ -789,6 +789,14 @@ class SignalsApiService {
         return Http.json.decodeFromString<DailyPickResponse>(sGet("${baseUrl.trimEnd('/')}/daily_pick"))
     }
 
+    /** Re-check this morning's pick with live prices (one deep-model call; 10-minute cooldown). Throws on failure. */
+    suspend fun recheckDailyPick(baseUrl: String): DailyPickRecheck? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<DailyPickRecheck>(
+            sPost("${baseUrl.trimEnd('/')}/daily_pick/recheck", "{}", slow = true),
+        )
+    }
+
     /** Past runs with their graded marks and the AI-vs-rule comparison. Throws on failure. */
     suspend fun dailyPickHistory(baseUrl: String, limit: Int = 20): DailyPickHistory? {
         if (baseUrl.isBlank()) return null

@@ -222,10 +222,46 @@ object DailyPickRead {
         "macro" to "The news-driven backdrop: wars, rates, oil, policy. No macro read means the backdrop is UNKNOWN, not calm.",
         "earnings" to "An earnings report can move a stock 5-10% overnight in either direction. Picks exclude names reporting in the next 3 sessions.",
         "regime" to "Market checks: five simple tests of market health — the S&P 500 and Nasdaq trends, whether most stocks are rising, the fear index, and the last month's direction. When any check fails, a pick needs confidence 70 instead of 60.",
+        "today_move" to "Today so far: the live price and how far it has moved since yesterday's close. Only a re-check has this — the morning pick is made before the market opens.",
+        "recheck" to "A re-check runs this morning's shortlist again with live prices, and says whether the pick still holds. It never replaces the morning pick and isn't graded, because a pick that can change during the day has no fixed point to measure from. At most one every 10 minutes.",
         "conviction" to "Confidence: how sure the AI is, 0 to 100. 70 or more means several independent signals agree; 40-55 is a mixed picture. The card only shows picks of 60 or more — 70 when any market check fails.",
         "ladder" to "The plan: the shaded zone is a reasonable price to pay today. The exit is the price where the idea has failed and you would sell to limit the loss. The target is the first realistic upside. 'Reward is 2× the risk' means the distance to the target is twice the distance to the exit.",
         "percentile" to "The bars rank this stock against the ~3,000 measured last night: 'top 12%' means only 12% of stocks scored higher. A high rank is not always good — 'top 5%' for daily swings means one of the jumpiest stocks.",
     )
+
+    // ------------------------------------------------------------ intraday re-check
+
+    /** "Re-checked 12:04 PM CDT · not graded", or null without a time. */
+    fun recheckStamp(ts: Double?, zone: ZoneId = ZoneId.systemDefault()): String? {
+        if (ts == null || ts <= 0) return null
+        val t = Instant.ofEpochMilli((ts * 1000).toLong()).atZone(zone)
+        return "Re-checked ${t.format(TIME_ZONED)} · not graded"
+    }
+
+    /**
+     * What the re-check concluded, measured against this morning. Null for a failed re-check, which
+     * the card shows as its error instead.
+     */
+    fun recheckHeadline(rc: com.stocktracker.app.data.remote.DailyPickRecheck?, morningConviction: Int?): String? {
+        rc ?: return null
+        val morning = rc.morningSymbol
+        return when (rc.status) {
+            "pick" -> {
+                val sym = rc.pick?.symbol ?: return null
+                val conf = rc.pick.conviction?.let { " (confidence $it)" } ?: ""
+                when {
+                    morning == null -> "Now picks $sym$conf — this morning had no pick."
+                    sym == morning -> "Still $sym$conf" + (morningConviction?.let { " — it was $it this morning." } ?: ".")
+                    else -> "Now prefers $sym$conf over this morning's $morning."
+                }
+            }
+            "none" -> {
+                val why = rc.noneReason?.let { " $it" } ?: ""
+                if (morning != null) "No longer a pick.$why" else "Still no pick.$why"
+            }
+            else -> null
+        }
+    }
 
     // ------------------------------------------------------------ DP-11 comparison
 

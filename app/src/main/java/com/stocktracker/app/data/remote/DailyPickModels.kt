@@ -43,11 +43,34 @@ data class DailyPickResponse(
     val live: DailyPickLive? = null,
     val chase: DailyPickChase? = null,
     val repeats: DailyPickRepeats? = null,
+    /** Today's latest intraday re-check, or null if none was run. Never merged into [pick]. */
+    val recheck: DailyPickRecheck? = null,
 ) {
     val isPick: Boolean get() = status == "pick" && pick?.symbol != null
     val isNone: Boolean get() = status == "none"
     val isFailed: Boolean get() = status == "failed"
 }
+
+/**
+ * An intraday re-check of this morning's shortlist against live prices (POST /daily_pick/recheck).
+ * It never replaces the morning pick and is never graded — it answers "does the pick still hold now?".
+ */
+@Serializable
+data class DailyPickRecheck(
+    val date: String? = null,
+    /** Epoch seconds the re-check finished. */
+    val ts: Double? = null,
+    /** "pick" | "none" | "failed". */
+    val status: String? = null,
+    val error: String? = null,
+    val pick: DailyPick? = null,
+    @SerialName("none_reason") val noneReason: String? = null,
+    @SerialName("morning_symbol") val morningSymbol: String? = null,
+    /** Null when it could not be compared (a failed re-check). */
+    @SerialName("same_as_morning") val sameAsMorning: Boolean? = null,
+    /** Seconds until another re-check may run; >0 means this one was returned from the cooldown. */
+    @SerialName("cooldown_seconds") val cooldownSeconds: Int? = null,
+)
 
 @Serializable
 data class DailyPickGate(

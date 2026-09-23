@@ -55,6 +55,19 @@ class DailyPickReadTest {
         assertTrue(DailyPickRead.etWindow(8, 30, 10, 0, ct).startsWith("7:30–9:00 AM C"))
     }
 
+    @Test fun `re-check headlines compare against the morning`() {
+        fun rc(status: String, sym: String?, morning: String?, conv: Int? = 68, why: String? = null) =
+            com.stocktracker.app.data.remote.DailyPickRecheck(status = status, morningSymbol = morning, noneReason = why,
+                pick = sym?.let { DailyPick(symbol = it, conviction = conv) })
+        assertEquals("Still DK (confidence 68) — it was 72 this morning.", DailyPickRead.recheckHeadline(rc("pick", "DK", "DK"), 72))
+        assertEquals("Now prefers XOM (confidence 68) over this morning's DK.", DailyPickRead.recheckHeadline(rc("pick", "XOM", "DK"), 72))
+        assertEquals("Now picks XOM (confidence 68) — this morning had no pick.", DailyPickRead.recheckHeadline(rc("pick", "XOM", null), null))
+        assertEquals("No longer a pick. It fell 6% on news.", DailyPickRead.recheckHeadline(rc("none", null, "DK", why = "It fell 6% on news."), 72))
+        assertEquals("Still no pick.", DailyPickRead.recheckHeadline(rc("none", null, null), null))
+        assertNull(DailyPickRead.recheckHeadline(rc("failed", null, "DK"), 72))
+        assertNull(DailyPickRead.recheckStamp(null))
+    }
+
     @Test fun `a failed run is not no-pick`() {
         val r = DailyPickResponse(available = true, stale = false, date = "2026-09-22", status = "failed", error = "analyst failed")
         val s = DailyPickRead.shape(true, false, r, null)
@@ -215,7 +228,7 @@ class DailyPickReadTest {
 
     @Test fun `every factor key the server can send has an explanation`() {
         val keys = listOf("trend", "rel_strength", "momentum", "rsi", "extension", "range_52w", "long_cycle", "volume",
-            "volatility", "track_record", "insider", "quality", "short_interest", "seasonality", "macro", "earnings", "regime")
+            "volatility", "track_record", "insider", "quality", "short_interest", "seasonality", "macro", "earnings", "regime", "today_move")
         assertTrue(keys.all { it in DailyPickRead.explanations })
     }
 }

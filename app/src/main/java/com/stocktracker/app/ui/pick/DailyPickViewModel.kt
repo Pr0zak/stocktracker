@@ -37,6 +37,10 @@ data class DailyPickUiState(
     /** Journal ids already logged for (date|symbol), so the button reads "Logged" after a tap. */
     val loggedKey: String? = null,
     val journalNote: String? = null,
+    val rechecking: Boolean = false,
+    val recheckError: String? = null,
+    /** "Re-checked 4 min ago — next re-check in 6 min" when the cooldown answered instead. */
+    val recheckNote: String? = null,
 ) {
     val shape: DailyPickRead.Shape get() = DailyPickRead.shape(configured, loading, resp, error)
 }
@@ -186,4 +190,29 @@ class DailyPickViewModel : ViewModel() {
     }
 
     fun clearJournalNote() = _state.update { it.copy(journalNote = null) }
+
+    /**
+     * Ask the server to re-check this morning's pick against live prices. The result arrives as the
+     * card's `recheck` on the next load; a failure is shown as a failure beside the button.
+     */
+    fun recheck() {
+        if (_state.value.rechecking) return
+        viewModelScope.launch {
+            val base = url()
+            if (base.isBlank()) return@launch
+            _state.update { it.copy(rechecking = true, recheckError = null, recheckNote = null) }
+            val r = runCatching { api.recheckDailyPick(base) }
+            val rc = r.getOrNull()
+            _state.update {
+                it.copy(
+                    rechecking = false,
+                    recheckError = r.exceptionOrNull()?.let { e -> "Couldn't re-check — ${e.message ?: "no answer"}." }
+                        ?: rc?.takeIf { x -> x.status == "failed" }?.let { x -> "Re-check failed: ${x.error ?: "no reason given"}." },
+                    recheckNote = rc?.cooldownSeconds?.takeIf { s -> s > 0 }
+                        ?.let { s -> "Showing the last re-check — the next one can run in ${(s + 59) / 60} min." },
+                )
+            }
+            load()
+        }
+    }
 }

@@ -96,13 +96,19 @@ fun DailyPickCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenS
             onRefresh = { vm.load() })
         if (!collapsed) {
             when (shape) {
-                is DailyPickRead.Shape.Pick -> PickBody(
-                    shape.resp, state, explain,
-                    onWhy = { sheetOpen = true; vm.loadHistory() },
-                    onBought = { boughtOpen = true },
-                    onOpenSymbol = onOpenSymbol,
-                )
-                is DailyPickRead.Shape.NoPick -> NoPickBody(shape.resp, onWhy = { sheetOpen = true; vm.loadHistory() }, onOpenSymbol)
+                is DailyPickRead.Shape.Pick -> {
+                    PickBody(
+                        shape.resp, state, explain,
+                        onWhy = { sheetOpen = true; vm.loadHistory() },
+                        onBought = { boughtOpen = true },
+                        onOpenSymbol = onOpenSymbol,
+                    )
+                    if (!shape.stale) RecheckSection(shape.resp, state, explain, onRecheck = { vm.recheck() }, onOpenSymbol)
+                }
+                is DailyPickRead.Shape.NoPick -> {
+                    NoPickBody(shape.resp, onWhy = { sheetOpen = true; vm.loadHistory() }, onOpenSymbol)
+                    if (!shape.stale) RecheckSection(shape.resp, state, explain, onRecheck = { vm.recheck() }, onOpenSymbol)
+                }
                 is DailyPickRead.Shape.RunFailed -> Text(
                     "The pick could not be made: ${shape.error}", style = MaterialTheme.typography.bodyMedium, color = LossRed,
                 )
@@ -348,4 +354,70 @@ private fun NoPickBody(resp: DailyPickResponse, onWhy: () -> Unit, onOpenSymbol:
         Box(Modifier.weight(1f)) { ContextChips(resp) }
         TextButton(onClick = onWhy) { Text("Details ›") }
     }
+}
+
+
+/**
+ * The intraday re-check: a button, and — once one has run today — what it concluded against this
+ * morning's pick. Visibly separate from the pick above it (its own divider, its own "not graded"
+ * stamp), because it never replaces that pick.
+ */
+@Composable
+private fun RecheckSection(
+    resp: DailyPickResponse,
+    state: DailyPickUiState,
+    explain: ExplainState,
+    onRecheck: () -> Unit,
+    onOpenSymbol: (String, String?) -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val rc = resp.recheck
+    androidx.compose.material3.HorizontalDivider(color = neutral.copy(alpha = 0.25f))
+    rc?.let { r ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(DailyPickRead.recheckStamp(r.ts) ?: "Re-check", style = MaterialTheme.typography.labelSmall,
+                color = neutral, modifier = Modifier.weight(1f))
+            InfoButton("a re-check") { explain.show("recheck", "Re-check") }
+        }
+        val headline = DailyPickRead.recheckHeadline(r, resp.pick?.conviction)
+        if (headline != null) {
+            Text(
+                headline,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = if (r.sameAsMorning == false) Signal else MaterialTheme.colorScheme.onSurface,
+                modifier = r.pick?.symbol?.let { s -> Modifier.clickable { onOpenSymbol(s, r.pick.name) } } ?: Modifier,
+            )
+            // The reasons that moved it: today's move first, then one for and one against.
+            val p = r.pick
+            if (p != null) {
+                val factors = p.factors.associateBy { it.key }
+                factors["today_move"]?.let { f ->
+                    Text("Today: ${f.display}", style = MaterialTheme.typography.bodySmall, color = neutral)
+                }
+                val shown = (p.reasons.filter { it.supports }.take(1) + p.reasons.filterNot { it.supports }.take(1))
+                for (reason in shown) {
+                    FactorRow(
+                        supports = reason.supports, factor = factors[reason.factor], fallbackLabel = reason.factor,
+                        text = reason.text, onExplain = { explain.show(reason.factor, factors[reason.factor]?.label ?: reason.factor) },
+                        showText = factors[reason.factor]?.display.isNullOrBlank(),
+                    )
+                }
+            }
+        } else if (r.status == "failed") {
+            Text("The last re-check failed: ${r.error ?: "no reason given"}", style = MaterialTheme.typography.bodySmall, color = LossRed)
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = onRecheck, enabled = !state.rechecking) {
+            Text(if (state.rechecking) "Re-checking… (about a minute)" else if (rc == null) "Re-check now" else "Re-check again")
+        }
+        if (state.rechecking) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+    }
+    if (rc == null && !state.rechecking) {
+        Text("Runs this morning's shortlist again with live prices. The morning pick stays as it is.",
+            style = MaterialTheme.typography.labelSmall, color = neutral)
+    }
+    state.recheckNote?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = neutral) }
+    state.recheckError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = LossRed) }
 }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -82,8 +83,12 @@ private fun ramp(base: Color, t: Float): Color {
 
 private fun colourFor(t: HeatmapTile): Color = when (t.scale) {
     "signal" -> if (t.value <= 0.0) FLAT else ramp(SIGNAL, 0.30f + (t.value.toFloat() / 4f) * 0.50f)
-    else -> {
-        val p = t.value
+    else -> colourForMove(t.value)
+}
+
+/** The price-move colour for a day's percentage change. Shared with the key under the map. */
+private fun colourForMove(p: Double): Color = run {
+    run {
         if (abs(p) < 0.05) FLAT
         else {
             // Was abs(p)/4 clamped at 1, so every move at or beyond 4% produced the SAME colour to
@@ -172,16 +177,20 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
                 // Grouped when the tiles carry a classification — which is the market map's whole
                 // point. Signals mode has no sector on its tiles and stays flat, and so does market
                 // mode if the sector lookup failed: an ungrouped map is far better than none.
+                // The map takes the height the screen has rather than a fixed aspect ratio, which
+                // left a quarter of the screen empty below it on a tall phone while its small tiles
+                // were too cramped to carry a ticker.
                 ui.tiles.any { !it.sector.isNullOrBlank() } ->
-                    SectorTreemap(ui.tiles, onOpenDetail)
+                    SectorTreemap(ui.tiles, onOpenDetail, Modifier.weight(1f))
 
-                else -> TreemapCanvas(ui.tiles, onOpenDetail)
+                else -> TreemapCanvas(ui.tiles, onOpenDetail, Modifier.weight(1f))
             }
+            if (ui.mode == "market" && ui.tiles.isNotEmpty()) MoveKey()
 
             // What the areas and colours MEAN. A heat map without this is decoration.
             Text(
                 if (ui.mode == "market") {
-                    "Area = market cap · colour = today's move" +
+                    "Size = company value · colour = today's move · tap a tile to open it" +
                         (ui.advancing?.let { " · $it up / ${ui.declining} down" } ?: "")
                 } else {
                     "Area = how far below its 52-week high · colour = this system's dip tier, " +
@@ -241,7 +250,21 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
 /** Nothing on this map is drawn below this, at any font scale. Material's own floor. */
 private const val MIN_LABEL_SP = 11f
 
-private val SECTOR_HEADER = 15.dp
+// 11sp text needs about 13-14sp of line; at 15dp the captions were clipped through their middle.
+private val SECTOR_HEADER = 18.dp
+
+/**
+ * Short sector names for the block captions. The full Yahoo names ("Communication Services",
+ * "Consumer Cyclical") were cut to "CONSUMER CYCLIC…" on every block narrower than half the map.
+ */
+private fun shortSector(name: String): String = when (name) {
+    "Communication Services" -> "Comm. Services"
+    "Consumer Cyclical" -> "Cons. Cyclical"
+    "Consumer Defensive" -> "Cons. Defensive"
+    "Financial Services" -> "Financials"
+    "Basic Materials" -> "Materials"
+    else -> name
+}
 
 /**
  * The market map, drawn as SECTOR BLOCKS rather than one flat sheet of rectangles.
@@ -254,12 +277,11 @@ private val SECTOR_HEADER = 15.dp
  * Unclassified names collect in an "Other" block instead of disappearing.
  */
 @Composable
-private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
+private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit, modifier: Modifier = Modifier) {
     val groups = tiles.groupBy { it.sector?.takeIf { s -> s.isNotBlank() } ?: "Other" }
     BoxWithConstraints(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(0.72f)
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp)),
     ) {
         val density = LocalDensity.current
@@ -276,7 +298,8 @@ private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
         val fs = density.fontScale.coerceAtLeast(0.5f)
         val wPx = with(density) { maxWidth.toPx() }
         val hPx = with(density) { maxHeight.toPx() }
-        val headerPx = with(density) { SECTOR_HEADER.toPx() }
+        // Scaled with the font setting, like every other gate here: a bigger caption needs a taller strip.
+        val headerPx = with(density) { SECTOR_HEADER.toPx() } * fs
 
         val blocks = Treemap.layout(
             groups.map { (name, ts) -> TreemapItem(name, ts.sumOf { it.size }) }, wPx, hPx,
@@ -297,8 +320,10 @@ private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
             // is exactly how it shipped to the screenshot before this was caught.
             if (labelled) {
                 Text(
-                    block.key.uppercase(),
+                    shortSector(block.key).uppercase(),
                     fontSize = MIN_LABEL_SP.sp,
+                    lineHeight = 13.sp,
+                    letterSpacing = 0.4.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -306,7 +331,7 @@ private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
                     modifier = Modifier
                         .offset(
                             with(density) { (block.x + 3f).toDp() },
-                            with(density) { (block.y + 1f).toDp() },
+                            with(density) { (block.y + 2f).toDp() },
                         )
                         .width(with(density) { (block.w - 6f).coerceAtLeast(1f).toDp() }),
                 )
@@ -387,155 +412,107 @@ private fun TileBox(
             // was papering over. Multiply it back in or this guard permits the clip it exists
             // to prevent — which is how GOOGL rendered as GOOG at 200%.
             wDp.value >= text.length * sp * fs * 0.62f + 6f
+        // A monospace line runs about 1.5x its size; 1.35 let the bottom of the text clip on
+        // short tiles (AMGN, and XOM's percentage).
+        fun tall(sp: Float) = hDp.value >= sp * fs * 1.55f
         val symSp = (shortDp.value * 0.30f).coerceIn(MIN_LABEL_SP, 20f)
         val ink = inkFor(colourFor(t))
         val dir = t.direction()
-        if (shortDp.value >= 20f * fs && wDp.value >= 34f * fs && fits(t.symbol, symSp)) {
-            val showsPct = areaDp > 2000f * fs * fs
+        val pct = t.label()
+        val pctSp = (shortDp.value * 0.17f).coerceIn(MIN_LABEL_SP, 13f)
+        // Three cases, decided by arithmetic so nothing is ever clipped:
+        //  1. room for the ticker AND its percentage: both, the number carrying the direction;
+        //  2. room for the ticker only: the ticker, with the arrow beside it when that fits too;
+        //  3. no room for the ticker: colour only. The old fallback drew a bare "▲" or "▼" with no
+        //     name — about twenty of them on the market map — a direction attached to nothing. The
+        //     tile still opens on tap and still speaks its name and move to a screen reader.
+        val sym = when {
+            fits(t.symbol, symSp) && tall(symSp) -> symSp
+            fits(t.symbol, MIN_LABEL_SP) && tall(MIN_LABEL_SP) -> MIN_LABEL_SP
+            else -> null
+        }
+        if (sym != null) {
+            val showsPct = pct.isNotEmpty() && fits(pct, pctSp) && hDp.value >= (sym + pctSp) * fs * 1.85f
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // The arrow rides beside the ticker only when the signed percentage is NOT drawn
-                // below it. With the number present it would be saying the same thing twice; with
-                // the number absent it is the only thing saying it at all. It costs two characters
-                // of width in the fit test — one for the glyph, one for the gap — and if that does
-                // not fit, the ticker wins and the colour carries the direction alone.
-                TileSymbol(t.symbol, dir.takeIf { !showsPct && fits("$it  ${t.symbol}", symSp) }, symSp, ink)
+                TileSymbol(
+                    t.symbol,
+                    dir.takeIf { !showsPct && it.isNotEmpty() && fits("$it  ${t.symbol}", sym) },
+                    sym, ink,
+                )
                 if (showsPct) {
                     Text(
-                        t.label(),
-                        fontSize = (shortDp.value * 0.17f).coerceIn(MIN_LABEL_SP, 13f).sp,
+                        pct,
+                        fontSize = pctSp.sp,
                         fontFamily = FontFamily.Monospace,
                         color = ink.copy(alpha = 0.9f),
                         maxLines = 1,
                     )
                 }
             }
-        } else if (shortDp.value >= 14f * fs) {
-            // Only tickers that fit WHOLE — truncating a ticker renames it (GOOGL -> GOOG is a
-            // different real security), so a label either fits or is not drawn. Where not even the
-            // ticker fits, the arrow still does, and direction is the more useful of the two to
-            // keep: you can tap a tile to find out what it is, but not which way it went.
-            when {
-                fits("$dir  ${t.symbol}", MIN_LABEL_SP) ->
-                    TileSymbol(t.symbol, dir.ifEmpty { null }, MIN_LABEL_SP, ink)
-                fits(t.symbol, MIN_LABEL_SP) -> TileSymbol(t.symbol, null, MIN_LABEL_SP, ink)
-                dir.isNotEmpty() ->
-                    Text(dir, fontSize = MIN_LABEL_SP.sp, color = ink, maxLines = 1)
-            }
         }
     }
 }
 
 @Composable
-private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
+private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit, modifier: Modifier = Modifier) {
     BoxWithConstraints(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(0.72f)
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp)),
     ) {
         val density = LocalDensity.current
-        // The fit gate measures dp; Text sizes in SP, which grows with the user's font-size
-        // setting. This used to be reconciled by dividing the font size back down by fontScale —
-        // which made the map fit, and in doing so cancelled the setting outright: at 200% scale the
-        // labels came out exactly the same physical size as at 100%. That is the one thing a
-        // font-size setting may never do.
-        //
-        // So scale the GATES instead. A bigger font means a tile has to be bigger to earn a label,
-        // and a tile that no longer qualifies is drawn unlabelled — which is this file's own stated
-        // rule, the same one that refuses to truncate GOOGL into GOOG. Nothing is ever shrunk below
-        // the 11sp floor to make it fit.
+        // Font-scaled gates, not shrunk text — see SectorTreemap.
         val fs = density.fontScale.coerceAtLeast(0.5f)
         val wPx = with(density) { maxWidth.toPx() }
         val hPx = with(density) { maxHeight.toPx() }
         val laid = Treemap.layout(tiles.map { TreemapItem(it.symbol, it.size) }, wPx, hPx)
         val bySym = tiles.associateBy { it.symbol }
-
+        // The same tile as the grouped map, so both label (and decline to label) identically. This
+        // used to be a second copy of the labelling rules that had drifted from the first.
         for (rect in laid) {
             val t = bySym[rect.key] ?: continue
-            val wDp = with(density) { rect.w.toDp() }
-            val hDp = with(density) { rect.h.toDp() }
-            val shortDp = with(density) { rect.shortSide.toDp() }
-            val areaDp = wDp.value * hDp.value
+            TileBox(t = t, xPx = rect.x, yPx = rect.y, wPx = rect.w, hPx = rect.h, fs = fs, onOpen = onOpen)
+        }
+    }
+}
 
+/**
+ * The colour key under the market map: what a shade means, from a 5% fall to a 5% rise, drawn with
+ * the map's own colour function so the key cannot disagree with the tiles.
+ */
+@Composable
+private fun MoveKey() {
+    val steps = listOf(-5.0, -3.0, -1.0, 0.0, 1.0, 3.0, 5.0)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics {
+                contentDescription = "Colour key: darker red is a bigger fall, brighter green a bigger rise, grey is flat"
+            },
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        for (p in steps) {
+            val fill = if (p == 0.0) FLAT else colourForMove(p)
             Box(
-                modifier = Modifier
-                    .offset(with(density) { rect.x.toDp() }, with(density) { rect.y.toDp() })
-                    .size(wDp, hDp)
-                    .background(colourFor(t))
-                    // Crypto has no stock detail screen, so those tiles cannot open. They used to
-                    // look identical to tappable ones — a dead tap reads as a broken app. Marked
-                    // instead of silently inert.
-                    .clickable(enabled = !t.symbol.endsWith("-USD")) {
-                        onOpen(Asset(t.symbol, AssetType.STOCK, t.name.ifBlank { t.symbol }, null))
-                    }
-                    // PLAT-4: see the sibling note in TileBox — names the tile and speaks its move
-                    // no matter how small it is drawn.
-                    .clearAndSetSemantics { contentDescription = heatmapTileDescription(t) },
+                modifier = Modifier.weight(1f).height(20.dp).background(fill),
                 contentAlignment = Alignment.Center,
             ) {
-                // Content degrades with area: a label either FITS or is not drawn. Truncating a
-                // ticker mid-word turns a readable map into noise.
-                val symSp = (shortDp.value * 0.30f).coerceIn(MIN_LABEL_SP, 22f)
-                fun fits(text: String, sp: Float) =
-            // sp, not dp: at a 2x font setting a 22sp glyph is twice as wide in dp as the
-            // number suggests, which is exactly the discrepancy the old fontScale divisor
-            // was papering over. Multiply it back in or this guard permits the clip it exists
-            // to prevent — which is how GOOGL rendered as GOOG at 200%.
-            wDp.value >= text.length * sp * fs * 0.62f + 6f
-                val ink = inkFor(colourFor(t))
-                val dir = t.direction()
-                if (shortDp.value >= 22f * fs && wDp.value >= 40f * fs && fits(t.symbol, symSp)) {
-                    val showsPct = areaDp > 2600f * fs * fs
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // The arrow appears only where the signed percentage does not — see the
-                        // note on the same branch in TileBox.
-                        TileSymbol(t.symbol, dir.takeIf { !showsPct && fits("$it  ${t.symbol}", symSp) }, symSp, ink)
-                        if (showsPct) {
-                            Text(
-                                t.label(),
-                                fontSize = (shortDp.value * 0.17f).coerceIn(MIN_LABEL_SP, 13f).sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = ink.copy(alpha = 0.9f),
-                                maxLines = 1,
-                            )
-                        }
-                        if (areaDp > 12000f * fs * fs && t.name.isNotBlank()) {
-                            Text(
-                                t.name,
-                                fontSize = MIN_LABEL_SP.sp,
-                                color = ink.copy(alpha = 0.66f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 3.dp),
-                            )
-                        }
-                    }
-                } else if (shortDp.value >= 14f * fs) {
-                    // Only tickers that fit WHOLE. take(4) turned GOOGL into "GOOG" — a different
-                    // real security, which is on this very map. Truncating a ticker does not
-                    // abbreviate it, it renames it; the invariant above says a label either fits or
-                    // is not drawn, and this branch was breaking it. Where the ticker cannot fit at
-                    // all the arrow still can, and it is the more useful of the two to keep.
-                    when {
-                        fits("$dir  ${t.symbol}", MIN_LABEL_SP) ->
-                            TileSymbol(t.symbol, dir.ifEmpty { null }, MIN_LABEL_SP, ink)
-                        fits(t.symbol, MIN_LABEL_SP) -> TileSymbol(t.symbol, null, MIN_LABEL_SP, ink)
-                        dir.isNotEmpty() ->
-                            Text(dir, fontSize = MIN_LABEL_SP.sp, color = ink, maxLines = 1)
-                    }
-                }
-                // Below ~11dp a tile carries colour only — a label there would be unreadable and a
-                // truncated one is worse than none.
+                Text(
+                    if (p == 0.0) "0" else (if (p > 0) "+" else "−") + "${kotlin.math.abs(p).toInt()}%",
+                    fontSize = MIN_LABEL_SP.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = inkFor(fill),
+                    maxLines = 1,
+                )
             }
         }
     }
 }
 
-/** The figure shown on the tile: the move for price, the drawdown for signals. */
 private fun HeatmapTile.label(): String = when (scale) {
     "signal" -> pctOff52wHigh?.let { "${it.toInt()}%" } ?: ""
-    else -> (if (value > 0) "+" else "") + String.format("%.1f", value) + "%"
+    // A real minus sign, matching the colour key and the rest of the app.
+    else -> (if (value > 0) "+" else if (value < 0) "−" else "") + String.format(java.util.Locale.US, "%.1f", kotlin.math.abs(value)) + "%"
 }
 
 /**

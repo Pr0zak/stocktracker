@@ -190,6 +190,11 @@ private fun HeaderRow(
     }
 }
 
+/**
+ * The pick, kept to what fits a glance: who, the verdict in one line, three factor bars, the plan
+ * line, and two buttons. Everything else — the track record, how it fits your portfolio, the full
+ * thesis — sits behind "More" or in the Details sheet, so the card never becomes a page.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PickBody(
@@ -205,17 +210,15 @@ private fun PickBody(
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val price = resp.live?.price
     val change = resp.live?.changePct
+    var more by rememberSaveable(resp.date, sym) { mutableStateOf(false) }
 
-    // Symbol, name, live price.
     Row(
         modifier = Modifier.fillMaxWidth().clickable { onOpenSymbol(sym, p.name) },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clickable(onClickLabel = "What confidence means") { explain.show("conviction", "Confidence") }) {
+        Box(Modifier.clickable(onClickLabel = "What confidence means") { explain.show("conviction", "Confidence") }) {
             ConvictionRing(p.conviction)
-            Text("confidence ⓘ", style = MaterialTheme.typography.labelSmall, color = neutral)
         }
         Column(Modifier.weight(1f)) {
             Text(sym, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -229,66 +232,53 @@ private fun PickBody(
             }
         }
     }
+
+    (p.headline?.takeIf { it.isNotBlank() } ?: p.thesis)?.let {
+        Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2,
+            overflow = TextOverflow.Ellipsis)
+    }
     ContextChips(resp)
 
-    p.thesis?.takeIf { it.isNotBlank() }?.let {
-        Text("“$it”", style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic)
-    }
-
-    // WHY — at most four on the collapsed card, at least one against when there is one.
+    // Three bars, no sentences: label, bar, rank. The readings and the AI's words are in Details.
     val factors = p.factors.associateBy { it.key }
-    val forR = p.reasons.filter { it.supports }
-    val againstR = p.reasons.filterNot { it.supports }
-    val shown = (forR.take(3) + againstR.take(1)).take(4)
-    Text("WHY", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = neutral)
+    val shown = (p.reasons.filter { it.supports }.take(2) + p.reasons.filterNot { it.supports }.take(1))
     for (r in shown) {
         FactorRow(
             supports = r.supports, factor = factors[r.factor], fallbackLabel = r.factor, text = r.text,
             onExplain = { explain.show(r.factor, factors[r.factor]?.label ?: r.factor) },
-            // The card shows the measured reading only; a factor with no reading falls back to the
-            // AI's sentence so the row is never empty.
-            showText = factors[r.factor]?.display.isNullOrBlank(),
+            showText = false, compact = true,
         )
     }
 
-    // PLAN
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("PLAN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = neutral)
-        InfoButton("the plan") { explain.show("ladder", "The plan") }
-    }
     PlanLadder(p.levels, price)
-    val risk = DailyPickRead.riskLine(p.riskReward?.riskPerShare, p.riskReward?.rewardPerShare, p.riskReward?.rrRatio)
-    val chase = DailyPickRead.chaseLabel(resp.chase?.status, resp.chase?.pct)
-    listOfNotNull(risk, chase).takeIf { it.isNotEmpty() }?.let {
+    listOfNotNull(
+        DailyPickRead.chaseLabel(resp.chase?.status, resp.chase?.pct),
+        p.riskReward?.rrRatio?.let { String.format(Locale.US, "reward %.1f× risk", it) },
+    ).takeIf { it.isNotEmpty() }?.let {
         Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall,
             color = if (resp.chase?.status == "chase_too_deep") LossRed else neutral)
     }
-    if (p.levels?.entryHigh == null && p.levels?.stop == null && p.levels?.target == null) {
-        Text("The AI gave no price levels it could back up with the data.", style = MaterialTheme.typography.bodySmall, color = neutral)
+
+    if (more) {
+        DailyPickRead.trackRecordLine(p.trackRecord)?.let {
+            val thin = (p.trackRecord?.n ?: 0) < DailyPickRead.MIN_TRUSTED_N
+            Text(it + if (thin) " — too few to lean on" else "", style = MaterialTheme.typography.bodySmall,
+                color = if (thin) neutral.copy(alpha = 0.6f) else neutral)
+        }
+        (state.fit?.sentence ?: state.fitError)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
+        DailyPickRead.repeatLine(resp.repeats?.symbol, sym)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Signal) }
     }
 
-    // Track record, fit, repeats.
-    DailyPickRead.trackRecordLine(p.trackRecord)?.let {
-        val thin = (p.trackRecord?.n ?: 0) < DailyPickRead.MIN_TRUSTED_N
-        Text(it + if (thin) " — too few to lean on" else "", style = MaterialTheme.typography.bodySmall,
-            color = if (thin) neutral.copy(alpha = 0.6f) else neutral)
-    }
-    state.fit?.sentence?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
-        ?: state.fitError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
-    DailyPickRead.repeatLine(resp.repeats?.symbol, sym)?.let {
-        Text(it, style = MaterialTheme.typography.bodySmall, color = Signal)
-    }
-
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedButton(onClick = onWhy) { Text("Why · details") }
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = onWhy) { Text("Details") }
+        TextButton(onClick = { more = !more }) { Text(if (more) "Less" else "More") }
+        Box(Modifier.weight(1f))
         val logged = state.loggedKey == "${resp.date}|$sym"
         if (resp.stale != true) {
             TextButton(onClick = onBought, enabled = !logged) { Text(if (logged) "Logged ✓" else "I bought it") }
         }
     }
     state.journalNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = GainGreen) }
-    Text("A reading, not advice. Nothing here places a trade.", style = MaterialTheme.typography.labelSmall,
-        color = neutral.copy(alpha = 0.7f))
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -340,9 +330,9 @@ private fun NoPickBody(resp: DailyPickResponse, onWhy: () -> Unit, onOpenSymbol:
     if (closest != null && conv != null) {
         Text(
             buildAnnotatedString {
-                append("Closest was ")
+                append("Closest: ")
                 withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(closest.symbol) }
-                append(": confidence $conv/100, and today it needed ${p.convictionFloor ?: 60}.")
+                append(" · $conv/100, needed ${p.convictionFloor ?: 60}")
             },
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.clickable { onOpenSymbol(closest.symbol, closest.name) },
@@ -358,9 +348,9 @@ private fun NoPickBody(resp: DailyPickResponse, onWhy: () -> Unit, onOpenSymbol:
 
 
 /**
- * The intraday re-check: a button, and — once one has run today — what it concluded against this
- * morning's pick. Visibly separate from the pick above it (its own divider, its own "not graded"
- * stamp), because it never replaces that pick.
+ * The intraday re-check, in one line plus a button. What it concluded reads against this morning
+ * ("Still DK (68/100), was 72"); the reasons and the full explanation open under "More". Visibly
+ * separate from the pick above it, which it never replaces.
  */
 @Composable
 private fun RecheckSection(
@@ -372,51 +362,65 @@ private fun RecheckSection(
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val rc = resp.recheck
+    var more by rememberSaveable(rc?.ts) { mutableStateOf(false) }
     androidx.compose.material3.HorizontalDivider(color = neutral.copy(alpha = 0.25f))
-    rc?.let { r ->
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(DailyPickRead.recheckStamp(r.ts) ?: "Re-check", style = MaterialTheme.typography.labelSmall,
-                color = neutral, modifier = Modifier.weight(1f))
-            InfoButton("a re-check") { explain.show("recheck", "Re-check") }
-        }
-        val headline = DailyPickRead.recheckHeadline(r, resp.pick?.conviction)
-        if (headline != null) {
-            Text(
-                headline,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = if (r.sameAsMorning == false) Signal else MaterialTheme.colorScheme.onSurface,
-                modifier = r.pick?.symbol?.let { s -> Modifier.clickable { onOpenSymbol(s, r.pick.name) } } ?: Modifier,
-            )
-            // The reasons that moved it: today's move first, then one for and one against.
-            val p = r.pick
-            if (p != null) {
-                val factors = p.factors.associateBy { it.key }
-                factors["today_move"]?.let { f ->
-                    Text("Today: ${f.display}", style = MaterialTheme.typography.bodySmall, color = neutral)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            val headline = DailyPickRead.recheckHeadline(rc, resp.pick?.conviction)
+            when {
+                state.rechecking -> Text("Re-checking with live prices…", style = MaterialTheme.typography.bodyMedium)
+                headline != null -> Text(
+                    headline,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = if (rc?.sameAsMorning == false) Signal else MaterialTheme.colorScheme.onSurface,
+                    modifier = rc?.pick?.symbol?.let { s -> Modifier.clickable { onOpenSymbol(s, rc.pick.name) } } ?: Modifier,
+                )
+                rc?.status == "failed" -> Text("Last re-check failed", style = MaterialTheme.typography.bodyMedium, color = LossRed)
+                else -> Text("Still hold up? Re-check with live prices", style = MaterialTheme.typography.bodySmall, color = neutral)
+            }
+            // The time and the "Why" link share one line, so the reasons cost no space until asked for.
+            val hasMore = rc != null && (rc.pick != null || rc.noneReason != null || rc.error != null)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                DailyPickRead.recheckStamp(rc?.ts)?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
                 }
-                val shown = (p.reasons.filter { it.supports }.take(1) + p.reasons.filterNot { it.supports }.take(1))
-                for (reason in shown) {
-                    FactorRow(
-                        supports = reason.supports, factor = factors[reason.factor], fallbackLabel = reason.factor,
-                        text = reason.text, onExplain = { explain.show(reason.factor, factors[reason.factor]?.label ?: reason.factor) },
-                        showText = factors[reason.factor]?.display.isNullOrBlank(),
+                if (hasMore) {
+                    Text(
+                        if (more) " · Less" else " · Why",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable(onClickLabel = if (more) "Hide the reasons" else "Show why") { more = !more }
+                            .padding(vertical = 12.dp),
                     )
                 }
             }
-        } else if (r.status == "failed") {
-            Text("The last re-check failed: ${r.error ?: "no reason given"}", style = MaterialTheme.typography.bodySmall, color = LossRed)
+        }
+        if (state.rechecking) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        } else {
+            TextButton(onClick = onRecheck) { Text("Re-check") }
         }
     }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = onRecheck, enabled = !state.rechecking) {
-            Text(if (state.rechecking) "Re-checking… (about a minute)" else if (rc == null) "Re-check now" else "Re-check again")
+    if (more && rc != null) {
+        rc.error?.takeIf { rc.status == "failed" }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = LossRed) }
+        (rc.noneDetail ?: rc.noneReason)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
+        rc.pick?.let { p ->
+            val factors = p.factors.associateBy { it.key }
+            factors["today_move"]?.let { f -> Text("Today: ${f.display}", style = MaterialTheme.typography.bodySmall, color = neutral) }
+            (p.reasons.filter { it.supports }.take(1) + p.reasons.filterNot { it.supports }.take(1)).forEach { reason ->
+                FactorRow(
+                    supports = reason.supports, factor = factors[reason.factor], fallbackLabel = reason.factor,
+                    text = reason.text, onExplain = { explain.show(reason.factor, factors[reason.factor]?.label ?: reason.factor) },
+                )
+            }
         }
-        if (state.rechecking) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-    }
-    if (rc == null && !state.rechecking) {
-        Text("Runs this morning's shortlist again with live prices. The morning pick stays as it is.",
-            style = MaterialTheme.typography.labelSmall, color = neutral)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Not graded — the morning pick stays as it is.", style = MaterialTheme.typography.labelSmall, color = neutral,
+                modifier = Modifier.weight(1f))
+            InfoButton("a re-check") { explain.show("recheck", "Re-check") }
+        }
     }
     state.recheckNote?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = neutral) }
     state.recheckError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = LossRed) }

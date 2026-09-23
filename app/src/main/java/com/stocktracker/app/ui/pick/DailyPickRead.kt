@@ -235,7 +235,7 @@ object DailyPickRead {
     fun recheckStamp(ts: Double?, zone: ZoneId = ZoneId.systemDefault()): String? {
         if (ts == null || ts <= 0) return null
         val t = Instant.ofEpochMilli((ts * 1000).toLong()).atZone(zone)
-        return "Re-checked ${t.format(TIME_ZONED)} · not graded"
+        return "Re-checked ${t.format(TIME_ZONED)}"
     }
 
     /**
@@ -248,17 +248,14 @@ object DailyPickRead {
         return when (rc.status) {
             "pick" -> {
                 val sym = rc.pick?.symbol ?: return null
-                val conf = rc.pick.conviction?.let { " (confidence $it)" } ?: ""
+                val conf = rc.pick.conviction?.let { " ($it/100)" } ?: ""
                 when {
-                    morning == null -> "Now picks $sym$conf — this morning had no pick."
-                    sym == morning -> "Still $sym$conf" + (morningConviction?.let { " — it was $it this morning." } ?: ".")
-                    else -> "Now prefers $sym$conf over this morning's $morning."
+                    morning == null -> "Now picks $sym$conf"
+                    sym == morning -> "Still $sym$conf" + (morningConviction?.let { ", was $it" } ?: "")
+                    else -> "Now prefers $sym$conf over $morning"
                 }
             }
-            "none" -> {
-                val why = rc.noneReason?.let { " $it" } ?: ""
-                if (morning != null) "No longer a pick.$why" else "Still no pick.$why"
-            }
+            "none" -> if (morning != null) "No longer a pick" else "Still no pick"
             else -> null
         }
     }
@@ -289,7 +286,8 @@ object DailyPickRead {
             val p = resp.pick!!
             val sym = p.symbol!!
             val conv = p.conviction?.let { " — confidence $it" } ?: ""
-            val body = p.thesis?.takeIf { it.isNotBlank() } ?: "Tap for the reasons for and against."
+            val body = p.headline?.takeIf { it.isNotBlank() } ?: p.thesis?.takeIf { it.isNotBlank() }
+                ?: "Tap for the reasons for and against."
             return Note("Today's pick: $sym$conv", body)
         }
         if (resp.isNone) {

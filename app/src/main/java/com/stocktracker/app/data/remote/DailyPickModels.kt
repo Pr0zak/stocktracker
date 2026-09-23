@@ -39,7 +39,10 @@ data class DailyPickResponse(
     val screen: DailyPickScreen? = null,
     @SerialName("rule_pick") val rulePick: DailyPickRulePick? = null,
     val pick: DailyPick? = null,
+    /** One short line — what the card shows. */
     @SerialName("none_reason") val noneReason: String? = null,
+    /** The full explanation, shown only when the reader asks. Null when the short line says it all. */
+    @SerialName("none_detail") val noneDetail: String? = null,
     val live: DailyPickLive? = null,
     val chase: DailyPickChase? = null,
     val repeats: DailyPickRepeats? = null,
@@ -65,6 +68,7 @@ data class DailyPickRecheck(
     val error: String? = null,
     val pick: DailyPick? = null,
     @SerialName("none_reason") val noneReason: String? = null,
+    @SerialName("none_detail") val noneDetail: String? = null,
     @SerialName("morning_symbol") val morningSymbol: String? = null,
     /** Null when it could not be compared (a failed re-check). */
     @SerialName("same_as_morning") val sameAsMorning: Boolean? = null,
@@ -122,6 +126,8 @@ data class DailyPick(
     val symbol: String? = null,
     val name: String? = null,
     val conviction: Int? = null,
+    /** The verdict in about ten words — the card's first line. */
+    val headline: String? = null,
     val thesis: String? = null,
     val invalidation: String? = null,
     val reasons: List<DailyPickReason> = emptyList(),

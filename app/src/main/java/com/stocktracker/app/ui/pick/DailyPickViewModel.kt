@@ -209,7 +209,7 @@ class DailyPickViewModel : ViewModel() {
                     recheckError = r.exceptionOrNull()?.let { e -> "Couldn't re-check — ${e.message ?: "no answer"}." }
                         ?: rc?.takeIf { x -> x.status == "failed" }?.let { x -> "Re-check failed: ${x.error ?: "no reason given"}." },
                     recheckNote = rc?.cooldownSeconds?.takeIf { s -> s > 0 }
-                        ?.let { s -> "Showing the last re-check — the next one can run in ${(s + 59) / 60} min." },
+                        ?.let { s -> "Next re-check in ${(s + 59) / 60} min" },
                 )
             }
             load()

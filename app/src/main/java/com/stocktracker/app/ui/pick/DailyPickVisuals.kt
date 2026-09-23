@@ -95,6 +95,8 @@ fun FactorRow(
     modifier: Modifier = Modifier,
     /** The AI's own sentence under the measured reading. Off on the card, where it mostly repeats it. */
     showText: Boolean = true,
+    /** One line only: label, bar, rank — the reading moves to the sheet. For the card. */
+    compact: Boolean = false,
 ) {
     val tint = if (supports) GainGreen else LossRed
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
@@ -134,8 +136,9 @@ fun FactorRow(
         }
         // The measured reading first (the server's words and numbers), then — on the sheet — the AI's
         // sentence about why it matters.
-        factor?.display?.takeIf { it.isNotBlank() }?.let {
+        if (!compact || factor?.pctile == null) factor?.display?.takeIf { it.isNotBlank() }?.let {
             Text(it.replaceFirstChar { c -> c.uppercase() }, style = MaterialTheme.typography.bodySmall,
+                maxLines = if (compact) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 22.dp))
         }
         if (showText) text?.takeIf { it.isNotBlank() }?.let {

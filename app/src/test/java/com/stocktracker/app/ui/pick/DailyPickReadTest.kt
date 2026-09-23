@@ -59,11 +59,12 @@ class DailyPickReadTest {
         fun rc(status: String, sym: String?, morning: String?, conv: Int? = 68, why: String? = null) =
             com.stocktracker.app.data.remote.DailyPickRecheck(status = status, morningSymbol = morning, noneReason = why,
                 pick = sym?.let { DailyPick(symbol = it, conviction = conv) })
-        assertEquals("Still DK (confidence 68) — it was 72 this morning.", DailyPickRead.recheckHeadline(rc("pick", "DK", "DK"), 72))
-        assertEquals("Now prefers XOM (confidence 68) over this morning's DK.", DailyPickRead.recheckHeadline(rc("pick", "XOM", "DK"), 72))
-        assertEquals("Now picks XOM (confidence 68) — this morning had no pick.", DailyPickRead.recheckHeadline(rc("pick", "XOM", null), null))
-        assertEquals("No longer a pick. It fell 6% on news.", DailyPickRead.recheckHeadline(rc("none", null, "DK", why = "It fell 6% on news."), 72))
-        assertEquals("Still no pick.", DailyPickRead.recheckHeadline(rc("none", null, null), null))
+        // Short on purpose: one line on the card, the reasons behind "Why".
+        assertEquals("Still DK (68/100), was 72", DailyPickRead.recheckHeadline(rc("pick", "DK", "DK"), 72))
+        assertEquals("Now prefers XOM (68/100) over DK", DailyPickRead.recheckHeadline(rc("pick", "XOM", "DK"), 72))
+        assertEquals("Now picks XOM (68/100)", DailyPickRead.recheckHeadline(rc("pick", "XOM", null), null))
+        assertEquals("No longer a pick", DailyPickRead.recheckHeadline(rc("none", null, "DK", why = "It fell 6% on news."), 72))
+        assertEquals("Still no pick", DailyPickRead.recheckHeadline(rc("none", null, null), null))
         assertNull(DailyPickRead.recheckHeadline(rc("failed", null, "DK"), 72))
         assertNull(DailyPickRead.recheckStamp(null))
     }

@@ -138,7 +138,9 @@ fun DailyPickSheet(
             } else {
                 Text(DailyPickRead.header(DailyPickRead.Shape.NoPick(resp, resp.stale == true)),
                     style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(resp.noneReason ?: "Nothing was convincing enough today.", style = MaterialTheme.typography.bodyMedium)
+                // The sheet is where the full reason lives; the card shows only the short line.
+                Text(resp.noneDetail ?: resp.noneReason ?: "Nothing was convincing enough today.",
+                    style = MaterialTheme.typography.bodyMedium)
                 ContextChips(resp)
                 p?.runnersUp?.takeIf { it.isNotEmpty() }?.let { ru ->
                     Section("What came close")

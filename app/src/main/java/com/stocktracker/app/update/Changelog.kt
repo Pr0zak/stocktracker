@@ -16,6 +16,11 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.9.1" to listOf(
+            "Fixed: opening the Sandbox could close the app if the server refused the request",
+            "Fixed: saving in Settings could erase your Signals service address",
+            "Fixed: the Markets tab showed the wrong scan's age, and the Sandbox blamed the network for a token problem",
+        ),
         "1.9.0" to listOf(
             "New: a Daily Pick card \u2014 one stock a morning (or \"no pick today\"), with the reasons for and against drawn out",
             "New: a morning notification for the pick, and alerts when it reaches its buy zone, exit price or target",

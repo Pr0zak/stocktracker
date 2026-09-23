@@ -58,7 +58,15 @@ data class DailyPickGate(
     val unmeasured: List<String> = emptyList(),
     @SerialName("market_score") val marketScore: Double? = null,
     val note: String? = null,
-)
+    /** The five checks with their readings. Empty on runs recorded before 2026-09-23. */
+    val legs: List<GateLeg> = emptyList(),
+) {
+    /** The same shape the Watchlist's gate card reads, so both screens word the gate identically. */
+    fun toGateResponse(): GateResponse = GateResponse(
+        passed = passed, available = available, marketScore = marketScore, legs = legs,
+        failing = failing, unmeasured = unmeasured, note = note ?: "",
+    )
+}
 
 @Serializable
 data class DailyPickScreen(

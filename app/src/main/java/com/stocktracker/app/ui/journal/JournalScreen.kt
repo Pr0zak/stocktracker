@@ -692,7 +692,7 @@ private fun JournalEntryDialog(
                 Text("The plan you were given", style = MaterialTheme.typography.labelLarge, color = neutral, modifier = Modifier.padding(top = 6.dp))
                 entry.plan.action?.let { StatRow("Action", it.replace('_', ' ')) }
                 planLevels(entry)?.let { StatRow("Levels", it) }
-                entry.plan.conviction?.let { StatRow("Conviction", "$it/100") }
+                entry.plan.conviction?.let { StatRow("Confidence", "$it/100") }
                 entry.plan.thesis?.takeIf { it.isNotBlank() }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall)
                 }

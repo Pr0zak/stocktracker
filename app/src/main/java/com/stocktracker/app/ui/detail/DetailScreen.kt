@@ -2212,7 +2212,7 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
             // %-from-line lives in the bar above; the cells cover the rest.
             Row(modifier = Modifier.fillMaxWidth()) {
                 tr.sma200w?.let {
-                    StatCell("200w SMA", "%.2f".format(it), modifier = Modifier.weight(1f))
+                    StatCell("200-week avg", "%.2f".format(it), modifier = Modifier.weight(1f))
                 }
                 zoneLabel?.let { StatCell("Zone", it, modifier = Modifier.weight(1f)) }
                 tr.pctOffAllTimeHigh?.let {
@@ -3144,7 +3144,7 @@ private fun EntryPlanCard(
                     style = MaterialTheme.typography.labelMedium,
                     color = neutral,
                 )
-                Text("Conviction ${plan.conviction}/100", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, color = c)
+                Text("Confidence ${plan.conviction}/100", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, color = c)
             }
             Box(
                 modifier = Modifier

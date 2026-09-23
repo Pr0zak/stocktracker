@@ -46,6 +46,9 @@ import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceSmall
 import com.stocktracker.app.ui.theme.Signal
+import com.stocktracker.app.ui.watchlist.GateRead
+import com.stocktracker.app.ui.watchlist.GateVerdict
+import com.stocktracker.app.ui.watchlist.MarketChecksDialog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -199,7 +202,11 @@ private fun PickBody(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ConvictionRing(p.conviction)
+        Column(horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.clickable(onClickLabel = "What confidence means") { explain.show("conviction", "Confidence") }) {
+            ConvictionRing(p.conviction)
+            Text("confidence ⓘ", style = MaterialTheme.typography.labelSmall, color = neutral)
+        }
         Column(Modifier.weight(1f)) {
             Text(sym, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             p.name?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -212,11 +219,6 @@ private fun PickBody(
             }
         }
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Conviction", style = MaterialTheme.typography.labelSmall, color = neutral)
-        InfoButton("conviction") { explain.show("conviction", "Conviction") }
-    }
-
     ContextChips(resp)
 
     p.thesis?.takeIf { it.isNotBlank() }?.let {
@@ -233,6 +235,9 @@ private fun PickBody(
         FactorRow(
             supports = r.supports, factor = factors[r.factor], fallbackLabel = r.factor, text = r.text,
             onExplain = { explain.show(r.factor, factors[r.factor]?.label ?: r.factor) },
+            // The card shows the measured reading only; a factor with no reading falls back to the
+            // AI's sentence so the row is never empty.
+            showText = factors[r.factor]?.display.isNullOrBlank(),
         )
     }
 
@@ -249,7 +254,7 @@ private fun PickBody(
             color = if (resp.chase?.status == "chase_too_deep") LossRed else neutral)
     }
     if (p.levels?.entryHigh == null && p.levels?.stop == null && p.levels?.target == null) {
-        Text("The analyst gave no price levels it could justify.", style = MaterialTheme.typography.bodySmall, color = neutral)
+        Text("The AI gave no price levels it could back up with the data.", style = MaterialTheme.typography.bodySmall, color = neutral)
     }
 
     // Track record, fit, repeats.
@@ -280,29 +285,44 @@ private fun PickBody(
 @Composable
 internal fun ContextChips(resp: DailyPickResponse) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    var checksOpen by rememberSaveable { mutableStateOf(false) }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // The market checks, worded by the same reader the Watchlist's gate card uses, and tappable
+        // for a summary of all five. Colour follows the verdict; an unmeasured check is never red.
         val g = resp.gate
-        when {
-            g == null || !g.available -> PickChip("gate unknown", neutral)
-            g.passed == true -> PickChip("gate open", GainGreen)
-            g.passed == false -> PickChip("gate shut", LossRed)
-            else -> PickChip("gate undecided", Signal)
+        val summary = g?.let { GateRead.summary(it.toGateResponse()) }
+        val color = when (summary?.verdict) {
+            GateVerdict.OPEN -> GainGreen
+            GateVerdict.SHUT -> Signal
+            GateVerdict.UNMEASURED -> Signal
+            else -> neutral
         }
+        PickChip(summary?.chip ?: "Market checks unavailable", color,
+            onClick = if (g != null) ({ checksOpen = true }) else null)
+        // Only a pick has an earnings date to know. On a no-pick day there is nothing to be unknown about.
         val e = resp.pick?.earnings
-        when {
+        if (resp.isPick) when {
             e == null || !e.ok -> PickChip("earnings date unknown", Signal)
-            e.date != null -> PickChip("earnings ${e.date}", if ((e.sessions ?: 99) <= 10) Signal else neutral)
-            else -> PickChip("no earnings in ${e.windowDays ?: 7}d", neutral)
+            e.date != null -> PickChip("earnings ${DailyPickRead.shortDate(e.date)}", if ((e.sessions ?: 99) <= 10) Signal else neutral)
+            else -> PickChip("no earnings this week", neutral)
         }
-        if (resp.macroAvailable == false) PickChip("no macro read", Signal)
-        DailyPickRead.scanLagNote(resp)?.let { PickChip("scan 1 day old", Signal) }
+        if (resp.macroAvailable == false) PickChip("news backdrop unknown", Signal)
+        DailyPickRead.scanLagNote(resp)?.let { PickChip("based on an older close", Signal) }
+    }
+    val g = resp.gate
+    if (checksOpen && g != null) {
+        MarketChecksDialog(
+            g.toGateResponse(),
+            footer = if (g.passed == false) "Because a check fails, today's pick needed a confidence of 70 instead of 60." else null,
+            onDismiss = { checksOpen = false },
+        )
     }
 }
 
 @Composable
 private fun NoPickBody(resp: DailyPickResponse, onWhy: () -> Unit, onOpenSymbol: (String, String?) -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    Text(resp.noneReason ?: "Nothing cleared the bar.", style = MaterialTheme.typography.bodyMedium)
+    Text(resp.noneReason ?: "Nothing was convincing enough today.", style = MaterialTheme.typography.bodyMedium)
     ContextChips(resp)
     resp.pick?.closest?.let { c ->
         Row(
@@ -315,7 +335,7 @@ private fun NoPickBody(resp: DailyPickResponse, onWhy: () -> Unit, onOpenSymbol:
         }
     }
     resp.pick?.rejectedConviction?.let {
-        Text("Its conviction was $it; the bar was ${resp.pick.convictionFloor ?: 60}.",
+        Text("Its confidence was $it out of 100; today it needed ${resp.pick.convictionFloor ?: 60}.",
             style = MaterialTheme.typography.bodySmall, color = neutral)
     }
     TextButton(onClick = onWhy) { Text("What came close · past picks") }

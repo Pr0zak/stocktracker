@@ -72,30 +72,30 @@ object GateRead {
                 // Worded apart from the UNMEASURED headline below on purpose: there, four legs were
                 // read and one wasn't; here nothing was read at all. Same colourless treatment, but
                 // a reader deserves to know which of the two they are looking at.
-                headline = "No gate reading",
-                detail = "Nothing was measured, so there is no reading — this is not a shut gate.",
-                chip = "Gate unavailable",
+                headline = "No market-check reading",
+                detail = "Nothing was measured, so there is no reading — this is not a failed check.",
+                chip = "Market checks unavailable",
             )
         }
         return when (resp.passed) {
             true -> GateSummary(
                 verdict = GateVerdict.OPEN,
-                headline = "Gate open",
+                headline = "Market checks: all ${resp.legs.size.takeIf { it > 0 } ?: 5} pass",
                 detail = passedDetail(resp.legs),
-                chip = "Gate open",
+                chip = "Market checks pass",
             )
             false -> GateSummary(
                 verdict = GateVerdict.SHUT,
-                headline = "Gate shut",
+                headline = shutHeadline(resp),
                 detail = failingDetail(resp),
-                chip = "Gate shut",
+                chip = shutChip(resp),
             )
             // The one that must not read as a fail: nothing failed, something couldn't be read.
             null -> GateSummary(
                 verdict = GateVerdict.UNMEASURED,
-                headline = "Gate couldn't be measured",
+                headline = "Market checks: one couldn't be read",
                 detail = unmeasuredDetail(resp),
-                chip = "Gate unmeasured",
+                chip = "Market check incomplete",
             )
         }
     }
@@ -138,9 +138,111 @@ object GateRead {
      * list into a lie.
      */
     private fun names(keys: List<String>?, legs: List<GateLeg>): List<String> =
-        keys.orEmpty().map { k -> legs.firstOrNull { it.key == k }?.name?.takeIf { n -> n.isNotBlank() } ?: k }
+        keys.orEmpty().map { k ->
+            // The server's `failing`/`unmeasured` lists carry leg NAMES ("Breadth > 55%"); match on
+            // either, and prefer the plain title of whichever leg it resolves to.
+            val key = legs.firstOrNull { it.key == k || it.name == k }?.key ?: keyForName(k) ?: k
+            plain(key)?.title ?: legs.firstOrNull { it.key == k }?.name?.takeIf { n -> n.isNotBlank() } ?: k
+        }
 
-    private fun labels(legs: List<GateLeg>): List<String> = legs.map { legLabel(it) }
+    /** The server's leg names, for payloads that carry a `failing` list but no legs (older records). */
+    fun keyForName(name: String): String? = when (name) {
+        "SPY > 50-EMA" -> "spy_above_ema50"
+        "QQQ > 50-EMA" -> "qqq_above_ema50"
+        "Breadth > 55%" -> "breadth_55"
+        "VIX < 20" -> "vix_under_20"
+        "SPY 20-day momentum > 0" -> "spy_mom_20d"
+        else -> null
+    }
+
+    private fun labels(legs: List<GateLeg>): List<String> = legs.map { legTitle(it) }
+
+    // ------------------------------------------------------------------ plain language
+    //
+    // The server names its legs in trader shorthand ("SPY > 50-EMA", "Breadth > 55%"). Those names
+    // are exact, and they stay in the payload, but they are not readable by someone who does not
+    // already know what a 50-EMA or breadth is. Everything the app SHOWS goes through the titles
+    // below; an unrecognised key still falls back to the server's own name rather than disappearing.
+
+    /** A leg in plain words: what it checks, and what passing it means. */
+    data class PlainLeg(val title: String, val meaning: String)
+
+    fun plain(key: String?): PlainLeg? = when (key) {
+        "spy_above_ema50" -> PlainLeg(
+            "S&P 500 above its 50-day average",
+            "The broad market's price is above its average of the last 50 trading days — it is trending up.",
+        )
+        "qqq_above_ema50" -> PlainLeg(
+            "Nasdaq-100 above its 50-day average",
+            "The big tech-heavy index is trending up the same way.",
+        )
+        "breadth_55" -> PlainLeg(
+            "Most stocks in uptrends",
+            "More than 55% of all stocks trade above their own 50-day average, so the rally is broad " +
+                "rather than carried by a few giant companies.",
+        )
+        "vix_under_20" -> PlainLeg(
+            "Fear index calm",
+            "The VIX — a measure of how much turbulence traders expect — is under 20.",
+        )
+        "spy_mom_20d" -> PlainLeg(
+            "S&P 500 up over the last month",
+            "The S&P 500 is higher than it was 20 trading days ago.",
+        )
+        else -> null
+    }
+
+    /** The title every screen shows for a leg. */
+    fun legTitle(leg: GateLeg): String = plain(leg.key)?.title ?: legLabel(leg)
+
+    /** The leg's reading in words, with the bar it had to clear. Null when nothing was measured. */
+    fun plainValue(leg: GateLeg): String? {
+        val v = leg.value ?: return legValue(leg)
+        return when (leg.key) {
+            "breadth_55" -> "${num(v)}% of stocks (needs over ${num(leg.threshold ?: 55.0)}%)"
+            "vix_under_20" -> "VIX ${num(v)} (needs under ${num(leg.threshold ?: 20.0)})"
+            "spy_above_ema50", "qqq_above_ema50" ->
+                leg.threshold?.let { "${num(v)}, average ${num(it)}" } ?: num(v)
+            "spy_mom_20d" -> String.format(Locale.US, "%+.2f%% (needs above 0)", v)
+            else -> legValue(leg)
+        }
+    }
+
+    /** "Market checks: 4 of 5 pass" — counted from the legs sent, never a hardcoded five. */
+    private fun shutHeadline(resp: GateResponse): String {
+        val n = resp.legs.size
+        val failed = resp.legs.count { it.ok == false }
+        if (n == 0) {
+            val f = resp.failing.orEmpty().size
+            return if (f > 0) "Market checks: $f of 5 fail" else "Market checks: one or more fail"
+        }
+        return if (n > 0 && failed > 0) "Market checks: ${n - failed} of $n pass" else "Market checks: one or more fail"
+    }
+
+    /**
+     * The shut gate compressed to a chip that says WHAT is wrong. One failing check is named in plain
+     * words ("Narrow market: 36% of stocks in uptrends"); several are counted.
+     */
+    private fun shutChip(resp: GateResponse): String {
+        val failing = resp.legs.filter { it.ok == false }.ifEmpty {
+            // No legs sent (an older record): rebuild bare legs from the failing names so the chip can
+            // still say WHICH check failed, without a reading it does not have.
+            resp.failing.orEmpty().map { n -> GateLeg(name = n, key = keyForName(n) ?: n, ok = false) }
+        }
+        if (failing.size != 1) {
+            return if (failing.isEmpty()) "Market checks fail" else "${failing.size} of ${resp.legs.size} market checks fail"
+        }
+        val leg = failing.single()
+        val v = leg.value
+        return when (leg.key) {
+            "breadth_55" -> v?.let { "Narrow market: ${Math.round(it)}% of stocks in uptrends" } ?: "Narrow market"
+            "spy_above_ema50" -> "S&P 500 below its 50-day average"
+            "qqq_above_ema50" -> "Nasdaq below its 50-day average"
+            "vix_under_20" -> v?.let { "Fear index high (VIX ${num(it)})" } ?: "Fear index high"
+            "spy_mom_20d" -> "S&P 500 down over the last month"
+            else -> "Failing: ${legTitle(leg)}"
+        }
+    }
 
     /** A leg's display name, degrading to its key. Never blank — a nameless row is unreadable. */
     fun legLabel(leg: GateLeg): String =

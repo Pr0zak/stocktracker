@@ -2,6 +2,7 @@ package com.stocktracker.app.ui.pick
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -62,7 +63,7 @@ fun ConvictionRing(conviction: Int?, modifier: Modifier = Modifier, size: Int = 
     Box(
         modifier = modifier
             .size(size.dp)
-            .semantics { contentDescription = c?.let { "Conviction $it out of 100" } ?: "Conviction unknown" },
+            .semantics { contentDescription = c?.let { "Confidence $it out of 100" } ?: "Confidence unknown" },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(size.dp)) {
@@ -92,11 +93,13 @@ fun FactorRow(
     text: String?,
     onExplain: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    /** The AI's own sentence under the measured reading. Off on the card, where it mostly repeats it. */
+    showText: Boolean = true,
 ) {
     val tint = if (supports) GainGreen else LossRed
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val label = factor?.label?.takeIf { it.isNotBlank() } ?: fallbackLabel
-    val rank = DailyPickRead.ordinal(factor?.pctile)
+    val rank = DailyPickRead.rankWords(factor?.pctile)
     val stanceWord = if (supports) "For" else "Against"
     Column(
         modifier = modifier
@@ -105,7 +108,7 @@ fun FactorRow(
                 contentDescription = buildString {
                     append("$stanceWord: $label. ")
                     factor?.display?.let { append("$it. ") }
-                    rank?.let { append("$it percentile of the market. ") }
+                    rank?.let { append("Ranks in the $it of the market. ") }
                     text?.let { append(it) }
                 }
             },
@@ -116,21 +119,27 @@ fun FactorRow(
                 if (supports) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown,
                 contentDescription = null, tint = tint, modifier = Modifier.size(16.dp),
             )
-            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.width(112.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (factor?.pctile != null) {
+                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.width(112.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 PercentileBar(factor.pctile, tint, Modifier.weight(1f))
                 Text(rank ?: "", style = MaterialTheme.typography.labelMedium, color = neutral,
-                    modifier = Modifier.width(36.dp))
+                    modifier = Modifier.width(76.dp), maxLines = 1)
             } else {
-                Text(factor?.display ?: "", style = MaterialTheme.typography.bodySmall, color = neutral,
-                    modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // No bar to make room for, so the label takes the row.
+                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f))
             }
             if (onExplain != null) InfoButton(label, onExplain)
         }
-        val detail = listOfNotNull(factor?.display?.takeIf { factor.pctile != null }, text).joinToString(" — ")
-        if (detail.isNotBlank()) {
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = neutral, modifier = Modifier.padding(start = 22.dp))
+        // The measured reading first (the server's words and numbers), then — on the sheet — the AI's
+        // sentence about why it matters.
+        factor?.display?.takeIf { it.isNotBlank() }?.let {
+            Text(it.replaceFirstChar { c -> c.uppercase() }, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 22.dp))
+        }
+        if (showText) text?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = neutral, modifier = Modifier.padding(start = 22.dp))
         }
     }
 }
@@ -179,7 +188,7 @@ fun PlanLadder(levels: DailyPickLevels?, price: Double?, modifier: Modifier = Mo
     val zoneColor = Signal.copy(alpha = 0.35f)
     val desc = buildString {
         append("Plan: ")
-        levels?.stop?.let { append("stop ${DailyPickRead.money(it)}, ") }
+        levels?.stop?.let { append("exit price ${DailyPickRead.money(it)}, ") }
         if (levels?.entryLow != null || levels?.entryHigh != null) {
             append("buy zone ${DailyPickRead.money(levels.entryLow)} to ${DailyPickRead.money(levels.entryHigh)}, ")
         }
@@ -213,7 +222,7 @@ fun PlanLadder(levels: DailyPickLevels?, price: Double?, modifier: Modifier = Mo
             val width = maxWidth
             for (m in marks) {
                 val label = when (m.kind) {
-                    DailyPickRead.Mark.Kind.STOP -> "stop ${DailyPickRead.money(m.price)}"
+                    DailyPickRead.Mark.Kind.STOP -> "exit ${DailyPickRead.money(m.price)}"
                     DailyPickRead.Mark.Kind.TARGET -> "target ${DailyPickRead.money(m.price)}"
                     DailyPickRead.Mark.Kind.PRICE -> "now"
                     else -> null
@@ -226,7 +235,7 @@ fun PlanLadder(levels: DailyPickLevels?, price: Double?, modifier: Modifier = Mo
                 // Anchor edge labels inward so "target $540" never runs off the right edge.
                 val x = width * m.x
                 val shift = when {
-                    m.x > 0.8f -> x - 84.dp
+                    m.x > 0.8f -> x - 104.dp
                     m.x > 0.2f -> x - 28.dp
                     else -> x
                 }
@@ -245,13 +254,14 @@ fun PlanLadder(levels: DailyPickLevels?, price: Double?, modifier: Modifier = Mo
 
 /** A small rounded chip — gate, earnings, macro. Colour carries meaning only alongside the words. */
 @Composable
-fun PickChip(text: String, color: Color, modifier: Modifier = Modifier) {
+fun PickChip(text: String, color: Color, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     Box(
         modifier
+            .then(if (onClick != null) Modifier.clickable(onClickLabel = "Explain", onClick = onClick) else Modifier)
             .background(color.copy(alpha = 0.14f), RoundedCornerShape(50))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
-        Text(text, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
+        Text(if (onClick != null) "$text ›" else text, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
     }
 }
 

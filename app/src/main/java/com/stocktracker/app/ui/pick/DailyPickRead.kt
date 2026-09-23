@@ -132,9 +132,9 @@ object DailyPickRead {
             } else if (riskPerShare != null) {
                 add("risk ${money(riskPerShare)} a share · no target given")
             } else if (rewardPerShare != null) {
-                add("${money(rewardPerShare)} a share to the target · no stop given")
+                add("${money(rewardPerShare)} a share to the target · no exit price given")
             }
-            rr?.let { add(String.format(Locale.US, "%.1fR", it)) }
+            rr?.let { add(String.format(Locale.US, "reward is %.1f× the risk", it)) }
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
     }
@@ -157,11 +157,22 @@ object DailyPickRead {
         return "$n$suffix"
     }
 
+    /** A rank in words: "top 3%" / "bottom 30%". Null percentile → null; the bar is not drawn. */
+    fun rankWords(p: Double?): String? {
+        if (p == null || !p.isFinite()) return null
+        val n = p.roundToInt().coerceIn(0, 100)
+        return if (n >= 50) "top ${(100 - n).coerceAtLeast(1)}%" else "bottom ${n.coerceAtLeast(1)}%"
+    }
+
+    /** "Nov 4" from an ISO date, or the raw string if it does not parse. */
+    fun shortDate(iso: String): String =
+        runCatching { LocalDate.parse(iso).format(DateTimeFormatter.ofPattern("MMM d", Locale.US)) }.getOrDefault(iso)
+
     fun trackRecordLine(tr: DailyPickTrackRecord?): String? {
         val beat = tr?.beatRate20d ?: return null
         val n = tr.n ?: return null
-        val names = tr.nSymbols?.let { " across $it names" } ?: ""
-        return "Setups like this beat the S&P ${(beat * 100).roundToInt()}% of the time over 20 days · n=$n$names"
+        val who = tr.nSymbols?.let { " ($it stocks)" } ?: ""
+        return "In $n similar past cases$who, it beat the S&P 500 ${(beat * 100).roundToInt()}% of the time over the next month"
     }
 
     /** Below this many graded setups a rate is shown greyed, as the memory layer's own card does. */
@@ -190,10 +201,10 @@ object DailyPickRead {
         "seasonality" to "How this stock has typically done in the current calendar month over the past decade. A weak tilt, not a rule.",
         "macro" to "The news-driven backdrop: wars, rates, oil, policy. No macro read means the backdrop is UNKNOWN, not calm.",
         "earnings" to "An earnings report can move a stock 5-10% overnight in either direction. Picks exclude names reporting in the next 3 sessions.",
-        "regime" to "The market gate: five conditions (S&P and Nasdaq above their 50-day averages, breadth, the VIX, and S&P momentum). When it is shut, the pick needs conviction 70 instead of 60.",
-        "conviction" to "Conviction: how sure the analyst is, 0 to 100. 70+ means several independent signals agree; 40-55 is a mixed picture. The card only shows picks of 60 or more (70 when the market gate is shut).",
-        "ladder" to "The plan: the stop is where the idea is wrong and you would sell; the shaded zone is a reasonable price to pay today; the target is the first realistic upside. R is the reward divided by the risk.",
-        "percentile" to "The bars are ranks, not grades: '88th' means higher than 88% of the ~3,000 stocks measured last night. A high rank is not always good — a high volatility rank means a jumpier stock.",
+        "regime" to "Market checks: five simple tests of market health — the S&P 500 and Nasdaq trends, whether most stocks are rising, the fear index, and the last month's direction. When any check fails, a pick needs confidence 70 instead of 60.",
+        "conviction" to "Confidence: how sure the AI is, 0 to 100. 70 or more means several independent signals agree; 40-55 is a mixed picture. The card only shows picks of 60 or more — 70 when any market check fails.",
+        "ladder" to "The plan: the shaded zone is a reasonable price to pay today. The exit is the price where the idea has failed and you would sell to limit the loss. The target is the first realistic upside. 'Reward is 2× the risk' means the distance to the target is twice the distance to the exit.",
+        "percentile" to "The bars rank this stock against the ~3,000 measured last night: 'top 12%' means only 12% of stocks scored higher. A high rank is not always good — 'top 5%' for daily swings means one of the jumpiest stocks.",
     )
 
     // ------------------------------------------------------------ DP-11 comparison
@@ -201,9 +212,9 @@ object DailyPickRead {
     fun comparisonLine(c: DailyPickComparison?, minDays: Int): String? {
         c ?: return null
         if (c.nDays == 0) return "No pick has a ${c.horizonSessions ?: "?"}-day result yet."
-        val head = "AI pick beat the simple rule on ${c.aiBetter} of ${c.nDays} days" +
+        val head = "the AI's pick beat the simple rule on ${c.aiBetter} of ${c.nDays} days" +
             (if (c.ties > 0) " (${c.ties} tie${if (c.ties == 1) "" else "s"})" else "")
-        val med = c.medianDiffPp?.let { String.format(Locale.US, ", median %+.1f pts", it) } ?: ""
+        val med = c.medianDiffPp?.let { String.format(Locale.US, ", by a typical %+.1f points", it) } ?: ""
         val thin = if (c.nDays < minDays) " — too few days to mean anything yet" else ""
         return head + med + thin
     }
@@ -221,7 +232,7 @@ object DailyPickRead {
         if (resp.isPick) {
             val p = resp.pick!!
             val sym = p.symbol!!
-            val conv = p.conviction?.let { " ($it)" } ?: ""
+            val conv = p.conviction?.let { " — confidence $it" } ?: ""
             val body = p.thesis?.takeIf { it.isNotBlank() } ?: "Tap for the reasons for and against."
             return Note("Today's pick: $sym$conv", body)
         }
@@ -305,8 +316,8 @@ object DailyPickRead {
                 )
             }
             Alert.HIT_STOP -> Note(
-                if (mine) "$who hit its stop" else "$symbol broke its stop",
-                "$px at $readAt, at or under the ${money(levels?.stop)} stop — " +
+                if (mine) "$who hit its exit price" else "$symbol fell to its exit price",
+                "$px at $readAt, at or under the ${money(levels?.stop)} exit — " +
                     if (mine) "the plan says the idea is wrong." else "today's pick is invalidated.",
             )
             Alert.HIT_TARGET -> Note(

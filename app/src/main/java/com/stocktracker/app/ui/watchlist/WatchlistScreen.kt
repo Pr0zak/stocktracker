@@ -734,9 +734,12 @@ private fun MarketContext(
         // Unmeasured gets the amber, never the red: a gate that couldn't read a leg has not
         // observed a bearish market, and one glance at this line is all most readings get.
         gate?.let { g ->
-            add(g.chip to when (g.verdict) {
+            // The strip has room for a few words, so only the chip's lead ("Narrow market"); the card
+            // below carries the number. A failed check is amber, not red: it is a caution about
+            // conditions, not a loss, and the Daily Pick card colours it the same way.
+            add(g.chip.substringBefore(":") to when (g.verdict) {
                 GateVerdict.OPEN -> GainGreen
-                GateVerdict.SHUT -> LossRed
+                GateVerdict.SHUT -> Signal
                 GateVerdict.UNMEASURED -> Signal
                 GateVerdict.UNAVAILABLE -> neutral
             })
@@ -1561,7 +1564,7 @@ private fun GateCard(ui: GateUi, onRefresh: () -> Unit) {
                     // The score is null whenever a leg went unmeasured — the server refuses to
                     // average over a hole, so this prints a dash rather than a confident middle.
                     Text(
-                        "Score ${score ?: "—"}",
+                        "Score ${score?.let { "$it/100" } ?: "—"}",
                         style = MaterialTheme.typography.labelMedium,
                         color = neutral,
                         maxLines = 1,
@@ -1569,7 +1572,7 @@ private fun GateCard(ui: GateUi, onRefresh: () -> Unit) {
                 }
             } else {
                 Text(
-                    "Market gate", style = MaterialTheme.typography.labelLarge, color = neutral,
+                    "Market checks", style = MaterialTheme.typography.labelLarge, color = neutral,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -1579,14 +1582,14 @@ private fun GateCard(ui: GateUi, onRefresh: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onRefresh, modifier = Modifier.size(48.dp)) {
                         Icon(
-                            Icons.Filled.Refresh, contentDescription = "Refresh the market gate",
+                            Icons.Filled.Refresh, contentDescription = "Refresh the market checks",
                             tint = if (ui.error != null) red else neutral, modifier = Modifier.size(18.dp),
                         )
                     }
                     if (summary != null) {
                         Icon(
                             if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = if (open) "Collapse the market gate" else "Expand the market gate",
+                            contentDescription = if (open) "Collapse the market checks" else "Expand the market checks",
                             tint = neutral,
                         )
                     }
@@ -1661,13 +1664,16 @@ private fun GateLegRow(leg: GateLeg) {
             modifier = Modifier.width(14.dp),
         )
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(GateRead.legLabel(leg), style = MaterialTheme.typography.bodySmall)
-            leg.note.takeIf { it.isNotBlank() }?.let {
+            Text(GateRead.legTitle(leg), style = MaterialTheme.typography.bodySmall)
+            // A measured leg says what it means in plain words; an unmeasured one keeps the server's
+            // note, because that note is the only thing that says WHY it could not be read.
+            val sub = if (leg.ok != null) GateRead.plain(leg.key)?.meaning ?: leg.note else leg.note
+            sub.takeIf { it.isNotBlank() }?.let {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
             }
         }
         // Dropped entirely when neither number arrived — never a "0 vs 0".
-        GateRead.legValue(leg)?.let {
+        GateRead.plainValue(leg)?.let {
             Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
         }
     }

@@ -87,7 +87,7 @@ fun DailyPickSheet(
                     FactorRow(false, factors[r.factor], r.factor, r.text, onExplain = { explain.show(r.factor, factors[r.factor]?.label ?: r.factor) })
                 }
                 if ((p.reasonsDropped ?: 0) > 0) {
-                    Text("${p.reasonsDropped} reason(s) the analyst gave were removed because they cited data that was not measured.",
+                    Text("${p.reasonsDropped} reason(s) the AI gave were removed because they relied on data that could not be checked.",
                         style = MaterialTheme.typography.labelSmall, color = neutral)
                 }
 
@@ -99,7 +99,7 @@ fun DailyPickSheet(
                 Section("Where it sits")
                 p.rsi14?.let { rsi ->
                     ThresholdMeter(
-                        label = "RSI (70 = stretched)",
+                        label = "How fast it has risen (RSI — over 70 is overheated)",
                         valueText = String.format(Locale.US, "%.0f", rsi),
                         fraction = (rsi / 100.0).toFloat().coerceIn(0f, 1f),
                         color = if (rsi >= 70) LossRed else if (rsi <= 30) GainGreen else Signal,
@@ -116,7 +116,7 @@ fun DailyPickSheet(
                 }
                 if (px != null && p.sma200w != null && p.sma200w > 0) {
                     val pct = (px / p.sma200w - 1) * 100
-                    Text("Against the 200-week line", style = MaterialTheme.typography.labelMedium, color = neutral)
+                    Text("Vs its 4-year average (200-week)", style = MaterialTheme.typography.labelMedium, color = neutral)
                     TwoHundredWeekLineBar(pctFromLine = pct, belowLine = pct < 0)
                 }
 
@@ -138,7 +138,7 @@ fun DailyPickSheet(
             } else {
                 Text(DailyPickRead.header(DailyPickRead.Shape.NoPick(resp, resp.stale == true)),
                     style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(resp.noneReason ?: "Nothing cleared the bar.", style = MaterialTheme.typography.bodyMedium)
+                Text(resp.noneReason ?: "Nothing was convincing enough today.", style = MaterialTheme.typography.bodyMedium)
                 ContextChips(resp)
                 p?.runnersUp?.takeIf { it.isNotEmpty() }?.let { ru ->
                     Section("What came close")
@@ -151,8 +151,8 @@ fun DailyPickSheet(
                 }
                 resp.screen?.let { s ->
                     val parts = listOfNotNull(
-                        s.scanned?.let { "$it scanned" }, s.eligible?.let { "$it passed the filters" },
-                        s.earningsExcluded.size.takeIf { it > 0 }?.let { "$it skipped for earnings" },
+                        s.scanned?.let { "$it stocks checked" }, s.eligible?.let { "$it passed the basic filters" },
+                        s.earningsExcluded.size.takeIf { it > 0 }?.let { "$it skipped because earnings are due" },
                     )
                     if (parts.isNotEmpty()) Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = neutral)
                 }
@@ -189,9 +189,9 @@ private fun PastPicks(state: DailyPickUiState) {
         state.history == null -> Text("—", color = neutral)
         else -> {
             val h = state.history
-            listOf("5d", "20d").forEach { k ->
+            listOf("5d" to "After 1 week", "20d" to "After 1 month").forEach { (k, label) ->
                 DailyPickRead.comparisonLine(h.comparison[k], h.minDaysForComparison)?.let {
-                    Text("$k: $it", style = MaterialTheme.typography.bodySmall, color = neutral)
+                    Text("$label: $it", style = MaterialTheme.typography.bodySmall, color = neutral)
                 }
             }
             val items = h.items
@@ -199,8 +199,8 @@ private fun PastPicks(state: DailyPickUiState) {
             Row(Modifier.fillMaxWidth()) {
                 Text("Date", Modifier.width(88.dp), style = MaterialTheme.typography.labelSmall, color = neutral)
                 Text("Pick", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = neutral)
-                Text("5d vs S&P", Modifier.width(76.dp), style = MaterialTheme.typography.labelSmall, color = neutral)
-                Text("20d vs S&P", Modifier.width(76.dp), style = MaterialTheme.typography.labelSmall, color = neutral)
+                Text("1 wk vs S&P", Modifier.width(76.dp), style = MaterialTheme.typography.labelSmall, color = neutral)
+                Text("1 mo vs S&P", Modifier.width(76.dp), style = MaterialTheme.typography.labelSmall, color = neutral)
             }
             items.forEach { PastRow(it) }
         }
@@ -226,7 +226,7 @@ private fun PastRow(it: DailyPickHistoryItem) {
             val ex = it.marks[k]?.excessPp
             Text(
                 // A mark not written yet is "pending", never 0.0.
-                ex?.let { e -> String.format(Locale.US, "%+.1f pts", e) } ?: if (it.status == "pick") "pending" else "—",
+                ex?.let { e -> String.format(Locale.US, "%+.1f pts", e) } ?: if (it.status == "pick") "not yet" else "—",
                 Modifier.width(76.dp), style = MaterialTheme.typography.bodySmall,
                 color = when {
                     ex == null -> neutral
@@ -250,10 +250,10 @@ fun BoughtDialog(resp: DailyPickResponse, onDismiss: () -> Unit, onConfirm: (sha
     var shares by rememberSaveable { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Log your $sym buy") },
+        title = { Text("Log your $sym purchase") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Saved to your journal with the pick's stop and target, so the trade can be scored later.",
+                Text("Saved to your journal with the pick's exit and target prices, so you can see later how it went.",
                     style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(price, { price = it }, label = { Text("Price you paid") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))

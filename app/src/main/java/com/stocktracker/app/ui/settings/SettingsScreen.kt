@@ -284,8 +284,8 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                     scope.launch { settings.setShowVix(it) }
                 }
                 SwitchRow(
-                    "Market gate",
-                    "The five checkable conditions behind the regime read",
+                    "Market checks",
+                    "Five simple tests of market health: the S&P and Nasdaq trends, how many stocks are rising, the fear index, and the last month's direction",
                     showGate,
                 ) { scope.launch { settings.setShowGate(it) } }
             }

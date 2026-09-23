@@ -97,6 +97,13 @@ class DailyPickReadTest {
         assertEquals("—", DailyPickRead.money(null))
     }
 
+    @Test fun `rank words read as top or bottom and absent stays absent`() {
+        assertNull(DailyPickRead.rankWords(null))
+        assertEquals("top 12%", DailyPickRead.rankWords(88.2))
+        assertEquals("top 1%", DailyPickRead.rankWords(100.0))
+        assertEquals("bottom 30%", DailyPickRead.rankWords(30.0))
+    }
+
     @Test fun `ordinal of an absent percentile is absent`() {
         assertNull(DailyPickRead.ordinal(null))
         assertEquals("88th", DailyPickRead.ordinal(88.2))
@@ -125,7 +132,7 @@ class DailyPickReadTest {
     }
 
     @Test fun `morning note for a pick and for no pick`() {
-        assertEquals("Today's pick: BRK-B (72)", DailyPickRead.morningNote(pick(), "2026-09-22")!!.title)
+        assertEquals("Today's pick: BRK-B — confidence 72", DailyPickRead.morningNote(pick(), "2026-09-22")!!.title)
         val none = DailyPickResponse(available = true, date = "2026-09-22", status = "none", noneReason = "gate shut")
         assertEquals(DailyPickRead.Note("No pick today", "gate shut"), DailyPickRead.morningNote(none, "2026-09-22"))
     }
@@ -186,7 +193,7 @@ class DailyPickReadTest {
 
     @Test fun `alert text names the price and when it was read`() {
         val n = DailyPickRead.alertNote(Alert.HIT_STOP, "BRK-B", 93.5, levels, "10:15 AM ET", mine = true)
-        assertEquals("Your BRK-B position hit its stop", n.title)
+        assertEquals("Your BRK-B position hit its exit price", n.title)
         assertTrue(n.body.startsWith("\$93.50 at 10:15 AM ET"))
     }
 

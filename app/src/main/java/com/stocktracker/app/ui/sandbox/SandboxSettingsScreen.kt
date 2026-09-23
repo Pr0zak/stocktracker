@@ -353,7 +353,7 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                     )
 
                     Spacer(Modifier.height(8.dp))
-                    Label("Minimum conviction to buy")
+                    Label("Minimum confidence to buy")
                     ChipRow(listOf(40.0, 55.0, 70.0, 85.0), s.minConvictionToTrade.toDouble(),
                         { vm.setMinConviction(it.toInt()) }) { it.toInt().toString() }
                     Helper("Higher = pickier; it holds cash unless a setup is strong.")

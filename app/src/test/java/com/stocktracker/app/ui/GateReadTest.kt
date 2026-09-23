@@ -82,7 +82,9 @@ class GateReadTest {
             ),
         )!!
         assertEquals(GateVerdict.SHUT, shut.verdict)
-        assertTrue(shut.detail!!.contains("SPY > 50-EMA"))
+        // Known legs are shown in plain words, not the server's shorthand.
+        assertTrue(shut.detail!!.contains("S&P 500 above its 50-day average"))
+        assertFalse(shut.detail!!.contains("SPY > 50-EMA"))
         assertTrue(shut.detail!!.contains("VIX < 20"))
         assertFalse("a passing leg was named as failing", shut.detail!!.contains("Breadth"))
     }
@@ -114,7 +116,7 @@ class GateReadTest {
         val none = GateRead.summary(GateResponse(available = false))!!
         assertEquals(GateVerdict.UNAVAILABLE, none.verdict)
         assertNotEquals(GateVerdict.SHUT, none.verdict)
-        assertTrue(none.detail!!.contains("not a shut gate"))
+        assertTrue(none.detail!!.contains("not a failed check"))
         // And it is not the same state as "one leg went unread", so it doesn't borrow its words.
         val unread = GateRead.summary(GateResponse(passed = null, available = true))!!
         assertNotEquals(unread.headline, none.headline)
@@ -209,5 +211,39 @@ class GateReadTest {
         assertNull(GateRead.cachedNote(GateResponse(available = true, cached = false, cachedAgeSeconds = 400)))
         assertEquals("cached · 6m old", GateRead.cachedNote(GateResponse(available = true, cached = true, cachedAgeSeconds = 400)))
         assertEquals("cached", GateRead.cachedNote(GateResponse(available = true, cached = true, cachedAgeSeconds = null)))
+    }
+}
+
+class GatePlainWordsTest {
+    private fun leg(key: String, ok: Boolean?, v: Double? = null, t: Double? = null) =
+        com.stocktracker.app.data.remote.GateLeg(name = key, key = key, ok = ok, value = v, threshold = t)
+
+    @Test
+    fun `one failing check is named in the chip`() {
+        val legs = listOf(leg("spy_above_ema50", true), leg("qqq_above_ema50", true), leg("breadth_55", false, 35.5, 55.0),
+            leg("vix_under_20", true), leg("spy_mom_20d", true))
+        val s = GateRead.summary(GateResponse(passed = false, available = true, legs = legs))!!
+        assertEquals("Narrow market: 36% of stocks in uptrends", s.chip)
+        assertEquals("Market checks: 4 of 5 pass", s.headline)
+        assertEquals("35.5% of stocks (needs over 55%)", GateRead.plainValue(legs[2]))
+    }
+
+    @Test
+    fun `an older record with only failing names still says which check failed`() {
+        val s = GateRead.summary(GateResponse(passed = false, available = true, failing = listOf("Breadth > 55%")))!!
+        assertEquals("Narrow market", s.chip)
+        assertTrue(s.detail!!.contains("Most stocks in uptrends"))
+    }
+
+    @Test
+    fun `several failing checks are counted`() {
+        val legs = listOf(leg("spy_above_ema50", false), leg("breadth_55", false, 30.0), leg("vix_under_20", true))
+        assertEquals("2 of 3 market checks fail", GateRead.summary(GateResponse(passed = false, available = true, legs = legs))!!.chip)
+    }
+
+    @Test
+    fun `an unknown key keeps the server's own name`() {
+        val l = com.stocktracker.app.data.remote.GateLeg(name = "New leg > 1", key = "new_leg", ok = true)
+        assertEquals("New leg > 1", GateRead.legTitle(l))
     }
 }

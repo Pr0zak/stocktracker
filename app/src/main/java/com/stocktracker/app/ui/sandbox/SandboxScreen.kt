@@ -673,7 +673,7 @@ private fun TradeRow(
                         }
                     }
                 }
-                t.conviction?.let { DetailLine("Conviction", "$it") }
+                t.conviction?.let { DetailLine("Confidence", "$it/100") }
                 if (t.source.isNotBlank()) DetailLine("Source", t.source)
                 if (skipped) {
                     DetailLine("Rule", t.skipReason ?: "blocked", AMBER)

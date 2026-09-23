@@ -307,7 +307,7 @@ private fun PickCard(pick: EntryPlan, isNew: Boolean = false, onClick: () -> Uni
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("Conviction ${pick.conviction}/100", style = MaterialTheme.typography.labelMedium, color = neutral)
+            Text("Confidence ${pick.conviction}/100", style = MaterialTheme.typography.labelMedium, color = neutral)
             Text(
                 // "0 sh · $0" is not a suggestion; when the analyst gave no size, say so.
                 (pick.suggestedShares?.takeIf { it > 0.0 }?.let { "${sharesText(it)} sh" }

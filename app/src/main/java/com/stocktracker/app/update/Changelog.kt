@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.10.2" to listOf(
+            "Daily pick times now show in your own time zone instead of Eastern",
+        ),
         "1.10.1" to listOf(
             "Heat map: sector names no longer clip, every labelled tile names its stock, and a colour key explains the shades",
         ),

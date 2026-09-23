@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.10.0" to listOf(
+            "Charts are coloured by the range you're viewing, with its change shown above (\"+8.9% over the past month\")",
+            "Sandbox trades show as dots on the chart instead of overlapping labels",
+            "Alerts show only what's set, with one-tap chips to add more",
+            "Plainer headlines: \"1.9 pts behind the S&P\", \"above what you paid\", and a shorter no-pick card",
+        ),
         "1.9.1" to listOf(
             "Fixed: opening the Sandbox could close the app if the server refused the request",
             "Fixed: saving in Settings could erase your Signals service address",

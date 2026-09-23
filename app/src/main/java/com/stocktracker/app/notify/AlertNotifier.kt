@@ -33,6 +33,7 @@ object AlertNotifier {
     private const val BRIEF_CHANNEL_ID = "ai_daily_brief"
     private const val SANDBOX_CHANNEL_ID = "sandbox_trades"
     private const val SCAN_CHANNEL_ID = "signal_scan"
+    private const val PICK_CHANNEL_ID = "daily_pick"
 
     /** Groups every scan-family post (see [notifyScan]) so they collapse together in the shade instead
      *  of listing separately from a channel a user may not have even opened Settings to name yet. */
@@ -101,6 +102,15 @@ object AlertNotifier {
         )
     }
 
+    /** The Daily Pick: the morning pick, its report cards, and its intraday price alerts (DP-7/10/14). */
+    fun ensurePickChannel(context: Context) {
+        ensureChannel(
+            context, PICK_CHANNEL_ID, "Daily pick",
+            "Today's pick each morning, how past picks did, and alerts when the pick's price reaches its buy zone, stop or target",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+    }
+
     private fun ensureChannel(
         context: Context,
         id: String,
@@ -133,6 +143,10 @@ object AlertNotifier {
     /** Post the AI morning brief (its own default-importance channel). */
     fun notifyBrief(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
         post(context, BRIEF_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
+
+    /** Post a Daily Pick notification (its own default-importance channel). */
+    fun notifyPick(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, PICK_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
 
     /** Post a sandbox paper-trade notification (its own default-importance channel). */
     fun notifySandbox(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
@@ -176,6 +190,7 @@ object AlertNotifier {
             MARKET_CHANNEL_ID -> ensureMarketChannel(context)
             BRIEF_CHANNEL_ID -> ensureBriefChannel(context)
             SANDBOX_CHANNEL_ID -> ensureSandboxChannel(context)
+            PICK_CHANNEL_ID -> ensurePickChannel(context)
             SCAN_CHANNEL_ID -> ensureScanChannel(context)
             else -> ensureChannel(context)
         }

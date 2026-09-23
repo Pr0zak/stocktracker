@@ -328,6 +328,45 @@ class SettingsStore(private val context: Context) {
     suspend fun setSignalsApiToken(token: String) =
         context.dataStore.edit { it[signalsApiTokenKey] = token.trim() }
 
+    // --- Daily Pick (DP-7 / DP-10 / DP-14) ---
+
+    private val dailyPickNotifyKey = booleanPreferencesKey("daily_pick_notify_enabled")
+    private val dailyPickAlertsKey = booleanPreferencesKey("daily_pick_alerts_enabled")
+    private val dailyPickCollapsedKey = booleanPreferencesKey("daily_pick_card_collapsed")
+    private val lastDailyPickNotifyKey = stringPreferencesKey("last_daily_pick_notify_date")
+    private val dailyPickAlertLogKey = stringSetPreferencesKey("daily_pick_alert_log")
+    private val dailyPickReportCardsKey = stringSetPreferencesKey("daily_pick_report_cards")
+
+    /** Morning "today's pick" notification. ON by default (decided 2026-09-22) — unlike the AI brief,
+     *  it costs no call of its own: the backend made the pick once, and this only reads it. */
+    val dailyPickNotifyEnabled: Flow<Boolean> = context.dataStore.data.map { it[dailyPickNotifyKey] ?: true }
+    suspend fun setDailyPickNotifyEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[dailyPickNotifyKey] = enabled }
+
+    /** Intraday price alerts on the pick (entered zone / ran past it / stop / target). ON by default. */
+    val dailyPickAlertsEnabled: Flow<Boolean> = context.dataStore.data.map { it[dailyPickAlertsKey] ?: true }
+    suspend fun setDailyPickAlertsEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[dailyPickAlertsKey] = enabled }
+
+    val dailyPickCardCollapsed: Flow<Boolean> = context.dataStore.data.map { it[dailyPickCollapsedKey] ?: false }
+    suspend fun setDailyPickCardCollapsed(collapsed: Boolean) =
+        context.dataStore.edit { it[dailyPickCollapsedKey] = collapsed }
+
+    /** ET date the morning pick notification last went out; "" = never. */
+    val lastDailyPickNotifyDate: Flow<String> = context.dataStore.data.map { it[lastDailyPickNotifyKey] ?: "" }
+    suspend fun setLastDailyPickNotifyDate(date: String) =
+        context.dataStore.edit { it[lastDailyPickNotifyKey] = date }
+
+    /** "date|SYMBOL|state" for every intraday alert already sent. Pruned to the last few days on write. */
+    val dailyPickAlertLog: Flow<Set<String>> = context.dataStore.data.map { it[dailyPickAlertLogKey] ?: emptySet() }
+    suspend fun setDailyPickAlertLog(entries: Set<String>) =
+        context.dataStore.edit { it[dailyPickAlertLogKey] = entries }
+
+    /** "date|horizon" for every report card (DP-14) already delivered. */
+    val dailyPickReportCards: Flow<Set<String>> = context.dataStore.data.map { it[dailyPickReportCardsKey] ?: emptySet() }
+    suspend fun setDailyPickReportCards(entries: Set<String>) =
+        context.dataStore.edit { it[dailyPickReportCardsKey] = entries }
+
     // --- Raw accessors for com.stocktracker.app.data.BackupManager only ---
     //
     // A backup restore touches [watchlistGroups] and [investableCash] alongside four other stores'

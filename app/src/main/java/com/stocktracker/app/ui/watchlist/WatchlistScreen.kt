@@ -277,6 +277,15 @@ fun WatchlistScreen(
                 if (backendOffline) {
                     item(key = "hdr:offline") { com.stocktracker.app.ui.components.BackendStatusBanner() }
                 }
+                // DP-5: the Daily Pick leads the tab. It renders nothing when no Signals URL is set.
+                item(key = "hdr:pick") {
+                    com.stocktracker.app.ui.pick.DailyPickCard(
+                        onOpenSymbol = { sym, name ->
+                            onOpenDetail(Asset(symbol = sym, type = AssetType.STOCK, displayName = name ?: sym))
+                        },
+                        onOpenSettings = onOpenSignalsSettings,
+                    )
+                }
                 item(key = "hdr:tabs") {
                     val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
                     // Stocks and Crypto are dropped while grouping is on, because the sections

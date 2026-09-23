@@ -132,6 +132,21 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
     val marketSummaryAfterHours by settings.marketSummaryAfterHours.collectAsState(initial = true)
     val marketSummaryMarketWide by settings.marketSummaryMarketWide.collectAsState(initial = false)
     val aiDailyBrief by settings.aiDailyBriefEnabled.collectAsState(initial = false)
+    val dailyPickNotify by settings.dailyPickNotifyEnabled.collectAsState(initial = true)
+    val dailyPickAlerts by settings.dailyPickAlertsEnabled.collectAsState(initial = true)
+    // The pick's universe lives on the SERVER (it decides tomorrow's run), so this is read from and
+    // written to it. Null = not loaded / could not be read; the chips then say so instead of guessing.
+    var pickUniverse by remember { mutableStateOf<String?>(null) }
+    var pickUniverseNote by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(savedSignalsUrl) {
+        if (savedSignalsUrl.isNotBlank()) {
+            val r = runCatching {
+                com.stocktracker.app.data.remote.SignalsApiService().dailyPickSettings(savedSignalsUrl)
+            }
+            pickUniverse = r.getOrNull()?.universe
+            pickUniverseNote = if (r.isFailure) "Couldn't read the pick's universe from the Signals service." else null
+        }
+    }
 
     var keyField by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(savedKey) { if (keyField == null) keyField = savedKey }
@@ -338,6 +353,52 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                         }) { Text("Send a test brief now") }
                         HelperText("The brief posts automatically each trading morning (8:30–10am ET).")
                     }
+                }
+
+                SwitchRow(
+                    "Daily pick each morning",
+                    "Today's pick (or \"no pick today\") at 8:30–10am ET, with how past picks did",
+                    dailyPickNotify,
+                ) { scope.launch { settings.setDailyPickNotifyEnabled(it) } }
+                SwitchRow(
+                    "Daily pick price alerts",
+                    "When the pick re-enters its buy zone, runs past it, or reaches its stop or target " +
+                        "(checked about every 15 minutes, so an alert can arrive late)",
+                    dailyPickAlerts,
+                ) { scope.launch { settings.setDailyPickAlertsEnabled(it) } }
+                if (savedSignalsUrl.isNotBlank()) {
+                    LabeledChips("Pick from") {
+                        for ((value, label) in listOf("market" to "Whole market", "watchlist" to "Watchlist only")) {
+                            FilterChip(
+                                selected = pickUniverse == value,
+                                onClick = {
+                                    val before = pickUniverse
+                                    pickUniverse = value
+                                    scope.launch {
+                                        val r = runCatching {
+                                            com.stocktracker.app.data.remote.SignalsApiService().saveDailyPickSettings(
+                                                savedSignalsUrl,
+                                                com.stocktracker.app.data.remote.DailyPickSettingsPatch(universe = value),
+                                            )
+                                        }
+                                        // Revert on failure rather than showing a choice that never saved.
+                                        if (r.isFailure || r.getOrNull() == null) {
+                                            pickUniverse = before
+                                            pickUniverseNote = "Couldn't save — the Signals service did not accept the change."
+                                        } else {
+                                            pickUniverse = r.getOrNull()?.universe
+                                            pickUniverseNote = null
+                                        }
+                                    }
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                    HelperText(
+                        pickUniverseNote ?: "Takes effect from the next morning's pick. Watchlist only uses the " +
+                            "stocks on your watchlist that the nightly market scan covers (it does not scan ETFs).",
+                    )
                 }
             }
 

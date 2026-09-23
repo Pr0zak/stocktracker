@@ -58,6 +58,7 @@ class WidgetRefreshWorker(
         step("callExit") { com.stocktracker.app.notify.CallExitNotifier.check(applicationContext) }
         step("marketSummary") { com.stocktracker.app.notify.MarketSummaryNotifier.check(applicationContext) }
         step("dailyBrief") { com.stocktracker.app.notify.AiDailyBriefNotifier.check(applicationContext) }
+        step("dailyPick") { com.stocktracker.app.notify.DailyPickNotifier.check(applicationContext) }
         step("sandboxTrades") { com.stocktracker.app.notify.SandboxTradeNotifier.check(applicationContext) }
 
         // Recorded so "are my alerts even running?" is answerable from inside the app instead of

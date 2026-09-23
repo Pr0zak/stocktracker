@@ -764,6 +764,61 @@ class SignalsApiService {
         )
     }
 
+    // ---- Daily Pick (DP-3 / DP-4 / DP-12) ----
+
+    /**
+     * Today's pick, or the newest run with `stale = true`. THROWS on a transport or decode failure
+     * rather than returning null: the card has to tell "could not load" apart from "loaded, no pick
+     * today", and a null would collapse the two. Null only when no URL is configured.
+     */
+    suspend fun dailyPick(baseUrl: String): DailyPickResponse? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<DailyPickResponse>(sGet("${baseUrl.trimEnd('/')}/daily_pick"))
+    }
+
+    /** Past runs with their graded marks and the AI-vs-rule comparison. Throws on failure. */
+    suspend fun dailyPickHistory(baseUrl: String, limit: Int = 20): DailyPickHistory? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<DailyPickHistory>(
+            sGet("${baseUrl.trimEnd('/')}/daily_pick/history?limit=$limit"),
+        )
+    }
+
+    /** DP-12: POSTed (and token-gated) because the body carries position values. Throws on failure. */
+    suspend fun dailyPickFit(baseUrl: String, holdings: List<DailyPickHolding>, symbol: String? = null): DailyPickFit? {
+        if (baseUrl.isBlank()) return null
+        val body = Http.json.encodeToString(DailyPickFitRequest(holdings, symbol))
+        return Http.json.decodeFromString<DailyPickFit>(
+            sPost("${baseUrl.trimEnd('/')}/daily_pick/fit", body, slow = true),
+        )
+    }
+
+    suspend fun dailyPickSettings(baseUrl: String): DailyPickSettings? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<DailyPickSettings>(sGet("${baseUrl.trimEnd('/')}/daily_pick/settings"))
+    }
+
+    /** Throws on failure, so a Settings toggle can revert instead of claiming a change that never saved. */
+    suspend fun saveDailyPickSettings(baseUrl: String, patch: DailyPickSettingsPatch): DailyPickSettings? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<DailyPickSettings>(
+            sPost("${baseUrl.trimEnd('/')}/daily_pick/settings", Http.json.encodeToString(patch)),
+        )
+    }
+
+    /**
+     * The body is written by hand, not encoded from a class: Http.json leaves `encodeDefaults` false,
+     * so a `force = false` default would be dropped, and a class-built body is how three sandbox POSTs
+     * once went out as `{}` (2026-07-26).
+     */
+    suspend fun runDailyPick(baseUrl: String, force: Boolean): DailyPickResponse? {
+        if (baseUrl.isBlank()) return null
+        val body = "{\"force\": $force}"
+        return Http.json.decodeFromString<DailyPickResponse>(
+            sPost("${baseUrl.trimEnd('/')}/daily_pick/run", body, slow = true),
+        )
+    }
+
     /**
      * SWT-8 — replay ONE recorded plan against the daily bars that actually followed it. Free, no LLM.
      *

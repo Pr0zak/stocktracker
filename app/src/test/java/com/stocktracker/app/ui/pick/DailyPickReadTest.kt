@@ -39,6 +39,12 @@ class DailyPickReadTest {
         assertTrue(s is Shape.LoadFailed)
     }
 
+    @Test fun `a fresh card is loading, not a failed load`() {
+        // Before the first request answers there is no response to report on. The card used to
+        // start with loading = false and claim "No response from the Signals service".
+        assertTrue(DailyPickUiState().shape is Shape.Loading)
+    }
+
     @Test fun `a failed run is not no-pick`() {
         val r = DailyPickResponse(available = true, stale = false, date = "2026-09-22", status = "failed", error = "analyst failed")
         val s = DailyPickRead.shape(true, false, r, null)

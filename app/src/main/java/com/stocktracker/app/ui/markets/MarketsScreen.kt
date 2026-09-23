@@ -34,6 +34,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import com.stocktracker.app.data.remote.MarketBreadth
+import com.stocktracker.app.data.remote.SignalsApiService
+import kotlinx.coroutines.flow.first
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.stocktracker.app.data.MarketContextStore
 import com.stocktracker.app.di.ServiceLocator
@@ -77,6 +81,14 @@ fun MarketsScreen(
         ctx.refreshScan()
         ctx.refreshVix()
     }
+    // The market scan's OWN date. The store above holds the watchlist scan, a different nightly
+    // job — its age was being shown under "Market scan" (15h, when the market scan was 1h old).
+    // Null = not answered yet; Result.failure = could not read it.
+    val marketScan by produceState<Result<MarketBreadth?>?>(initialValue = null) {
+        val base = ServiceLocator.settingsStore.signalsApiUrl.first()
+        value = if (base.isBlank()) Result.success(null)
+        else runCatching { SignalsApiService().marketBreadth(base) }
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Markets") }) },
@@ -96,7 +108,7 @@ fun MarketsScreen(
                 title = "Market scan",
                 subtitle = "Where every name sits against the whole market, from the nightly scan. " +
                     "A rank, not a grade.",
-                status = scanStatus(market),
+                status = marketScanStatus(market, marketScan),
                 onClick = onOpenScan,
             )
             Door(
@@ -136,8 +148,7 @@ fun MarketsScreen(
             // names, so it belongs beside them — it just stops being a sparkle glyph and becomes a
             // named item in the Watchlist's overflow.
             Text(
-                "Context, not advice. Every row here had exactly one way in before, and none of " +
-                    "them was labelled.",
+                "Context, not advice.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
@@ -155,6 +166,25 @@ fun MarketsScreen(
  * defect this app spends most of its comments on. Those two keep their description and no number.
  */
 private data class DoorStatus(val text: String, val warn: Boolean = false)
+
+/**
+ * "Measured the Mon Sep 22 close" — which session the market scan last read, from the scan's own
+ * breadth route. Falls back to [scanStatus]'s service-state messages when there is no Signals URL.
+ */
+private fun marketScanStatus(m: MarketContextStore.State, r: Result<MarketBreadth?>?): DoorStatus? {
+    if (r == null) return null
+    val b = r.getOrNull()
+    if (r.isFailure) return DoorStatus("Couldn't read when the scan last ran", warn = true)
+    if (b == null) return scanStatus(m)
+    if (!b.available) return DoorStatus("No market scan stored yet", warn = true)
+    val d = b.asOf?.takeIf { it.length >= 8 }?.let {
+        runCatching {
+            java.time.LocalDate.of(it.substring(0, 4).toInt(), it.substring(4, 6).toInt(), it.substring(6, 8).toInt())
+                .format(java.time.format.DateTimeFormatter.ofPattern("EEE MMM d", java.util.Locale.US))
+        }.getOrNull()
+    } ?: return DoorStatus("Scan date unknown", warn = true)
+    return DoorStatus("Measured the $d close")
+}
 
 private fun scanStatus(m: MarketContextStore.State): DoorStatus? = when (m.dipRadar) {
     // FRESHNESS ONLY, deliberately. The obvious thing to put here is a count, and the count this

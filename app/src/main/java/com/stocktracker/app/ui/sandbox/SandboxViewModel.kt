@@ -47,6 +47,8 @@ data class SandboxUiState(
     val changes: List<com.stocktracker.app.data.remote.SandboxChange> = emptyList(),
     val message: String? = null,      // transient toast-style feedback
     val error: String? = null,
+    /** The server refused the access token (401/403). Fixable in Settings, unlike an outage. */
+    val authRejected: Boolean = false,
 )
 
 /** Drives the Sandbox tab — the read-only view of the server-side autonomous paper trader plus the
@@ -79,7 +81,10 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
             // holding a dead id and rendering another arm's numbers under its name.
             val arm = _state.value.arm.takeIf { a ->
                 arms == null || arms.isEmpty() || arms.any { it.arm == a } } ?: "main"
-            val st = api.sandboxState(base, arm)
+            val stRes = api.sandboxStateResult(base, arm)
+            val st = stRes?.getOrNull()
+            val authRejected = (stRes?.exceptionOrNull() as? com.stocktracker.app.data.remote.HttpStatusException)
+                ?.code?.let { it == 401 || it == 403 } == true
             val navRows = api.sandboxNav(base, days = 180, arm = arm)
             val trades = api.sandboxTrades(base, limit = 120, arm = arm)
             // Only worth a round trip when there is something to compare against.
@@ -91,6 +96,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
             _state.update {
                 it.copy(
                     loading = false,
+                    authRejected = authRejected,
                     arms = arms ?: it.arms,
                     arm = arm,
                     armsNav = aNav ?: it.armsNav,
@@ -107,6 +113,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
                     changes = changes ?: it.changes,
                     macro = mac ?: it.macro,
                     error = when {
+                        st == null && authRejected -> null  // the token card below says it precisely
                         st == null -> "Couldn't reach the sandbox service."
                         navRows == null || trades == null -> "Some sandbox data couldn't be loaded — showing the last known values."
                         else -> null

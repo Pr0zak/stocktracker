@@ -21,7 +21,10 @@ import kotlinx.coroutines.launch
 
 data class DailyPickUiState(
     val configured: Boolean = true,
-    val loading: Boolean = false,
+    // True from construction: the first load starts in init, and until it has answered there is
+    // no response to show. Starting false made the card claim "No response from the Signals
+    // service" for the moment before the request was even sent (seen on a cold start).
+    val loading: Boolean = true,
     /** The newest successful load. Cleared on a failed load — a failure never shows the old pick. */
     val resp: DailyPickResponse? = null,
     val error: String? = null,

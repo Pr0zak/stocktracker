@@ -194,10 +194,22 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             if (st == null) {
                 item { Spacer(Modifier.height(8.dp)) }
                 item {
-                    InfoCard(
-                        "Can't load the sandbox right now, so its balance and holdings aren't shown. " +
-                            "Nothing has changed — this is a connection problem, not an empty account."
-                    )
+                    if (ui.authRejected) {
+                        // Not an outage: the server answered and refused the token. Saying
+                        // "connection problem" sent the reader looking for a network fault.
+                        InfoCard(
+                            "The Signals service didn't accept this app's access token, so the sandbox " +
+                                "can't be shown. Nothing has changed in the account. Check the access token " +
+                                "in Settings.",
+                            actionLabel = "Open Settings",
+                            onAction = onOpenSignalsSettings,
+                        )
+                    } else {
+                        InfoCard(
+                            "Can't load the sandbox right now, so its balance and holdings aren't shown. " +
+                                "Nothing has changed — this is a connection problem, not an empty account."
+                        )
+                    }
                 }
                 return@LazyColumn
             }

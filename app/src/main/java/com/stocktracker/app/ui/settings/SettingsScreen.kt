@@ -90,6 +90,7 @@ import com.stocktracker.app.update.UpdateUiState
 import com.stocktracker.app.update.rememberUpdateController
 import com.stocktracker.app.widget.WidgetRefreshScheduler
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.stocktracker.app.ui.theme.Signal
@@ -149,13 +150,17 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
     }
 
     var keyField by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(savedKey) { if (keyField == null) keyField = savedKey }
+    // Seed each editable field from the STORED value, read once. Seeding from the collectAsState
+    // value raced: its `initial = ""` arrived first, the field locked onto it, and the real saved
+    // value was then ignored — so a saved URL showed as an empty field, and pressing Save wrote that
+    // empty field back, silently disconnecting the app (found on the emulator 2026-09-22).
+    LaunchedEffect(Unit) { if (keyField == null) keyField = settings.finnhubApiKey.first() }
     var showKey by remember { mutableStateOf(false) }
     var signalsUrlField by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(savedSignalsUrl) { if (signalsUrlField == null) signalsUrlField = savedSignalsUrl }
+    LaunchedEffect(Unit) { if (signalsUrlField == null) signalsUrlField = settings.signalsApiUrl.first() }
     val savedSignalsToken by settings.signalsApiToken.collectAsState(initial = "")
     var signalsTokenField by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(savedSignalsToken) { if (signalsTokenField == null) signalsTokenField = savedSignalsToken }
+    LaunchedEffect(Unit) { if (signalsTokenField == null) signalsTokenField = settings.signalsApiToken.first() }
     // A pending OPS-3 removal-guard refusal from "Sync now" — non-null shows the confirm/cancel
     // dialog below. Cleared on either choice; never auto-retried with replace=true.
     var syncRefusal by remember { mutableStateOf<WatchlistSyncRefusal?>(null) }
@@ -467,7 +472,7 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { scope.launch { settings.setFinnhubApiKey(keyField.orEmpty()) } }) {
+                        Button(onClick = { scope.launch { keyField?.let { settings.setFinnhubApiKey(it) } } }) {
                             Text("Save key")
                         }
                         if (!savedKey.isNullOrBlank()) {
@@ -577,8 +582,10 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
                             scope.launch {
-                                settings.setSignalsApiUrl(signalsUrlField.orEmpty())
-                                settings.setSignalsApiToken(signalsTokenField.orEmpty())
+                                // A field still null has not loaded its stored value yet; writing
+                                // "" for it would erase a setting the user never touched.
+                                signalsUrlField?.let { settings.setSignalsApiUrl(it) }
+                                signalsTokenField?.let { settings.setSignalsApiToken(it) }
                             }
                         }) {
                             Text("Save")

@@ -182,8 +182,13 @@ class SignalsApiService {
     /** Settings changelog for an arm, newest first. FREE (no LLM). */
     suspend fun sandboxChanges(baseUrl: String, limit: Int = 50, arm: String = "main"): List<SandboxChange>? {
         if (baseUrl.isBlank()) return null
-        val body = sGet("${baseUrl.trimEnd('/')}/sandbox/changes?limit=$limit&arm=$arm")
-        return Http.json.decodeFromString<SandboxChangesResponse>(body).changes
+        // runCatching like every sibling sandbox call: this one threw instead, and a 401 (no access
+        // token set) escaped the view model's coroutine and crashed the whole app on opening the
+        // Sandbox tab (found on the emulator 2026-09-22). A null here means "couldn't load".
+        return runCatching {
+            val body = sGet("${baseUrl.trimEnd('/')}/sandbox/changes?limit=$limit&arm=$arm")
+            Http.json.decodeFromString<SandboxChangesResponse>(body).changes
+        }.getOrNull()
     }
 
     /** Sector + industry per ticker, for grouping the watchlist into verticals. FREE (no LLM).
@@ -374,12 +379,20 @@ class SignalsApiService {
     // ---- AI Sandbox (autonomous paper trader) ----
 
     /** Live-marked sandbox state (cash, positions, equity, vs-benchmark, settings, strategy note). */
-    suspend fun sandboxState(baseUrl: String, arm: String = "main"): SandboxState? {
+    suspend fun sandboxState(baseUrl: String, arm: String = "main"): SandboxState? =
+        sandboxStateResult(baseUrl, arm)?.getOrNull()
+
+    /**
+     * The same read, with the failure kept. The screen needs to tell "the server refused the token"
+     * (401/403 — fixable in Settings) from "the server could not be reached", and a bare null
+     * cannot carry that difference. Null only when no URL is configured.
+     */
+    suspend fun sandboxStateResult(baseUrl: String, arm: String = "main"): Result<SandboxState>? {
         if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxState>(
                 sGet("${baseUrl.trimEnd('/')}/sandbox/state?arm=$arm", slow = true))
-        }.getOrNull()
+        }
     }
 
     /** Every comparison arm with a scoreboard. Empty list (not null) is a real answer — a server

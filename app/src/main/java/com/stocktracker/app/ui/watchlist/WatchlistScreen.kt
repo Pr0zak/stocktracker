@@ -317,7 +317,9 @@ fun WatchlistScreen(
                             },
                         )
                         tabs.forEach { tab ->
-                            val count = when (tab) {
+                            // Null while the first load is still running: an empty list then means
+                            // "not read yet", and printing it as "All 0" claims an empty watchlist.
+                            val count = if (state.loading && state.items.isEmpty()) null else when (tab) {
                                 TAB_ALL -> state.items.size
                                 TAB_STOCKS -> state.items.count { it.asset.type == AssetType.STOCK }
                                 TAB_CRYPTO -> state.items.count { it.asset.type == AssetType.CRYPTO }
@@ -974,7 +976,7 @@ private fun dipPct(d: DipEntry): String =
  *  scrollable strip that swaps the whole list below it, the same shape as a TabRow, not a vertical
  *  set of options in a form (that's what the widget colour-swatch picker uses RadioButton for). */
 @Composable
-private fun ListChip(label: String, count: Int, dotColor: Color?, selected: Boolean, onClick: () -> Unit) {
+private fun ListChip(label: String, count: Int?, dotColor: Color?, selected: Boolean, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val bg = if (selected) scheme.primary.copy(alpha = 0.16f) else scheme.surfaceVariant
     val fg = if (selected) scheme.primary else scheme.onSurface
@@ -995,7 +997,7 @@ private fun ListChip(label: String, count: Int, dotColor: Color?, selected: Bool
             color = fg,
         )
         Text(
-            count.toString(),
+            count?.toString() ?: "–",
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
             color = fg.copy(alpha = 0.6f),

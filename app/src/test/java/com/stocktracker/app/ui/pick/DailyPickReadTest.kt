@@ -45,6 +45,16 @@ class DailyPickReadTest {
         assertTrue(DailyPickUiState().shape is Shape.Loading)
     }
 
+    @Test fun `times read in the phone's zone, not Eastern`() {
+        val ct = java.time.ZoneId.of("America/Chicago")
+        // 2026-09-23 12:05 UTC = 8:05 AM EDT = 7:05 AM CDT.
+        assertEquals("picked 7:05 AM CDT", DailyPickRead.pickedAt(1790165100.0, ct))
+        // The 8:05 ET run, said in Central. CDT or CST depending on the season, always an hour earlier.
+        assertTrue(DailyPickRead.etClock(8, 5, ct).startsWith("7:05 AM C"))
+        assertTrue(DailyPickRead.staleNote(ct).contains("7:05 AM C"))
+        assertTrue(DailyPickRead.etWindow(8, 30, 10, 0, ct).startsWith("7:30–9:00 AM C"))
+    }
+
     @Test fun `a failed run is not no-pick`() {
         val r = DailyPickResponse(available = true, stale = false, date = "2026-09-22", status = "failed", error = "analyst failed")
         val s = DailyPickRead.shape(true, false, r, null)

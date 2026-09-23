@@ -356,13 +356,13 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                                 ).show()
                             }
                         }) { Text("Send a test brief now") }
-                        HelperText("The brief posts automatically each trading morning (8:30–10am ET).")
+                        HelperText("The brief posts automatically each trading morning (${com.stocktracker.app.ui.pick.DailyPickRead.etWindow(8, 30, 10, 0)}).")
                     }
                 }
 
                 SwitchRow(
                     "Daily pick each morning",
-                    "Today's pick (or \"no pick today\") at 8:30–10am ET, with how past picks did",
+                    "Today's pick (or \"no pick today\") at ${com.stocktracker.app.ui.pick.DailyPickRead.etWindow(8, 30, 10, 0)}, with how past picks did",
                     dailyPickNotify,
                 ) { scope.launch { settings.setDailyPickNotifyEnabled(it) } }
                 SwitchRow(

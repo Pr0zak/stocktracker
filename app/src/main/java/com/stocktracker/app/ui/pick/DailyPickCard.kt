@@ -168,7 +168,7 @@ private fun HeaderRow(
                 if (collapsed && resp?.isPick == true) resp.pick?.symbol?.let { add(it) }
             }.joinToString(" · ")
             if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.labelSmall, color = neutral)
-            if (stale) Text(DailyPickRead.STALE_NOTE, style = MaterialTheme.typography.labelSmall, color = Signal)
+            if (stale) Text(DailyPickRead.staleNote(), style = MaterialTheme.typography.labelSmall, color = Signal)
         }
         if (state.loading) {
             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)

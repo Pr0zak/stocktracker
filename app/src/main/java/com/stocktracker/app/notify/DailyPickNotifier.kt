@@ -43,7 +43,8 @@ object DailyPickNotifier {
     private const val OPEN = 9 * 3600 + 30 * 60
     private const val CLOSE = 16 * 3600
     private val api = SignalsApiService()
-    private val TIME = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+    /** Alert times are shown in the phone's zone ("10:15 AM CDT"), not the market's. */
+    private val TIME_LOCAL = DateTimeFormatter.ofPattern("h:mm a z", Locale.US)
 
     suspend fun check(context: Context) {
         val settings = ServiceLocator.settingsStore
@@ -131,7 +132,7 @@ object DailyPickNotifier {
         }
         var fired: DailyPickRead.Alert? = null
         if (alert != null) {
-            val note = DailyPickRead.alertNote(alert, sym, price, levels, now.format(TIME) + " ET", mine)
+            val note = DailyPickRead.alertNote(alert, sym, price, levels, now.withZoneSameInstant(ZoneId.systemDefault()).format(TIME_LOCAL), mine)
             val ok = AlertNotifier.notifyPick(
                 context, "daily_pick_alert_${sym}_${alert.name}".hashCode(), note.title, note.body, Routes.WATCHLIST,
             )

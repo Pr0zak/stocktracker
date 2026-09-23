@@ -8,6 +8,7 @@ import com.stocktracker.app.data.remote.DailyPickTrackRecord
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
@@ -25,7 +26,6 @@ import kotlin.math.roundToInt
 object DailyPickRead {
 
     private val ET: ZoneId = ZoneId.of("America/New_York")
-    private val TIME = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
     private val DAY = DateTimeFormatter.ofPattern("EEE MMM d", Locale.US)
 
     /** What the card is, in one of six shapes. The composable renders exactly one of them. */
@@ -61,17 +61,37 @@ object DailyPickRead {
         else -> "TODAY'S PICK"
     }
 
-    /** Under a stale header: when the next one is due. */
-    const val STALE_NOTE = "Today's pick runs at 8:05 AM ET on trading days."
+    /** Under a stale header: when the next one is due, in the phone's own time zone. */
+    fun staleNote(zone: ZoneId = ZoneId.systemDefault()): String =
+        "Today's pick runs at ${etClock(8, 5, zone)} on trading days."
+
+    /**
+     * An Eastern-time clock reading ("8:05") shown in the reader's zone ("7:05 AM CDT"). The market
+     * keeps Eastern time, but the reader shouldn't have to convert it. Uses today's date, so the
+     * daylight-saving offset is the current one.
+     */
+    fun etClock(hour: Int, minute: Int, zone: ZoneId = ZoneId.systemDefault()): String =
+        ZonedDateTime.of(LocalDate.now(ET), java.time.LocalTime.of(hour, minute), ET)
+            .withZoneSameInstant(zone).format(TIME_ZONED)
+
+    /** "8:30–10:00 AM CDT" — an Eastern window in the reader's zone. */
+    fun etWindow(h1: Int, m1: Int, h2: Int, m2: Int, zone: ZoneId = ZoneId.systemDefault()): String {
+        val day = LocalDate.now(ET)
+        val a = ZonedDateTime.of(day, java.time.LocalTime.of(h1, m1), ET).withZoneSameInstant(zone)
+        val b = ZonedDateTime.of(day, java.time.LocalTime.of(h2, m2), ET).withZoneSameInstant(zone)
+        return "${a.format(DateTimeFormatter.ofPattern("h:mm", Locale.US))}–${b.format(TIME_ZONED)}"
+    }
+
+    private val TIME_ZONED = DateTimeFormatter.ofPattern("h:mm a z", Locale.US)
 
     fun dayLabel(iso: String?): String =
         iso?.let { runCatching { LocalDate.parse(it).format(DAY).uppercase(Locale.US) }.getOrNull() } ?: "AN EARLIER DAY"
 
-    /** "picked 8:07 AM ET" from the run's epoch seconds, or null when the server sent none. */
-    fun pickedAt(ts: Double?): String? {
+    /** "picked 7:07 AM CDT" — in the phone's zone — or null when the server sent no time. */
+    fun pickedAt(ts: Double?, zone: ZoneId = ZoneId.systemDefault()): String? {
         if (ts == null || ts <= 0) return null
-        val t = Instant.ofEpochMilli((ts * 1000).toLong()).atZone(ET)
-        return "picked ${t.format(TIME)} ET"
+        val t = Instant.ofEpochMilli((ts * 1000).toLong()).atZone(zone)
+        return "picked ${t.format(TIME_ZONED)}"
     }
 
     /** "price 2m ago" / "price 3h ago", or "price unavailable". The card must always say which. */

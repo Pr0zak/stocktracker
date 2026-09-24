@@ -213,7 +213,28 @@ fun WatchlistScreen(
         snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
             TopAppBar(
-                title = { Text("StockTracker") },
+                // The freshness line lives here, under the title, since 2026-09-24 (user request): it
+                // qualifies every number on the screen, so it sits above all of them, beside the
+                // refresh button it pairs with, and no longer spends a row of the list.
+                title = {
+                    Column {
+                        Text("StockTracker")
+                        if (state.items.isNotEmpty()) {
+                            val stamps = state.items.map { it.quote?.asOfEpochMs ?: 0L }
+                            FreshnessLine(
+                                freshness = listFreshness(stamps, nowMs, marketState.phase),
+                                staleRows = staleRowCount(stamps, nowMs, marketState.phase),
+                                totalRows = stamps.size,
+                                // Also while the initial load runs: on a first-ever launch every row has
+                                // no timestamp, and "Never updated" is true but reads as a fault when
+                                // the truth is that the first fetch simply has not landed yet.
+                                refreshing = state.refreshing || state.loading,
+                                error = state.refreshError,
+                                onRefresh = { vm.refresh() },
+                            )
+                        }
+                    }
+                },
                 actions = {
                     // Five unlabelled glyphs became one icon and one menu. The heat map, the market
                     // scan and the catalyst calendar moved to the Markets tab, where they have
@@ -342,25 +363,6 @@ fun WatchlistScreen(
                             )
                         }
                         NewListChip(onClick = { showNewListDialog = true })
-                    }
-                }
-
-                // When these prices were last read. Above the context strip because it qualifies
-                // every number below it, including the ones inside the collapsed cards.
-                if (state.items.isNotEmpty()) {
-                    item(key = "hdr:freshness") {
-                        val stamps = state.items.map { it.quote?.asOfEpochMs ?: 0L }
-                        FreshnessLine(
-                            freshness = listFreshness(stamps, nowMs, marketState.phase),
-                            staleRows = staleRowCount(stamps, nowMs, marketState.phase),
-                            totalRows = stamps.size,
-                            // Also while the initial load runs: on a first-ever launch every row has
-                            // no timestamp, and "Never updated" is true but reads as a fault when
-                            // the truth is that the first fetch simply has not landed yet.
-                            refreshing = state.refreshing || state.loading,
-                            error = state.refreshError,
-                            onRefresh = { vm.refresh() },
-                        )
                     }
                 }
 
@@ -661,25 +663,23 @@ private fun FreshnessLine(
     // is legitimately timestamp-less while the first fetch is still on the wire.
     val warn = !refreshing && (error != null || freshness.stale)
     val tint = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    // A subtitle under the app title: one short line, tappable to refresh (the refresh button sits
+    // right beside it). No "Tap to refresh" label — the icon at the start of the line says it.
     Row(
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(enabled = !refreshing) { onRefresh() }
-            // The home screen's whole staleness channel, and its only retry, at ~24dp.
-            .heightIn(min = 48.dp)
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = !refreshing, onClickLabel = "Refresh prices") { onRefresh() },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (refreshing) {
-            CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+            CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.5.dp)
         } else {
             Icon(
                 imageVector = if (warn) Icons.Filled.Warning else Icons.Default.Refresh,
                 contentDescription = null,
                 tint = tint,
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(12.dp),
             )
         }
         Text(
@@ -693,18 +693,12 @@ private fun FreshnessLine(
                 staleRows in 1 until totalRows -> "${freshness.label} · $staleRows of $totalRows out of date"
                 else -> freshness.label
             },
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelSmall,
             color = tint,
-            maxLines = 2,
-            modifier = Modifier.weight(1f),
+            // A failure keeps its full sentence; the everyday "Updated 2m ago" stays one line.
+            maxLines = if (error != null && !refreshing) 2 else 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
-        if (!refreshing) {
-            Text(
-                text = "Tap to refresh",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 

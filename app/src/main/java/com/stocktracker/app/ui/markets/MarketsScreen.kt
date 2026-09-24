@@ -43,6 +43,32 @@ import com.stocktracker.app.data.MarketContextStore
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.components.BackendStatusBanner
 import com.stocktracker.app.ui.theme.Signal
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import com.stocktracker.app.data.model.VixZone
+import com.stocktracker.app.data.remote.HeatmapResponse
+import com.stocktracker.app.ui.components.Skeleton
+import com.stocktracker.app.ui.components.spotlightGlow
+import com.stocktracker.app.ui.theme.GainGreen
+import com.stocktracker.app.ui.theme.LossRed
+import com.stocktracker.app.ui.theme.PriceSmall
+import java.util.Locale
 import com.stocktracker.app.ui.detail.ageAgo
 import com.stocktracker.app.ui.watchlist.DipRadarState
 import com.stocktracker.app.util.readingAgeLabel
@@ -103,46 +129,26 @@ fun MarketsScreen(
         ) {
             BackendStatusBanner()
 
-            Door(
-                icon = Icons.Filled.Leaderboard,
-                title = "Market scan",
-                subtitle = "Where every name sits against the whole market, from the nightly scan. " +
-                    "A rank, not a grade.",
-                status = marketScanStatus(market, marketScan),
-                onClick = onOpenScan,
-            )
-            Door(
-                icon = Icons.Filled.GridView,
-                title = "Heat map",
-                subtitle = "The day's moves by sector, sized by market cap.",
-                onClick = onOpenHeatmap,
-            )
-            Door(
-                icon = Icons.Filled.CalendarMonth,
-                title = "Catalyst calendar",
-                subtitle = "Earnings, option expiries and short-interest dates for what you follow.",
-                onClick = onOpenCalendar,
-            )
-            // Reachable on a zero-dip day, which is the state it could not be opened from at all:
-            // the "See all" link only existed once the strip was expanded AND a dip had fired. The
-            // reject audit — the names the radar considered and passed over — is most worth reading
-            // precisely when nothing fired.
-            Door(
-                icon = Icons.Filled.TrendingDown,
-                title = "Dip radar",
-                subtitle = "What is off its highs, and what the radar looked at and rejected.",
-                status = dipStatus(market),
-                onClick = onOpenDips,
-            )
-            // Likewise: the VIX gauge only existed if the strip was open, the setting was on, AND
-            // the fetch had succeeded. Three conditions for a screen, and no stable way back to it.
-            Door(
-                icon = Icons.Filled.Speed,
-                title = "Market fear · VIX",
-                subtitle = "The volatility index against its own bands, with the numbers on the scale.",
-                status = vixStatus(market),
-                onClick = onOpenVix,
-            )
+            // Tiles, not a menu: each one shows its own answer where this screen holds one. The heat
+            // map is the one extra fetch — the same server-cached call its own screen makes. The
+            // calendar holds no reading here, so its tile describes rather than inventing events.
+            val heat by produceState<Result<HeatmapResponse?>?>(initialValue = null) {
+                val base = ServiceLocator.settingsStore.signalsApiUrl.first()
+                value = if (base.isBlank()) Result.success(null)
+                else runCatching { SignalsApiService().heatmap(base, mode = "market") }
+            }
+            ScanTile(marketScanStatus(market, marketScan), marketScan?.getOrNull(), onOpenScan)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
+                HeatTile(heat, onOpenHeatmap, Modifier.weight(1f).fillMaxHeight())
+                VixTile(market, vixStatus(market), onOpenVix, Modifier.weight(1f).fillMaxHeight())
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
+                DipTile(market, dipStatus(market), onOpenDips, Modifier.weight(1f).fillMaxHeight())
+                Tile("Calendar", Icons.Filled.CalendarMonth, onOpenCalendar, Modifier.weight(1f).fillMaxHeight()) {
+                    Text("Earnings, option expiries and short-interest dates for what you follow.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
 
             // Market now is deliberately NOT here. It reads the session through YOUR watchlist's
             // names, so it belongs beside them — it just stops being a sparkle glyph and becomes a
@@ -230,59 +236,186 @@ private fun vixStatus(m: MarketContextStore.State): DoorStatus? {
     return if (age != null) DoorStatus("$line — $age", warn = true) else DoorStatus(line)
 }
 
+/** A Markets tile: a rounded card with a small header, optionally tinted by what it shows. */
 @Composable
-private fun Door(
-    icon: ImageVector,
+private fun Tile(
     title: String,
-    subtitle: String,
+    icon: ImageVector,
     onClick: () -> Unit,
-    status: DoorStatus? = null,
+    modifier: Modifier = Modifier,
+    tint: Color? = null,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { onClick() }
-            .heightIn(min = 72.dp)
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .spotlightGlow(tint)
+            .clickable(onClickLabel = "Open $title", onClick = onClick)
+            .heightIn(min = 112.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                    RoundedCornerShape(12.dp),
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+            Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1)
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            status?.let {
-                Text(
-                    it.text,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (it.warn) Signal else MaterialTheme.colorScheme.onSurface,
-                )
+        content()
+    }
+}
+
+@Composable
+private fun StatusLine(status: DoorStatus?) {
+    status?.let {
+        Text(it.text, style = MaterialTheme.typography.labelMedium,
+            color = if (it.warn) Signal else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+    }
+}
+
+/** Where the gate's breadth leg reads its verdict: share of the scan above its 50-day, against 55%. */
+private const val BREADTH_HEALTHY_PCT = 55.0
+
+/**
+ * The market scan, full width, led by breadth — the one number that decides the Daily Pick's
+ * "narrow market" check. Gold below 55%, green above; no tint and no bar when it was not measured.
+ */
+@Composable
+private fun ScanTile(status: DoorStatus?, breadth: MarketBreadth?, onClick: () -> Unit) {
+    val pct = breadth?.takeIf { it.available }?.pctAboveSma50?.takeIf { it.isFinite() }
+    val healthy = pct?.let { it > BREADTH_HEALTHY_PCT }
+    val color = when (healthy) { true -> GainGreen; false -> Signal; null -> MaterialTheme.colorScheme.onSurfaceVariant }
+    Tile("Market scan", Icons.Filled.Leaderboard, onClick, Modifier.fillMaxWidth(), tint = if (pct == null) null else color) {
+        if (pct != null) {
+            Text(if (healthy == true) "Broad market" else "Narrow market",
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = color)
+            BreadthBar(pct, color)
+            Text(String.format(Locale.US, "%.0f%% of stocks above their 50-day average · healthy is over %.0f%%", pct, BREADTH_HEALTHY_PCT),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Text("Where every name sits against the whole market, from the nightly scan.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        StatusLine(status)
+    }
+}
+
+@Composable
+private fun BreadthBar(pct: Double, color: Color) {
+    val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f)
+    val mark = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(Modifier.fillMaxWidth().height(14.dp).semantics { contentDescription = String.format(Locale.US, "%.0f percent, healthy above %.0f", pct, BREADTH_HEALTHY_PCT) }) {
+        val h = 8.dp.toPx(); val y = (size.height - h) / 2; val r = CornerRadius(h / 2, h / 2)
+        drawRoundRect(track, Offset(0f, y), Size(size.width, h), r)
+        drawRoundRect(color, Offset(0f, y), Size(size.width * (pct / 100.0).toFloat().coerceIn(0f, 1f), h), r)
+        val mx = size.width * (BREADTH_HEALTHY_PCT / 100.0).toFloat()
+        var yy = 0f
+        while (yy < size.height) { drawLine(mark, Offset(mx, yy), Offset(mx, yy + 3.dp.toPx()), 1.5.dp.toPx()); yy += 5.dp.toPx() }
+    }
+}
+
+/** A tiny treemap of the six largest names, coloured by today's move, plus the up/down count. */
+@Composable
+private fun HeatTile(r: Result<HeatmapResponse?>?, onClick: () -> Unit, modifier: Modifier) {
+    val resp = r?.getOrNull()
+    val tiles = resp?.tiles.orEmpty().filter { it.scale == "price" && it.value.isFinite() }.sortedByDescending { it.size }.take(6)
+    Tile("Heat map", Icons.Filled.GridView, onClick, modifier) {
+        when {
+            r == null -> Skeleton(Modifier.fillMaxWidth().height(56.dp))
+            tiles.size >= 3 -> {
+                val rows = listOf(tiles.take(3), tiles.drop(3))
+                Column(Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(8.dp)), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    rows.filter { it.isNotEmpty() }.forEach { row ->
+                        Row(Modifier.weight(row.sumOf { it.size }.toFloat().coerceAtLeast(0.001f)).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            row.forEach { t ->
+                                Box(Modifier.weight(t.size.toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(moveColor(t.value)),
+                                    contentAlignment = Alignment.Center) {
+                                    Text(t.symbol, style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+                val up = resp?.advancing; val down = resp?.declining
+                if (up != null && down != null) {
+                    Text(buildAnnotatedString {
+                        withStyle(SpanStyle(color = GainGreen)) { append("$up up") }
+                        append(" · ")
+                        withStyle(SpanStyle(color = LossRed)) { append("$down down") }
+                    }, style = MaterialTheme.typography.labelMedium)
+                }
             }
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            r.isFailure -> Text("Couldn't load the heat map", style = MaterialTheme.typography.labelMedium, color = Signal)
+            else -> Text("The day's moves by sector, sized by market cap.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    }
+}
+
+/** Today's move as a tile colour: stronger with the size of the move, saturating at 3%. */
+private fun moveColor(pct: Double): Color {
+    val a = 0.35f + (kotlin.math.abs(pct) / 3.0).toFloat().coerceIn(0f, 1f) * 0.55f
+    return (if (pct >= 0) GainGreen else LossRed).copy(alpha = a)
+}
+
+/** The VIX as a half dial over 0-40, coloured by its zone. No reading → the status line only. */
+@Composable
+private fun VixTile(m: MarketContextStore.State, status: DoorStatus?, onClick: () -> Unit, modifier: Modifier) {
+    val v = m.vix
+    val color = when (v?.zone) {
+        VixZone.CALM, VixZone.NORMAL -> GainGreen
+        VixZone.ELEVATED -> Signal
+        VixZone.HIGH, VixZone.EXTREME -> LossRed
+        null -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val fresh = status?.warn != true
+    Tile("Fear · VIX", Icons.Filled.Speed, onClick, modifier) {
+        if (v != null) {
+            val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f)
+            Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.BottomCenter) {
+                Canvas(Modifier.size(width = 110.dp, height = 60.dp)) {
+                    val st = 8.dp.toPx(); val d = size.width - st
+                    val tl = Offset(st / 2, st / 2); val arc = Size(d, d)
+                    drawArc(track, 180f, 180f, false, tl, arc, style = Stroke(st, cap = StrokeCap.Round))
+                    val f = (v.value / 40.0).toFloat().coerceIn(0.02f, 1f)
+                    drawArc(if (fresh) color else track.copy(alpha = 0.5f), 180f, 180f * f, false, tl, arc, style = Stroke(st, cap = StrokeCap.Round))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(String.format(Locale.US, "%.2f", v.value), style = PriceSmall, fontWeight = FontWeight.Bold)
+                    Text(v.zone.label.uppercase(), style = MaterialTheme.typography.labelSmall, color = if (fresh) color else Signal)
+                }
+            }
+            if (!fresh) StatusLine(status)
+        } else {
+            StatusLine(status ?: DoorStatus("Loading…"))
+        }
+    }
+}
+
+/** How many of the radar's names are off their highs, as a count and a bar of the whole. */
+@Composable
+private fun DipTile(m: MarketContextStore.State, status: DoorStatus?, onClick: () -> Unit, modifier: Modifier) {
+    val s = m.dipRadar as? DipRadarState.Ready
+    val n = s?.dips?.size
+    val of = s?.counts?.scanned
+    Tile("Dip radar", Icons.Filled.TrendingDown, onClick, modifier) {
+        if (n != null && of != null && of > 0) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("$n", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(" / $of", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f)
+            val fill = MaterialTheme.colorScheme.primary
+            Canvas(Modifier.fillMaxWidth().height(6.dp)) {
+                val r = CornerRadius(size.height / 2, size.height / 2)
+                drawRoundRect(track, cornerRadius = r)
+                drawRoundRect(fill, size = Size(size.width * (n.toFloat() / of).coerceIn(0f, 1f), size.height), cornerRadius = r)
+            }
+            Text(if (n == 1) "off its highs" else "off their highs", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            StatusLine(status ?: DoorStatus("Loading…"))
+        }
     }
 }

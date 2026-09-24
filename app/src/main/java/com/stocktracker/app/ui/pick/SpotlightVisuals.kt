@@ -57,27 +57,6 @@ import com.stocktracker.app.ui.theme.Signal
 internal val ZoneGold = Color(0xFFD2A94A)
 
 /**
- * The card's glow: the verdict colour from the top-right corner and a violet wash from the top-left.
- * Null [tint] draws nothing — a failed or loading card gets no mood it hasn't earned.
- */
-fun Modifier.spotlightGlow(tint: Color?): Modifier = if (tint == null) this else drawBehind {
-    drawRect(
-        Brush.radialGradient(
-            listOf(tint.copy(alpha = 0.26f), Color.Transparent),
-            center = Offset(size.width * 0.88f, -size.height * 0.08f),
-            radius = size.width * 0.95f,
-        ),
-    )
-    drawRect(
-        Brush.radialGradient(
-            listOf(Indigo.copy(alpha = 0.16f), Color.Transparent),
-            center = Offset(-size.width * 0.08f, 0f),
-            radius = size.width * 0.7f,
-        ),
-    )
-}
-
-/**
  * Confidence as a half-dial that sweeps up to its value on first show, violet into green. The number
  * sits inside. Null confidence draws the empty track and a dash — never a dial at zero.
  */
@@ -227,20 +206,20 @@ fun PlanBar(levels: DailyPickLevels?, price: Double?, modifier: Modifier = Modif
  * Null draws the empty track and a dash.
  */
 @Composable
-fun NearMissRing(conviction: Int?, modifier: Modifier = Modifier) {
+fun NearMissRing(conviction: Int?, modifier: Modifier = Modifier, color: Color = ZoneGold, diameter: Int = 46) {
     val c = conviction?.coerceIn(0, 100)
     val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.16f)
     Box(
-        modifier.size(46.dp).semantics { contentDescription = c?.let { "Closest confidence $it out of 100" } ?: "Confidence unknown" },
+        modifier.size(diameter.dp).semantics { contentDescription = c?.let { "Confidence $it out of 100" } ?: "Confidence unknown" },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(46.dp)) {
-            val stroke = 5.dp.toPx()
+        Canvas(Modifier.size(diameter.dp)) {
+            val stroke = (diameter / 9f).dp.toPx()
             val d = size.width - stroke
             val tl = Offset(stroke / 2, stroke / 2)
             drawArc(track, -90f, 360f, false, tl, Size(d, d), style = Stroke(stroke))
-            if (c != null) drawArc(ZoneGold, -90f, 360f * c / 100f, false, tl, Size(d, d), style = Stroke(stroke, cap = StrokeCap.Round))
+            if (c != null) drawArc(color, -90f, 360f * c / 100f, false, tl, Size(d, d), style = Stroke(stroke, cap = StrokeCap.Round))
         }
-        Text(c?.toString() ?: "—", fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        Text(c?.toString() ?: "—", fontSize = (diameter * 0.3f).sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
     }
 }

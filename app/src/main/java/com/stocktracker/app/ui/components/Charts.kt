@@ -180,6 +180,14 @@ fun Sparkline(
         values.forEachIndexed { i, v ->
             if (i == 0) path.moveTo(0f, yOf(v)) else path.lineTo(i * stepX, yOf(v))
         }
+        // A fade-down fill under the line, in the line's colour.
+        val fill = Path().apply {
+            addPath(path)
+            lineTo(size.width, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+        drawPath(fill, Brush.verticalGradient(listOf(color.copy(alpha = 0.28f), Color.Transparent), 0f, size.height))
         drawPath(
             path = path,
             color = color,
@@ -676,6 +684,16 @@ fun PriceChart(
             // the dashed extended-hours segments have no candle equivalent — a pre-market bar is a
             // bar like any other, and its session is carried by `extended` in the scrub readout.
             val dash = PathEffect.dashPathEffect(floatArrayOf(9f, 9f))
+            // A soft glow under the regular-session line: the same path, wide and faint, drawn first.
+            if (!drawCandles) {
+                val glow = Path()
+                var open = false
+                for (k in startIdx..endIdx) {
+                    if (points[k].extended) { open = false; continue }
+                    if (!open) { glow.moveTo(xg(k), y(points[k].price)); open = true } else glow.lineTo(xg(k), y(points[k].price))
+                }
+                drawPath(glow, color.copy(alpha = 0.18f), style = Stroke(width = 9.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
             for (k in (startIdx + 1)..endIdx) {
                 if (drawCandles) break
                 val a = points[k - 1]

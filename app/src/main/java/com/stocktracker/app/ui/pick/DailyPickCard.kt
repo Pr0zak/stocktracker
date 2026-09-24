@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.remote.DailyPickResponse
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.components.spotlightGlow
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.PriceSmall
@@ -174,6 +175,16 @@ private fun HeaderRow(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Folded, the card still shows its one number: the pick's confidence (green) or how close
+        // the best candidate came (gold). Nothing when there is no number to show.
+        if (collapsed && !stale) {
+            val ring = when (shape) {
+                is DailyPickRead.Shape.Pick -> shape.resp.pick?.conviction?.let { it to GainGreen }
+                is DailyPickRead.Shape.NoPick -> shape.resp.pick?.rejectedConviction?.let { it to ZoneGold }
+                else -> null
+            }
+            ring?.let { (c, col) -> NearMissRing(c, color = col, diameter = 36, modifier = Modifier.padding(end = 10.dp)) }
+        }
         Column(Modifier.weight(1f)) {
             Text(
                 DailyPickRead.header(shape),

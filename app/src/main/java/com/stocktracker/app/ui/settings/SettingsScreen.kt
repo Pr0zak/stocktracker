@@ -1,5 +1,17 @@
 package com.stocktracker.app.ui.settings
 
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.outlined.Info
+import com.stocktracker.app.ui.theme.EtfAccent
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -1160,19 +1172,27 @@ private fun SettingsSection(
     title: String,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val (icon, tint) = sectionIcon(title)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            title.uppercase(),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.8.sp,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 6.dp),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(start = 4.dp)) {
+            // A coloured icon per section, so a long settings page can be scanned by shape.
+            Box(Modifier.size(26.dp).background(tint.copy(alpha = 0.16f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+            }
+            Text(
+                title.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         Column(
             Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             content = content,
@@ -1180,7 +1200,26 @@ private fun SettingsSection(
     }
 }
 
-/** A settings row: title (+ optional subtitle) on the left, a Switch on the right. */
+/** Icon and colour for a section header. Colours are category colours, never gain/loss ones. */
+private fun sectionIcon(title: String): Pair<androidx.compose.ui.graphics.vector.ImageVector, Color> = when (title) {
+    "Appearance" -> Icons.Filled.Palette to Indigo
+    "Home screen", "Widgets" -> Icons.Filled.Widgets to EtfAccent
+    "Dashboard" -> Icons.Filled.Dashboard to Indigo
+    "Notifications" -> Icons.Filled.Notifications to Signal
+    "Chart" -> Icons.Filled.ShowChart to CategoryBlue
+    "Data" -> Icons.Filled.Storage to CategoryBlue
+    "AI analyst" -> Icons.Filled.AutoAwesome to Indigo
+    "Backup", "Import from broker" -> Icons.Filled.CloudUpload to EtfAccent
+    "Updates" -> Icons.Filled.SystemUpdate to CategoryBlue
+    else -> Icons.Filled.Info to CategoryBlue
+}
+
+private val CategoryBlue = Color(0xFF8FB0F5)
+
+/**
+ * A settings row: title on the left, a Switch on the right. A short subtitle shows under the title;
+ * a long one (the brevity rule — one line per setting) folds behind an ⓘ that opens it in place.
+ */
 @Composable
 private fun SwitchRow(
     title: String,
@@ -1188,14 +1227,24 @@ private fun SwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val long = subtitle != null && subtitle.length > SHORT_SUBTITLE
+    var open by remember(title) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            if (subtitle != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f, fill = false))
+                if (long) {
+                    IconButton(onClick = { open = !open }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Outlined.Info, contentDescription = if (open) "Hide details" else "Details: $title",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            if (subtitle != null && (!long || open)) {
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -1206,6 +1255,9 @@ private fun SwitchRow(
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
+
+/** Longest subtitle shown inline; longer ones fold behind an ⓘ. */
+private const val SHORT_SUBTITLE = 60
 
 /** A label above a horizontal row of choice chips. */
 @Composable
@@ -1371,9 +1423,15 @@ private fun Checkerboard(modifier: Modifier) {
 /** Muted small print for a section's explanatory note. */
 @Composable
 private fun HelperText(text: String) {
+    // Long notes show their first two lines and open on a tap, so a section is not a page of prose.
+    var open by remember(text) { mutableStateOf(false) }
+    val long = text.length > 110
     Text(
         text,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = if (long && !open) 2 else Int.MAX_VALUE,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        modifier = if (long) Modifier.clickable(onClickLabel = if (open) "Show less" else "Show more") { open = !open } else Modifier,
     )
 }

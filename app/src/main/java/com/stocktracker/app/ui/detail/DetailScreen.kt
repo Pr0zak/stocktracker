@@ -133,6 +133,10 @@ import androidx.compose.material3.HorizontalDivider
 import com.stocktracker.app.ui.components.ChartStyle
 import com.stocktracker.app.ui.components.ChartSubPane
 import com.stocktracker.app.ui.components.FiftyTwoWeekRangeBar
+import com.stocktracker.app.ui.components.GlowCard
+import com.stocktracker.app.ui.components.Pill
+import com.stocktracker.app.ui.components.directionTint
+import com.stocktracker.app.ui.components.spotlightGlow
 import com.stocktracker.app.ui.components.PairedStatBlock
 import com.stocktracker.app.ui.components.ThresholdMeter
 import com.stocktracker.app.ui.components.TwoHundredWeekLineBar
@@ -365,16 +369,23 @@ fun DetailScreen(
             // At the TOP, not mid-page. It used to sit after the Snapshot card, so it both landed
             // below the fold and shoved whatever the user was reading downward when it appeared.
             com.stocktracker.app.ui.components.BackendStatusBanner()
-            Text(
-                text = quote?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
-                style = PriceLarge,
-            )
-            if (quote != null) {
+            // The hero: price, today's move as a pill, how fresh it is, and where it sits in its year.
+            // Glows in today's direction — but not when the last refresh failed, since the move it
+            // would be celebrating may be yesterday's.
+            GlowCard(tint = if (quote != null && !state.quoteRefreshFailed) directionTint(quote.change) else null, spacing = 8.dp) {
+            // Stacked, not side by side: a four-digit price and the pill do not fit one line at 360dp.
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "${Formatting.changeLine(quote.change, quote.changePercent, up, hideZeroCents)} Today",
-                    color = if (up) GainGreen else LossRed,
-                    fontWeight = FontWeight.Medium,
+                    text = quote?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
+                    style = PriceLarge,
                 )
+                if (quote != null) {
+                    Pill(
+                        "${if (up) "▲" else "▼"} ${Formatting.change(quote.change, hideZeroCents)} · " +
+                            String.format(java.util.Locale.US, "%.2f%%", kotlin.math.abs(quote.changePercent)) + " today",
+                        if (up) GainGreen else LossRed,
+                    )
+                }
             }
             // Directly under the price it qualifies, not in a footer. The "Today" line above is the
             // strongest claim on the screen — it asserts a move since a specific close — and it is
@@ -387,6 +398,19 @@ fun DetailScreen(
                 failed = state.quoteRefreshFailed,
                 onRefresh = { vm.refreshQuote() },
             )
+            val lo = state.fiftyTwoWeekLow
+            val hi = state.fiftyTwoWeekHigh
+            if (lo != null && hi != null && quote != null) {
+                FiftyTwoWeekRangeBar(
+                    low = lo,
+                    high = hi,
+                    current = quote.price,
+                    up = up,
+                    valueFormatter = { Formatting.price(it, quote.currency, hideZeroCents) },
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            }
 
             val chartValueFormatter: (Double) -> String = {
                 if (percentMode) formatPercentChange(it)
@@ -634,19 +658,6 @@ fun DetailScreen(
                     selected = percentMode,
                     onClick = { percentMode = !percentMode },
                     label = { Text(if (percentMode) "%" else "$") },
-                )
-            }
-
-            val lo = state.fiftyTwoWeekLow
-            val hi = state.fiftyTwoWeekHigh
-            if (lo != null && hi != null && quote != null) {
-                FiftyTwoWeekRangeBar(
-                    low = lo,
-                    high = hi,
-                    current = quote.price,
-                    up = up,
-                    valueFormatter = { Formatting.price(it, quote.currency, hideZeroCents) },
-                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
 
@@ -3277,11 +3288,15 @@ private fun HoldingsAndAlertsSection(
     var showSheet by remember { mutableStateOf(false) }
 
     // ----- Your position (display-first; edit via the pencil) -----
+    // Glows green above cost, red below — only when there is a position, a cost and a price to compare.
+    val positionTint = if (owns && avgCost != null && avgCost > 0.0 && quote != null) directionTint(quote.price - avgCost) else null
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .padding(14.dp),
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .spotlightGlow(positionTint)
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(

@@ -58,6 +58,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.di.ServiceLocator
+import com.stocktracker.app.ui.components.CountUpText
+import com.stocktracker.app.ui.components.GlowCard
+import com.stocktracker.app.ui.components.Pill
+import com.stocktracker.app.ui.components.Skeleton
+import com.stocktracker.app.ui.components.directionTint
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.unit.sp
+import com.stocktracker.app.ui.theme.PriceSmall
+import androidx.compose.foundation.layout.width
 import com.stocktracker.app.ui.calls.MyCallsSection
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.PriceChart
@@ -74,7 +84,7 @@ import com.stocktracker.app.ui.theme.Signal
 import com.stocktracker.app.ui.theme.NumberSmall
 import com.stocktracker.app.ui.theme.PriceMedium
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun PortfolioScreen(
     onOpenIdeas: () -> Unit = {},
@@ -175,21 +185,63 @@ fun PortfolioScreen(
                 return@Column
             }
 
-            // Total value + day change
-            Text(
-                text = Formatting.price(state.totalValue, hideZeroCents = hideZeroCents),
-                style = PriceLarge,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            val up = state.dayChange >= 0
-            Text(
-                // "Today" is only honest when every quote behind it is from today. When some came
-                // from an old cache entry the label changes rather than the number quietly lying.
-                text = Formatting.changeLine(state.dayChange, state.dayChangePercent, up, hideZeroCents) +
-                    if (state.staleSymbols.isEmpty()) " Today" else " (last known)",
-                color = if (up) GainGreen else LossRed,
-                fontWeight = FontWeight.Medium,
-            )
+            // The hero: total value, then today / gain / vs-the-S&P as pills. Tinted by today's
+            // direction, and only once there is a today to show — while quotes load the total is a
+            // placeholder, never "$0.0000" (a zero sum over holdings that have not been priced yet
+            // is not a value, and it used to render in the sub-dollar four-decimal format).
+            val priced = state.holdings.isNotEmpty()
+            val todayKnown = priced && state.staleSymbols.isEmpty()
+            GlowCard(tint = if (todayKnown) directionTint(state.dayChange) else null, spacing = 8.dp) {
+                Text("TOTAL VALUE", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                when {
+                    priced -> CountUpText(
+                        state.totalValue,
+                        format = { Formatting.price(it, hideZeroCents = hideZeroCents) },
+                        style = PriceLarge,
+                    )
+                    state.loading -> Skeleton(Modifier.fillMaxWidth(0.6f).height(34.dp))
+                    else -> Text("—", style = PriceLarge)
+                }
+                if (priced) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val up = state.dayChange >= 0
+                        // "Today" is only honest when every quote behind it is from today. When some
+                        // came from an old cache entry the label changes rather than the number lying.
+                        Pill(
+                            "${if (up) "▲" else "▼"} ${Formatting.price(kotlin.math.abs(state.dayChange), hideZeroCents = hideZeroCents)} " +
+                                if (todayKnown) "today" else "last known",
+                            if (!todayKnown) MaterialTheme.colorScheme.onSurfaceVariant else if (up) GainGreen else LossRed,
+                        )
+                        // MONEY-5: price movement on shares still held — no dividends, nothing sold.
+                        if (state.hasCostBasis) {
+                            val gUp = state.totalGain >= 0
+                            Pill(
+                                "${if (gUp) "▲" else "▼"} ${String.format(java.util.Locale.US, "%.1f", kotlin.math.abs(state.totalGainPercent))}% " +
+                                    if (gUp) "above cost" else "below cost",
+                                if (gUp) GainGreen else LossRed,
+                            )
+                        }
+                        state.vsSpyPct?.let { v ->
+                            Pill(
+                                "${if (v >= 0) "▲" else "▼"} ${"%.1f".format(kotlin.math.abs(v))} pts vs S&P",
+                                if (v >= 0) GainGreen else LossRed,
+                            )
+                        }
+                        state.maxDrawdownPct?.let { d ->
+                            Pill("Biggest dip ${"%.1f".format(d)}%", MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (state.hasCostBasis) {
+                        val gUp = state.totalGain >= 0
+                        Text(
+                            "${Formatting.change(state.totalGain, hideZeroCents)} ${if (gUp) "above" else "below"} what you paid",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             // The totals above are a sum over what could be priced. Saying so is the difference
             // between an incomplete number and a wrong one.
             if (state.mixedCurrencies.isNotEmpty()) {
@@ -207,50 +259,14 @@ fun PortfolioScreen(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-            if (state.hasCostBasis) {
-                val gUp = state.totalGain >= 0
-                // MONEY-5: this is price movement only — current value vs. what was paid, on shares
-                // still held. Dividends are fetched elsewhere in the app (the detail chart's ex-div
-                // markers) but never summed in here, and nothing sold is in this number either. Call
-                // it what it is rather than "total return", which promises both.
+            // MONEY-5: the S&P comparison and the dip price TODAY's share counts across the whole
+            // window. Said once, here, rather than implied by "vs S&P" alone.
+            if (state.vsSpyPct != null) {
                 Text(
-                    // Price movement on shares still held — no dividends, nothing sold (MONEY-5).
-                    text = "${Formatting.changeLine(state.totalGain, state.totalGainPercent, gUp, hideZeroCents)} " +
-                        if (gUp) "above what you paid" else "below what you paid",
-                    color = if (gUp) GainGreen else LossRed,
-                    fontWeight = FontWeight.Medium,
+                    "vs S&P and biggest dip price today's holdings back over the range shown — not your real history.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            // vs the same money in the S&P 500, and the worst peak-to-trough dip over the window.
-            if (state.vsSpyPct != null || state.maxDrawdownPct != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    state.vsSpyPct?.let { v ->
-                        Text(
-                            "${"%.1f".format(kotlin.math.abs(v))} pts ${if (v >= 0) "ahead of" else "behind"} the S&P",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (v >= 0) GainGreen else LossRed,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                    state.maxDrawdownPct?.let { d ->
-                        Text(
-                            "Biggest dip ${"%.1f".format(d)}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                // MONEY-5: this is not a record of what the account actually did — it prices TODAY's
-                // share counts across the whole window, as if that exact mix had been held throughout,
-                // then compares that hypothetical curve to the S&P. A rebalance yesterday rewrites this
-                // number for the whole year. Said once, here, rather than implied by "vs S&P" alone.
-                if (state.vsSpyPct != null) {
-                    Text(
-                        "Both figures price today's holdings back over the range shown — what this mix would have done, not your real history.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
 
             // Reconstructed value-over-time chart, with the S&P 500 overlaid (pink).
@@ -349,12 +365,21 @@ fun PortfolioScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AllocationDonut(
-                        slices = sortedHoldings.map {
-                            (sliceColor[it.asset.symbol] ?: DONUT_COLORS[0]) to (it.value / state.totalValue).toFloat()
-                        },
-                        modifier = Modifier.size(96.dp),
-                    )
+                    // The centre says how concentrated the book is: the top five's share of it.
+                    val topShare = sortedHoldings.take(5).sumOf { it.value } / state.totalValue * 100.0
+                    Box(Modifier.size(112.dp), contentAlignment = Alignment.Center) {
+                        AllocationDonut(
+                            slices = sortedHoldings.map {
+                                (sliceColor[it.asset.symbol] ?: DONUT_COLORS[0]) to (it.value / state.totalValue).toFloat()
+                            },
+                            modifier = Modifier.size(112.dp),
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(String.format(java.util.Locale.US, "%.0f%%", topShare), style = PriceSmall, fontWeight = FontWeight.Bold)
+                            Text(if (sortedHoldings.size > 5) "in top 5" else "of book",
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -365,16 +390,24 @@ fun PortfolioScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
+                                // A weight bar per holding, scaled to the LARGEST one, so the biggest
+                                // position reads as the longest bar at a glance.
+                                val c = sliceColor[h.asset.symbol] ?: DONUT_COLORS[0]
+                                val frac = (h.value / sortedHoldings.first().value).toFloat().coerceIn(0f, 1f)
+                                Text(h.asset.symbol, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.width(52.dp), maxLines = 1)
                                 Box(
-                                    Modifier
-                                        .size(9.dp)
-                                        .background(sliceColor[h.asset.symbol] ?: DONUT_COLORS[0], RoundedCornerShape(50)),
-                                )
-                                Text(h.asset.symbol, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                    Modifier.weight(1f).height(6.dp)
+                                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f), RoundedCornerShape(50)),
+                                ) {
+                                    Box(Modifier.fillMaxWidth(frac).height(6.dp).background(c, RoundedCornerShape(50)))
+                                }
                                 Text(
                                     "${String.format(java.util.Locale.US, "%.0f", pct)}%",
                                     style = NumberSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.width(34.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
                                 )
                             }
                         }

@@ -513,6 +513,7 @@ fun WatchlistScreen(
                                 showDragHandle = draggable,
                                 favorite = item.asset.favorite,
                                 onToggleFavorite = { vm.toggleFavorite(item.asset) },
+                                changePercent = q?.changePercent,
                             )
                         }
                     }
@@ -707,6 +708,7 @@ private fun FreshnessLine(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun MarketContext(
     expanded: Boolean,
@@ -766,21 +768,14 @@ private fun MarketContext(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
+        // Pills rather than a dot-separated sentence: each reading is its own chip, coloured by what
+        // it says, and they wrap to a second line rather than clipping on a narrow phone.
+        androidx.compose.foundation.layout.FlowRow(
             modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            bits.forEachIndexed { i, (text, tint) ->
-                if (i > 0) Text("·", style = MaterialTheme.typography.labelSmall, color = neutral)
-                Text(
-                    text,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (tint == neutral) FontWeight.Normal else FontWeight.SemiBold,
-                    color = tint,
-                    maxLines = 1,
-                )
-            }
+            bits.forEach { (text, tint) -> com.stocktracker.app.ui.components.Pill(text, tint) }
         }
         Icon(
             if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,

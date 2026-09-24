@@ -1,5 +1,7 @@
 package com.stocktracker.app.ui.components
 
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
@@ -67,6 +69,8 @@ fun AssetRow(
     /** Null hides the star entirely, for the screens that render a row without the concept
      *  (detail, widgets, search results). The star is only meaningful where a list is grouped. */
     onToggleFavorite: (() -> Unit)? = null,
+    /** Today's % change. Sets how strong the row's colour wash is; null draws no wash. */
+    changePercent: Double? = null,
 ) {
     // Crypto takes precedence over ETF; equities get no accent.
     val accent: Color? = if (isCrypto) CryptoAccent else if (isEtf) EtfAccent else null
@@ -84,6 +88,7 @@ fun AssetRow(
             // is dropped; the row just stops being three stacked lines when two will do.
             modifier = Modifier
                 .fillMaxWidth()
+                .moveWash(changePercent)
                 .padding(horizontal = 14.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -175,6 +180,11 @@ fun AssetRow(
                     style = NumberSmall,
                     color = if (up) GainGreen else LossRed,
                     fontWeight = FontWeight.Medium,
+                    // A filled pill, narrow on purpose (6dp a side): this row is width-starved.
+                    modifier = Modifier
+                        .padding(top = 1.dp)
+                        .background((if (up) GainGreen else LossRed).copy(alpha = 0.13f), RoundedCornerShape(50))
+                        .padding(horizontal = 6.dp),
                 )
             }
             // The star sits where the eye already ends up — after the price, at the trailing edge.
@@ -222,3 +232,16 @@ private fun Spacer12() {
     androidx.compose.foundation.layout.Spacer(Modifier.width(12.dp))
 }
 
+
+/**
+ * A faint wash of the day's colour from the row's trailing edge, stronger with the size of the move
+ * (saturating at 3%), so a big day stands out before any number is read. Null or non-finite → none.
+ */
+private fun Modifier.moveWash(pct: Double?): Modifier {
+    if (pct == null || !pct.isFinite()) return this
+    val c = if (pct >= 0) GainGreen else LossRed
+    val a = 0.04f + (kotlin.math.abs(pct) / 3.0).toFloat().coerceIn(0f, 1f) * 0.14f
+    return drawBehind {
+        drawRect(Brush.horizontalGradient(listOf(Color.Transparent, c.copy(alpha = a)), startX = size.width * 0.35f, endX = size.width))
+    }
+}

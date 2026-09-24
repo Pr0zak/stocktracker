@@ -37,6 +37,8 @@ import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -393,59 +395,78 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    val ret = st.totalReturnPct
+    // The S&P shadow's own return on the same deposits, from the server's two figures — the value of
+    // the shadow book and what was paid in. Never back-solved from the gap.
+    val spRet = st.benchmarkValue?.takeIf { st.fundedTotal > 0 }?.let { (it / st.fundedTotal - 1) * 100 }
+    val gap = if (ret != null && spRet != null) ret - spRet else null
+    com.stocktracker.app.ui.components.GlowCard(tint = com.stocktracker.app.ui.components.directionTint(gap), spacing = 8.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // The full balance, not "$11.53K": a headline figure that rounds away real dollars reads
             // as a different number from the one in the trade log.
             Text(String.format(java.util.Locale.US, "$%,.2f", st.equity), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Pill("PAPER", neutral)
         }
-        val ret = st.totalReturnPct
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (ret != null) Text(signedPct(ret) + " overall", color = if (ret >= 0) GREEN else RED,
+        if (ret != null && spRet != null) {
+            // The race: the AI against the same money in the S&P, one bar each, scaled together.
+            val scale = maxOf(kotlin.math.abs(ret), kotlin.math.abs(spRet)).takeIf { it > 0 } ?: 1.0
+            RaceBar("AI", ret, scale, if (ret >= 0) MaterialTheme.colorScheme.primary else RED, bold = true)
+            RaceBar("S&P", spRet, scale, neutral.copy(alpha = 0.7f), bold = false)
+        } else if (ret != null) {
+            Text(signedPct(ret) + " overall", color = if (ret >= 0) GREEN else RED,
                 style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            st.vsBenchmarkPct?.let {
-                // A difference of two returns, in points. "vs S&P −1.9%" read as "the S&P fell 1.9%".
-                Text(
-                    String.format(java.util.Locale.US, "%.1f pts %s the S&P", kotlin.math.abs(it), if (it >= 0) "ahead of" else "behind"),
-                    color = if (it >= 0) GREEN else RED, style = MaterialTheme.typography.titleSmall,
-                )
+        }
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            // Without the shadow's own return the server's gap is still worth showing, as before.
+            if (gap == null) st.vsBenchmarkPct?.let {
+                Pill(String.format(java.util.Locale.US, "%.1f pts %s the S&P", kotlin.math.abs(it), if (it >= 0) "ahead of" else "behind"),
+                    if (it >= 0) GREEN else RED)
             }
+            gap?.let {
+                // A difference of two returns, in points. "vs S&P −1.9%" read as "the S&P fell 1.9%".
+                Pill(String.format(java.util.Locale.US, "%s %.1f pts %s the S&P", if (it >= 0) "▲" else "▼", kotlin.math.abs(it), if (it >= 0) "ahead of" else "behind"),
+                    if (it >= 0) GREEN else RED)
+            }
+            // Risk beside return, once the curve is long enough to HAVE a drawdown — a fresh account
+            // displaying "dip 0.00%" claims a measurement it has not earned.
+            st.maxDrawdownPct?.let { maxDd ->
+                val cur = st.currentDrawdownPct ?: 0.0
+                Pill("Biggest dip ${pctPlain(maxDd)}" + if (cur > 0.05) " · now ${pctPlain(cur)} off" else "",
+                    if (cur > 0.05) AMBER else neutral)
+            }
+            trendPctPerMonth?.let { rate ->
+                // Says what it excludes when there IS something to exclude: the curve rises on a
+                // deposit and this figure does not.
+                Pill(signedPct(rate) + "/mo trend" + if (st.settings.monthlyDeposit > 0) " ex-deposits" else "",
+                    if (rate >= 0) GREEN else RED)
+            }
+            Pill("Cash " + (st.cashPct?.let { "${it.toInt()}%" } ?: "—"), neutral)
+            Pill("Realized " + signedUsd(st.realizedPlTotal), neutral)
         }
-        // Risk beside return. Without it "+2.48%" describes a book that could have got there in a
-        // straight line or been 20% underwater on the way, and the two read identically. Shown only
-        // once the curve is long enough to HAVE a drawdown -- a fresh account displaying "max DD
-        // 0.00%" claims a measurement it has not earned.
-        st.maxDrawdownPct?.let { maxDd ->
-            val cur = st.currentDrawdownPct ?: 0.0
-            Text(
-                "Biggest dip from a high: ${pctPlain(maxDd)}" +
-                    if (cur > 0.05) " · now ${pctPlain(cur)} below its high" else " · back at its high",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (cur > 0.05) AMBER else neutral,
-            )
+        st.lastTickDate?.let { Text("Last traded $it", style = MaterialTheme.typography.labelSmall, color = neutral) }
+    }
+}
+
+/** One lane of the race: a label, a bar from zero scaled against the larger of the two, the number. */
+@Composable
+private fun RaceBar(label: String, pct: Double, scale: Double, color: Color, bold: Boolean) {
+    val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+            modifier = Modifier.width(34.dp))
+        Box(Modifier.weight(1f).height(10.dp).background(track, RoundedCornerShape(50))) {
+            Box(Modifier.fillMaxWidth((kotlin.math.abs(pct) / scale).toFloat().coerceIn(0.02f, 1f)).height(10.dp)
+                .background(color, RoundedCornerShape(50)))
         }
-        trendPctPerMonth?.let { rate ->
-            Text(
-                // Says what it excludes when there IS something to exclude. The equity curve above
-                // rises on a deposit and this figure does not, which looks like a contradiction
-                // unless the reason is on screen.
-                "Trend: " + signedPct(rate) + " a month" +
-                    if (st.settings.monthlyDeposit > 0) " (not counting deposits)" else "",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
-                color = if (rate >= 0) GREEN else RED,
-            )
-        }
-        Text(
-            "Cash " + (st.cashPct?.let { "${it.toInt()}%" } ?: "—") +
-                " · realized " + signedUsd(st.realizedPlTotal) +
-                (st.lastTickDate?.let { " · last traded $it" } ?: ""),
-            style = MaterialTheme.typography.labelSmall, color = neutral,
-        )
+        Text(signedPct(pct), style = MaterialTheme.typography.labelLarge, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+            color = if (bold) (if (pct >= 0) GREEN else RED) else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(62.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
     }
 }
 
@@ -1175,7 +1196,18 @@ private fun ArmSwitcher(
             FilterChip(
                 selected = a.arm == selected,
                 onClick = { onSelect(a.arm) },
-                label = { Text(a.label.ifBlank { a.arm }) },
+                label = {
+                    // A status dot: green when this arm is ahead of its own S&P shadow, red when
+                    // behind, none when unmeasured. The words say it too, for a screen reader.
+                    val v = a.vsBenchmarkPct
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.semantics(mergeDescendants = true) {
+                            v?.let { contentDescription = "${a.label.ifBlank { a.arm }}, ${if (it >= 0) "ahead of" else "behind"} the S&P" }
+                        }) {
+                        if (v != null) Box(Modifier.size(8.dp).background(if (v >= 0) GREEN else RED, RoundedCornerShape(50)))
+                        Text(a.label.ifBlank { a.arm })
+                    }
+                },
                 leadingIcon = if (a.engine == "rules") {
                     { Icon(Icons.Filled.Calculate, contentDescription = null, modifier = Modifier.size(16.dp)) }
                 } else null,

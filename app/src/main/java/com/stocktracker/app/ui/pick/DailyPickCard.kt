@@ -19,6 +19,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,10 +40,13 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.clip
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.remote.DailyPickResponse
 import com.stocktracker.app.di.ServiceLocator
@@ -84,12 +88,21 @@ fun DailyPickCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenS
     val shape = state.shape
     if (shape is DailyPickRead.Shape.NotConfigured) return
 
+    // The glow is the day's verdict: green for a fresh pick, gold for a fresh no-pick day. A stale,
+    // failed or loading card gets no glow — it has not earned a mood.
+    val glow = when {
+        shape is DailyPickRead.Shape.Pick && !shape.stale -> GainGreen
+        shape is DailyPickRead.Shape.NoPick && !shape.stale -> ZoneGold
+        else -> null
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .spotlightGlow(glow)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         HeaderRow(shape, state, collapsed, nowMs,
             onToggle = { scope.launch { ServiceLocator.settingsStore.setDailyPickCardCollapsed(!collapsed) } },
@@ -164,7 +177,7 @@ private fun HeaderRow(
         Column(Modifier.weight(1f)) {
             Text(
                 DailyPickRead.header(shape),
-                style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
                 color = if (stale) Signal else neutral,
                 modifier = Modifier.semantics { heading() },
             )
@@ -212,52 +225,56 @@ private fun PickBody(
     val change = resp.live?.changePct
     var more by rememberSaveable(resp.date, sym) { mutableStateOf(false) }
 
+    // Who, big, with the confidence dial beside it.
     Row(
         modifier = Modifier.fillMaxWidth().clickable { onOpenSymbol(sym, p.name) },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.clickable(onClickLabel = "What confidence means") { explain.show("conviction", "Confidence") }) {
-            ConvictionRing(p.conviction)
-        }
         Column(Modifier.weight(1f)) {
-            Text(sym, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(sym, fontSize = 34.sp, fontWeight = FontWeight.Black, lineHeight = 36.sp, letterSpacing = (-0.5).sp)
             p.name?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(DailyPickRead.money(price), style = PriceSmall)
-            change?.let {
-                Text(String.format(Locale.US, "%+.2f%%", it), style = MaterialTheme.typography.labelMedium,
-                    color = if (it >= 0) GainGreen else LossRed)
+        ConfidenceDial(
+            p.conviction,
+            modifier = Modifier.clickable(onClickLabel = "What confidence means") { explain.show("conviction", "Confidence") },
+        )
+    }
+
+    (p.headline?.takeIf { it.isNotBlank() } ?: p.thesis)?.let {
+        Text(it, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2,
+            overflow = TextOverflow.Ellipsis)
+    }
+
+    // Price now, today's move, and where that sits against the buy zone.
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(DailyPickRead.money(price), fontSize = 22.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+        change?.let {
+            Text(String.format(Locale.US, "%+.2f%%", it), style = MaterialTheme.typography.labelLarge,
+                color = if (it >= 0) GainGreen else LossRed)
+        }
+        DailyPickRead.chaseLabel(resp.chase?.status, resp.chase?.pct)?.let {
+            PickChip(it, when (resp.chase?.status) {
+                "in_zone" -> ZoneGold
+                "chase_too_deep" -> LossRed
+                else -> neutral
+            })
+        }
+    }
+    ContextChips(resp)
+
+    // Pills, no sentences: two reasons for, one against. The readings and the AI's words are in Details.
+    val factors = p.factors.associateBy { it.key }
+    val shown = (p.reasons.filter { it.supports }.take(2) + p.reasons.filterNot { it.supports }.take(1))
+    if (shown.isNotEmpty()) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (r in shown) {
+                FactorPill(factors[r.factor], fallbackLabel = r.factor, supports = r.supports,
+                    onClick = { explain.show(r.factor, factors[r.factor]?.label ?: r.factor) })
             }
         }
     }
 
-    (p.headline?.takeIf { it.isNotBlank() } ?: p.thesis)?.let {
-        Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2,
-            overflow = TextOverflow.Ellipsis)
-    }
-    ContextChips(resp)
-
-    // Three bars, no sentences: label, bar, rank. The readings and the AI's words are in Details.
-    val factors = p.factors.associateBy { it.key }
-    val shown = (p.reasons.filter { it.supports }.take(2) + p.reasons.filterNot { it.supports }.take(1))
-    for (r in shown) {
-        FactorRow(
-            supports = r.supports, factor = factors[r.factor], fallbackLabel = r.factor, text = r.text,
-            onExplain = { explain.show(r.factor, factors[r.factor]?.label ?: r.factor) },
-            showText = false, compact = true,
-        )
-    }
-
-    PlanLadder(p.levels, price)
-    listOfNotNull(
-        DailyPickRead.chaseLabel(resp.chase?.status, resp.chase?.pct),
-        p.riskReward?.rrRatio?.let { String.format(Locale.US, "reward %.1f× risk", it) },
-    ).takeIf { it.isNotEmpty() }?.let {
-        Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall,
-            color = if (resp.chase?.status == "chase_too_deep") LossRed else neutral)
-    }
+    PlanBar(p.levels, price, middle = p.riskReward?.rrRatio?.let { String.format(Locale.US, "reward %.1f× risk", it) })
 
     if (more) {
         DailyPickRead.trackRecordLine(p.trackRecord)?.let {
@@ -270,7 +287,7 @@ private fun PickBody(
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedButton(onClick = onWhy) { Text("Details") }
+        Button(onClick = onWhy) { Text("Details") }
         TextButton(onClick = { more = !more }) { Text(if (more) "Less" else "More") }
         Box(Modifier.weight(1f))
         val logged = state.loggedKey == "${resp.date}|$sym"
@@ -327,18 +344,21 @@ private fun NoPickBody(resp: DailyPickResponse, onWhy: () -> Unit, onOpenSymbol:
     val p = resp.pick
     val closest = p?.closest
     val conv = p?.rejectedConviction
-    if (closest != null && conv != null) {
-        Text(
-            buildAnnotatedString {
-                append("Closest: ")
-                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(closest.symbol) }
-                append(" · $conv/100, needed ${p.convictionFloor ?: 60}")
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.clickable { onOpenSymbol(closest.symbol, closest.name) },
-        )
-    } else {
-        Text(resp.noneReason ?: "Nothing was convincing enough today.", style = MaterialTheme.typography.bodyMedium)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (closest != null && conv != null) NearMissRing(conv)
+        if (closest != null && conv != null) {
+            Text(
+                buildAnnotatedString {
+                    append("Closest: ")
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(closest.symbol) }
+                    append(" · needed ${p.convictionFloor ?: 60}")
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f).clickable { onOpenSymbol(closest.symbol, closest.name) },
+            )
+        } else {
+            Text(resp.noneReason ?: "Nothing was convincing enough today.", style = MaterialTheme.typography.bodyMedium)
+        }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f)) { ContextChips(resp) }

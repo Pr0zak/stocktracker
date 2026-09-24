@@ -181,7 +181,7 @@ fun sortWatchlistRows(rows: List<WatchlistRow>, sortOrder: WatchlistSortOrder): 
 fun watchlistChangeText(row: WatchlistRow, valueMode: WatchlistValueMode, hideZeroCents: Boolean): String =
     when (valueMode) {
         WatchlistValueMode.PERCENT -> "${Formatting.arrow(row.isUp)} ${Formatting.percent(row.changePercent)}"
-        WatchlistValueMode.DOLLAR -> "${Formatting.arrow(row.isUp)} ${Formatting.change(row.changeAbs, hideZeroCents)}"
+        WatchlistValueMode.DOLLAR -> "${Formatting.arrow(row.isUp)} ${Formatting.change(row.changeAbs, hideZeroCents, reference = row.price)}"
     }
 
 /** Mirrors [shouldRepaintForStaleness] for the watchlist widget, which tracks staleness per

@@ -38,4 +38,18 @@ class FormattingTest {
         assertEquals("1.20K", Formatting.compact(1200.0))
         assertEquals("950", Formatting.compact(950.0))
     }
+
+    @Test
+    fun `a small move on a dollar-plus stock is shown in cents`() {
+        // Seen on AAPL at $336.69: "-0.3310 (-0.10%)" — four decimals meant for sub-dollar assets.
+        assertEquals("-0.33", Formatting.change(-0.331, reference = 336.69))
+        assertEquals("▼ -0.33 (-0.10%)", Formatting.changeLine(-0.331, -0.098, false, reference = 336.69))
+        assertEquals("$0.33", Formatting.price(0.331, reference = 336.69))
+    }
+
+    @Test
+    fun `a sub-dollar asset keeps its extra decimals`() {
+        assertEquals("-0.001200", Formatting.change(-0.0012, reference = 0.45))
+        assertEquals("+0.3310", Formatting.change(0.331))
+    }
 }

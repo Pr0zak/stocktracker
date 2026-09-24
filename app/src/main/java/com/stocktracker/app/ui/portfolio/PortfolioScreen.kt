@@ -482,7 +482,7 @@ fun PortfolioScreen(
                         )
                         val hUp = h.dayChange >= 0
                         Text(
-                            Formatting.change(h.dayChange, hideZeroCents),
+                            Formatting.change(h.dayChange, hideZeroCents, reference = h.value),
                             style = NumberSmall,
                             color = if (hUp) GainGreen else LossRed,
                         )

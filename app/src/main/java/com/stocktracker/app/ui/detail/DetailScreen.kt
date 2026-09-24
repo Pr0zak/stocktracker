@@ -381,7 +381,7 @@ fun DetailScreen(
                 )
                 if (quote != null) {
                     Pill(
-                        "${if (up) "▲" else "▼"} ${Formatting.price(kotlin.math.abs(quote.change), quote.currency, hideZeroCents)} · " +
+                        "${if (up) "▲" else "▼"} ${Formatting.price(kotlin.math.abs(quote.change), quote.currency, hideZeroCents, reference = quote.price)} · " +
                             String.format(java.util.Locale.US, "%.2f%%", kotlin.math.abs(quote.changePercent)) + " today",
                         if (up) GainGreen else LossRed,
                     )
@@ -543,7 +543,7 @@ fun DetailScreen(
                             percentMode = percentMode,
                             currentValueText = chartValueFormatter(chartPoints.last().price),
                             changeLine = quote?.takeIf { !percentMode }?.let {
-                                Formatting.changeLine(it.change, it.changePercent, up, hideZeroCents)
+                                Formatting.changeLine(it.change, it.changePercent, up, hideZeroCents, reference = it.price)
                             },
                         ),
                         showVolume = showVolume,

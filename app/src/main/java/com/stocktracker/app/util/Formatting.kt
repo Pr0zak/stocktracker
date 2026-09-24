@@ -22,16 +22,21 @@ object Formatting {
 
     private fun Double.usable(): Boolean = this.isFinite()
 
-    fun price(value: Double, currency: String = "USD", hideZeroCents: Boolean = false): String {
+    /**
+     * [reference] is the price this amount belongs to, when it is a change rather than a price: a
+     * 33-cent move on a $336 stock is "0.33", not the sub-dollar "0.3310" (four decimals are for
+     * assets that COST under a dollar, not for small moves in ones that don't).
+     */
+    fun price(value: Double, currency: String = "USD", hideZeroCents: Boolean = false, reference: Double? = null): String {
         if (!value.usable()) return NA
         val symbol = if (currency.equals("USD", ignoreCase = true)) "$" else ""
-        return symbol + money(value, hideZeroCents)
+        return symbol + money(value, hideZeroCents, reference)
     }
 
-    fun change(value: Double, hideZeroCents: Boolean = false): String {
+    fun change(value: Double, hideZeroCents: Boolean = false, reference: Double? = null): String {
         if (!value.usable()) return NA
         val sign = if (value >= 0) "+" else "-"
-        return sign + money(abs(value), hideZeroCents)
+        return sign + money(abs(value), hideZeroCents, reference)
     }
 
     fun percent(value: Double): String {
@@ -67,16 +72,20 @@ object Formatting {
         }
 
     /** "▲ +2.71 (+1.20%)" */
-    fun changeLine(change: Double, percent: Double, up: Boolean, hideZeroCents: Boolean = false): String {
+    fun changeLine(change: Double, percent: Double, up: Boolean, hideZeroCents: Boolean = false, reference: Double? = null): String {
         // No arrow either. A direction drawn beside an unknown move is a claim the data cannot
         // support, and green/red on "—" reads as a real up or down day at a glance.
         if (!change.usable() || !percent.usable()) return NA
-        return "${arrow(up)} ${change(change, hideZeroCents)} (${percent(percent)})"
+        return "${arrow(up)} ${change(change, hideZeroCents, reference)} (${percent(percent)})"
     }
 
     /** Formats a positive magnitude. When [hideZeroCents], whole-dollar amounts drop the ".00". */
-    private fun money(value: Double, hideZeroCents: Boolean): String {
+    private fun money(value: Double, hideZeroCents: Boolean, reference: Double? = null): String {
         val a = abs(value)
+        // A small amount measured on a dollar-plus asset: cents, like the price it moved.
+        if (a < 1.0 && reference != null && reference.usable() && abs(reference) >= 1.0) {
+            return String.format(Locale.US, "%.2f", value)
+        }
         // `a >= 1.0` gates the shortcut. Without it the rounding test is trivially true for every
         // sub-dollar value -- 0.00001208 * 100 rounds to 0, 0 % 100 == 0 -- so "hide zero cents"
         // rendered a real SHIB price as "$0". The setting means "drop .00 from whole dollars"; it

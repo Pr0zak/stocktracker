@@ -1,5 +1,9 @@
 package com.stocktracker.app.ui.watchlist
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.Speed
 import java.util.Locale
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -500,7 +504,7 @@ fun WatchlistScreen(
                                 symbol = item.asset.symbol,
                                 name = item.asset.displayName,
                                 priceText = q?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
-                                changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents) } ?: "…",
+                                changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents, reference = it.price) } ?: "…",
                                 up = up,
                                 sparkline = item.sparkline,
                                 // The level changeText is measured from, so the line and the
@@ -702,7 +706,15 @@ private fun FreshnessLine(
     }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/**
+ * The market context, folded to ONE line (2026-09-24 redesign — the pill version wrapped to two
+ * rows and read as a jumble of chips). Left to right: a session dot and name, the one verdict that
+ * matters in its colour, then the VIX and the dip count as small icon + number pairs.
+ *
+ * It shows ONE verdict where the pill version could show two (the regime label AND the checks'
+ * lead): a failing check wins, since it is the one with a warning. The other, the full wording and
+ * every card behind them are one tap away. The verdict ellipsizes rather than wrapping.
+ */
 @Composable
 private fun MarketContext(
     expanded: Boolean,
@@ -721,61 +733,90 @@ private fun MarketContext(
     hasRegime: Boolean,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val bits = buildList<Pair<String, Color>> {
-        if (showMarketStatus) add(marketState.label to neutral)
+    // The verdict: where the AI's regime read and the market checks disagree, one phrase that says
+    // both ("Indexes up, most stocks lagging"); otherwise the regime label, else the checks' lead.
+    val verdict: Pair<String, Color>? = run {
         val combined = if (hasRegime) GateRead.combinedStrip(regime.result?.regime?.trend, gate) else null
-        if (combined != null) add(combined to Signal)
-        if (combined == null && hasRegime) {
-            regime.result?.regime?.label?.takeIf { it.isNotBlank() }?.let { lbl ->
-                val trend = regime.result?.regime?.trend
-                add(lbl to if (trend == "up") GainGreen else if (trend == "down") LossRed else neutral)
+        // The folded line has about 20 characters to spare on a phone; the full sentence is in the
+        // expanded view. Same meaning, fewer letters.
+        if (combined != null) return@run combined.replace("Indexes up, most stocks lagging", "Indexes up, most lag") to Signal
+        val regimeBit = if (hasRegime) regime.result?.regime?.label?.takeIf { it.isNotBlank() }?.let { lbl ->
+            val trend = regime.result?.regime?.trend
+            lbl to if (trend == "up") GainGreen else if (trend == "down") LossRed else neutral
+        } else null
+        // Unmeasured gets the amber, never the red: a gate that couldn't read a leg has not observed
+        // a bearish market. A failed check is amber too — a caution about conditions, not a loss.
+        val gateBit = gate?.let { g ->
+            g.chip.substringBefore(":") to when (g.verdict) {
+                GateVerdict.OPEN -> GainGreen
+                GateVerdict.SHUT, GateVerdict.UNMEASURED -> Signal
+                GateVerdict.UNAVAILABLE -> neutral
             }
         }
-        // Unmeasured gets the amber, never the red: a gate that couldn't read a leg has not
-        // observed a bearish market, and one glance at this line is all most readings get.
-        gate?.takeIf { combined == null }?.let { g ->
-            // The strip has room for a few words, so only the chip's lead ("Narrow market"); the card
-            // below carries the number. A failed check is amber, not red: it is a caution about
-            // conditions, not a loss, and the Daily Pick card colours it the same way.
-            add(g.chip.substringBefore(":") to when (g.verdict) {
-                GateVerdict.OPEN -> GainGreen
-                GateVerdict.SHUT -> Signal
-                GateVerdict.UNMEASURED -> Signal
-                GateVerdict.UNAVAILABLE -> neutral
-            })
-        }
-        // The collapsed line says it too, in the one word it has room for. A strip that shows a
-        // number with no qualifier is the default most readings get — the card below is only seen
-        // by someone who expanded it.
-        if (showVix) vix?.let {
-            val v = "VIX ${String.format(Locale.US, "%.1f", it.value)}"
-            add(if (vixStale) "$v (old)" to Signal else v to neutral)
-        }
-        dipChip?.let { add(it to neutral) }
+        // A failing check outranks a calm regime label: it is the one with something to warn about.
+        if (gateBit != null && gateBit.second == Signal) gateBit else regimeBit ?: gateBit
     }
+    val sessionColor = when (marketState.phase) {
+        com.stocktracker.app.util.MarketPhase.REGULAR -> GainGreen
+        com.stocktracker.app.util.MarketPhase.PRE, com.stocktracker.app.util.MarketPhase.AFTER -> Signal
+        com.stocktracker.app.util.MarketPhase.CLOSED -> neutral
+    }
+    val dipCount = dipChip?.let { Regex("^(\\d+) dips?$").find(it)?.groupValues?.get(1) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable { onToggle() }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .clickable(onClickLabel = if (expanded) "Hide market context" else "Show market context") { onToggle() }
+            .heightIn(min = 44.dp)
+            .padding(start = 14.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // Pills rather than a dot-separated sentence: each reading is its own chip, coloured by what
-        // it says, and they wrap to a second line rather than clipping on a narrow phone.
-        androidx.compose.foundation.layout.FlowRow(
+        if (showMarketStatus) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Box(Modifier.size(7.dp).background(sessionColor, RoundedCornerShape(50)))
+                Text(marketState.label.removePrefix("Market ").replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelMedium, color = neutral, maxLines = 1)
+            }
+        }
+        Text(
+            verdict?.first ?: "",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = verdict?.second ?: neutral,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            bits.forEach { (text, tint) -> com.stocktracker.app.ui.components.Pill(text, tint) }
+        )
+        if (showVix) vix?.let {
+            // The old reading says so in its colour here and in words for a screen reader.
+            MiniStat(Icons.Filled.Speed, String.format(Locale.US, "%.1f", it.value),
+                if (vixStale) Signal else neutral,
+                "VIX ${String.format(Locale.US, "%.1f", it.value)}" + if (vixStale) ", last reading, refresh failed" else "")
+        }
+        dipChip?.let { chip ->
+            if (dipCount != null) MiniStat(Icons.Filled.TrendingDown, dipCount, neutral, chip)
+            else Text(chip, style = MaterialTheme.typography.labelMedium, color = neutral, maxLines = 1)
         }
         Icon(
             if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-            contentDescription = if (expanded) "Hide market context" else "Show market context",
+            contentDescription = null,
             tint = neutral,
         )
+    }
+}
+
+/** A small icon + number, e.g. the VIX's gauge and its level. [description] is what a reader hears. */
+@Composable
+private fun MiniStat(icon: androidx.compose.ui.graphics.vector.ImageVector, value: String, color: Color, description: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = description },
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
+        Text(value, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1)
     }
 }
 

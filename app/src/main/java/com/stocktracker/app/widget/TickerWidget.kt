@@ -122,7 +122,7 @@ private fun TickerContent(
             val changeStr = if (config.showChangePercent) {
                 "${Formatting.arrow(up)} ${Formatting.percent(priced.changePercent)}"
             } else {
-                "${Formatting.arrow(up)} ${Formatting.change(priced.change, hideZeroCents)}"
+                "${Formatting.arrow(up)} ${Formatting.change(priced.change, hideZeroCents, reference = priced.price)}"
             }
             Text(
                 text = changeStr,

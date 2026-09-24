@@ -692,7 +692,7 @@ fun PriceChart(
                     if (points[k].extended) { open = false; continue }
                     if (!open) { glow.moveTo(xg(k), y(points[k].price)); open = true } else glow.lineTo(xg(k), y(points[k].price))
                 }
-                drawPath(glow, color.copy(alpha = 0.18f), style = Stroke(width = 9.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                drawPath(glow, color.copy(alpha = 0.10f), style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
             }
             for (k in (startIdx + 1)..endIdx) {
                 if (drawCandles) break

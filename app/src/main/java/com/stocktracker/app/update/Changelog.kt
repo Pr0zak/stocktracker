@@ -16,6 +16,13 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.13.0" to listOf(
+            "A brighter look across the app: glowing summary cards, coloured pills and bars instead of long sentences",
+            "Markets is now a dashboard: market breadth, a mini heat map, the VIX dial and the dip count at a glance",
+            "Sandbox shows the AI and the S&P side by side as a race",
+            "Portfolio no longer shows $0.0000 while prices load",
+            "Fixed: the Save button on Edit position could sit under the navigation bar",
+        ),
         "1.12.0" to listOf(
             "A new look for the daily pick card: a confidence dial, factor pills, and the plan as one coloured bar",
         ),

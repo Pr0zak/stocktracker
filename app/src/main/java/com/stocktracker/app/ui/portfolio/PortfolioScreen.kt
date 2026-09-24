@@ -235,7 +235,8 @@ fun PortfolioScreen(
                     if (state.hasCostBasis) {
                         val gUp = state.totalGain >= 0
                         Text(
-                            "${Formatting.change(state.totalGain, hideZeroCents)} ${if (gUp) "above" else "below"} what you paid",
+                            "${if (gUp) "+" else "−"}${Formatting.price(kotlin.math.abs(state.totalGain), hideZeroCents = hideZeroCents)} " +
+                                "${if (gUp) "above" else "below"} what you paid",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

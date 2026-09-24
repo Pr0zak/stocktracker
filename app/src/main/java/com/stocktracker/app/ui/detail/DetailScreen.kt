@@ -381,7 +381,7 @@ fun DetailScreen(
                 )
                 if (quote != null) {
                     Pill(
-                        "${if (up) "▲" else "▼"} ${Formatting.change(quote.change, hideZeroCents)} · " +
+                        "${if (up) "▲" else "▼"} ${Formatting.price(kotlin.math.abs(quote.change), quote.currency, hideZeroCents)} · " +
                             String.format(java.util.Locale.US, "%.2f%%", kotlin.math.abs(quote.changePercent)) + " today",
                         if (up) GainGreen else LossRed,
                     )
@@ -3617,10 +3617,16 @@ private fun EditPositionSheet(
     val decimal = KeyboardOptions(keyboardType = KeyboardType.Decimal)
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // Opens fully expanded and scrolls: half-expanded, this short form parked its Save button under
+    // the navigation bar, where a tap on it pressed Home instead (seen on the emulator, 2026-09-24).
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

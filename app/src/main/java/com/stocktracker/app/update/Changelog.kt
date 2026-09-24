@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.12.0" to listOf(
+            "A new look for the daily pick card: a confidence dial, factor pills, and the plan as one coloured bar",
+        ),
         "1.11.0" to listOf(
             "New: \"Re-check\" the daily pick with live prices during the day",
             "The pick card is shorter — one line per fact, details behind More and Why",

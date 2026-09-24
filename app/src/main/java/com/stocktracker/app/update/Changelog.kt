@@ -16,6 +16,11 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.13.1" to listOf(
+            "\"Updated …\" now sits under the title, beside refresh",
+            "The market summary folds to one short line; opened, it's one card with a line per question",
+            "Small price moves show in cents (-0.33, not -0.3310)",
+        ),
         "1.13.0" to listOf(
             "A brighter look across the app: glowing summary cards, coloured pills and bars instead of long sentences",
             "Markets is now a dashboard: market breadth, a mini heat map, the VIX dial and the dip count at a glance",

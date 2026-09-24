@@ -1,5 +1,9 @@
 package com.stocktracker.app.ui.watchlist
 
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material.icons.filled.TrendingDown
@@ -414,44 +418,45 @@ fun WatchlistScreen(
                         )
                     }
                     if (contextOpen) {
-                        item(key = "hdr:dips") {
-                            DipStripSection(
-                                // A same-session refresh failure names itself; short of that, a
-                                // reading merely old (restored from disk, or unrefreshed a long
-                                // while) still says its age rather than passing for current (DATA-9).
-                                stale = state.dipStale
-                                    ?: DipRadar.restoredNote(state.dipRadar, state.scanFetchedAtMs, nowMs),
-                                state = state.dipRadar,
-                                onOpenAll = onOpenDips,
-                                onRetry = { vm.reloadDips() },
-                            )
-                        }
-                        if (showMarketStatus) {
-                            item(key = "hdr:timeline") { SessionTimelineBar(marketState) }
-                        }
-                        if (hasRegime) {
-                            item(key = "hdr:regime") { RegimeCard(reg, onRefresh = { vm.loadRegime(force = true) }) }
-                        }
-                        // Directly under the regime banner: same question, checkable half. The banner
-                        // narrates the backdrop; this one shows the five conditions and their numbers.
-                        if (hasGate) {
-                            item(key = "hdr:gate") { GateCard(state.gate, onRefresh = { vm.loadGate(force = true) }) }
-                        }
-                        if (showVix) {
-                            vix?.let { v ->
-                                item(key = "hdr:vix") {
-                                    FearGauge(
-                                        v,
-                                        onClick = onOpenVix,
-                                        // DATA-9: a fetch failure still wins ("Update failed"), but a
-                                        // reading merely restored from disk (or unconfirmed a long
-                                        // while) now says its age instead of looking current.
-                                        ageLabel = readingAgeLabel(
-                                            marketContext.vixFetchedAtMs, nowMs, failed = marketContext.vixFailed,
-                                        ),
+                        // Option A (2026-09-24): one card, one line per question. Each line opens
+                        // the full card it summarises, in place, so every affordance the five
+                        // stacked cards had (refresh, the checks' legs, the dip list) is still one
+                        // tap away — the card just stops being a screen and a half tall.
+                        item(key = "hdr:checklist") {
+                            MarketChecklist(
+                                marketState = marketState,
+                                showMarketStatus = showMarketStatus,
+                                regime = reg.takeIf { hasRegime },
+                                gate = state.gate.takeIf { hasGate },
+                                gateSummary = gateSummary,
+                                vix = vix.takeIf { showVix },
+                                vixAge = readingAgeLabel(marketContext.vixFetchedAtMs, nowMs, failed = marketContext.vixFailed),
+                                dipRadar = state.dipRadar.takeIf { hasDips },
+                                dipChip = DipRadar.chip(state.dipRadar),
+                                onOpenVix = onOpenVix,
+                                onRefreshAll = {
+                                    if (hasRegime) vm.loadRegime(force = true)
+                                    if (hasGate) vm.loadGate(force = true)
+                                    if (hasDips) vm.reloadDips()
+                                },
+                                session = { SessionTimelineBar(marketState) },
+                                // Opening a line shows only what the line does not already say —
+                                // the full cards would repeat their own header under it.
+                                regimeCard = { RegimeDetail(reg) },
+                                gateCard = { GateDetail(state.gate) },
+                                dipCard = {
+                                    DipStripSection(
+                                        // A same-session refresh failure names itself; short of that, a
+                                        // reading merely old still says its age rather than passing for
+                                        // current (DATA-9).
+                                        stale = state.dipStale
+                                            ?: DipRadar.restoredNote(state.dipRadar, state.scanFetchedAtMs, nowMs),
+                                        state = state.dipRadar,
+                                        onOpenAll = onOpenDips,
+                                        onRetry = { vm.reloadDips() },
                                     )
-                                }
-                            }
+                                },
+                            )
                         }
                     }
                 }
@@ -817,6 +822,326 @@ private fun MiniStat(icon: androidx.compose.ui.graphics.vector.ImageVector, valu
     ) {
         Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
         Text(value, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1)
+    }
+}
+
+/** Which line of the market checklist is open, if any. */
+private enum class ChecklistLine { SESSION, TREND, CHECKS, DIPS }
+
+/**
+ * The expanded market context as ONE card with a line per question — session, trend, the market
+ * checks, fear, dips. Each line is a short answer plus a small visual; tapping it opens the full
+ * card it stands for underneath (the VIX line opens its own screen, as its card did).
+ *
+ * A null argument means that line is not shown at all (its setting is off, or nothing is
+ * configured). Loading and failure are shown in the line itself, never as a blank.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun MarketChecklist(
+    marketState: com.stocktracker.app.util.MarketState,
+    showMarketStatus: Boolean,
+    regime: RegimeUi?,
+    gate: GateUi?,
+    gateSummary: GateSummary?,
+    vix: VixQuote?,
+    vixAge: String?,
+    dipRadar: DipRadarState?,
+    dipChip: String?,
+    onOpenVix: () -> Unit,
+    onRefreshAll: () -> Unit,
+    session: @Composable () -> Unit,
+    regimeCard: @Composable () -> Unit,
+    gateCard: @Composable () -> Unit,
+    dipCard: @Composable () -> Unit,
+) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    var open by rememberSaveable { mutableStateOf<ChecklistLine?>(null) }
+    fun toggle(l: ChecklistLine) { open = if (open == l) null else l }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        var first = true
+        @Composable
+        fun Divider() {
+            if (!first) Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(1.dp)
+                .background(neutral.copy(alpha = 0.14f)))
+            first = false
+        }
+
+        if (showMarketStatus) {
+            Divider()
+            val zone = java.time.ZoneId.systemDefault()
+            val (text, color) = when (marketState.phase) {
+                com.stocktracker.app.util.MarketPhase.REGULAR ->
+                    "Open · closes ${com.stocktracker.app.ui.pick.DailyPickRead.etClock(16, 0, zone)}" to GainGreen
+                com.stocktracker.app.util.MarketPhase.PRE ->
+                    "Pre-market · opens ${com.stocktracker.app.ui.pick.DailyPickRead.etClock(9, 30, zone)}" to Signal
+                com.stocktracker.app.util.MarketPhase.AFTER ->
+                    "After-hours · until ${com.stocktracker.app.ui.pick.DailyPickRead.etClock(20, 0, zone)}" to Signal
+                com.stocktracker.app.util.MarketPhase.CLOSED -> marketState.label to neutral
+            }
+            ChecklistRow(
+                icon = Icons.Filled.Schedule, tint = color, title = "Session", detail = text,
+                expanded = open == ChecklistLine.SESSION, onClick = { toggle(ChecklistLine.SESSION) },
+                // During the regular session the bar is how far through 9:30-4:00 ET we are, to match
+                // "closes 3:00 PM"; outside it, the position across the whole 4 AM-8 PM ET window.
+                trailing = marketState.markerFraction?.let { f ->
+                    val shown = if (marketState.phase == com.stocktracker.app.util.MarketPhase.REGULAR) {
+                        val a = com.stocktracker.app.util.MarketClock.preEndFraction
+                        val b = com.stocktracker.app.util.MarketClock.regEndFraction
+                        ((f - a) / (b - a)).coerceIn(0f, 1f)
+                    } else f
+                    { MiniBar(shown, MaterialTheme.colorScheme.primary) }
+                },
+            )
+            if (open == ChecklistLine.SESSION) Box(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) { session() }
+        }
+
+        regime?.let { r ->
+            Divider()
+            val res = r.result?.regime
+            val trendColor = when (res?.trend) { "up" -> GainGreen; "down" -> LossRed; else -> neutral }
+            val detail = when {
+                res?.label?.isNotBlank() == true ->
+                    res.label + (res.volatility.takeIf { it.isNotBlank() }?.let { " · vol ${it.lowercase()}" } ?: "")
+                r.loading -> "Reading…"
+                r.error != null -> "Couldn't read the trend"
+                else -> "No reading yet"
+            }
+            ChecklistRow(
+                icon = Icons.Filled.ShowChart, tint = trendColor, title = "Trend", detail = detail,
+                detailColor = if (r.error != null && res == null) Signal else neutral,
+                expanded = open == ChecklistLine.TREND, onClick = { toggle(ChecklistLine.TREND) },
+            )
+            if (open == ChecklistLine.TREND) regimeCard()
+        }
+
+        gate?.let { g ->
+            Divider()
+            val legs = g.result?.legs.orEmpty()
+            val passed = legs.count { it.ok == true }
+            val color = when (gateSummary?.verdict) {
+                GateVerdict.OPEN -> GainGreen
+                GateVerdict.SHUT, GateVerdict.UNMEASURED -> Signal
+                else -> neutral
+            }
+            val title = if (legs.isNotEmpty() && gateSummary?.verdict != GateVerdict.UNAVAILABLE)
+                "Market checks · $passed of ${legs.size} pass" else "Market checks"
+            val detail = when {
+                gateSummary != null -> gateSummary.detail ?: gateSummary.headline
+                g.loading -> "Reading…"
+                g.error != null -> "Couldn't read the checks"
+                else -> "No reading yet"
+            }
+            ChecklistRow(
+                icon = Icons.Filled.Checklist, tint = color, title = title, detail = detail,
+                detailColor = if (color == Signal) Signal else neutral,
+                expanded = open == ChecklistLine.CHECKS, onClick = { toggle(ChecklistLine.CHECKS) },
+                trailing = legs.takeIf { it.isNotEmpty() }?.let { l -> { LegDots(l) } },
+            )
+            if (open == ChecklistLine.CHECKS) gateCard()
+        }
+
+        vix?.let { v ->
+            Divider()
+            val color = when (v.zone) {
+                com.stocktracker.app.data.model.VixZone.CALM, com.stocktracker.app.data.model.VixZone.NORMAL -> GainGreen
+                com.stocktracker.app.data.model.VixZone.ELEVATED -> Signal
+                else -> LossRed
+            }
+            // VIX up is more fear, so its move is coloured the other way round from a price.
+            val move = if (v.change.isFinite()) {
+                (if (v.change >= 0) "▲ " else "▼ ") + String.format(Locale.US, "%.2f", kotlin.math.abs(v.change)) + " today"
+            } else null
+            ChecklistRow(
+                icon = Icons.Filled.Speed, tint = color,
+                title = "Fear · VIX ${String.format(Locale.US, "%.2f", v.value)}",
+                detail = listOfNotNull(v.zone.label, vixAge ?: move).joinToString(" · "),
+                detailColor = if (vixAge != null) Signal else neutral,
+                expanded = false, onClick = onOpenVix, chevron = true,
+                trailing = { MiniBar((v.value / 40.0).toFloat(), color) },
+            )
+        }
+
+        dipRadar?.let { d ->
+            Divider()
+            val ready = d as? DipRadarState.Ready
+            val title = when {
+                ready != null && ready.dips.isNotEmpty() -> "Dips · ${ready.dips.size} off their highs"
+                else -> "Dips" + (dipChip?.let { " · $it" } ?: "")
+            }
+            ChecklistRow(
+                icon = Icons.Filled.TrendingDown, tint = if (ready?.dips?.isNotEmpty() == true) LossRed else neutral,
+                title = title, detail = null,
+                expanded = open == ChecklistLine.DIPS, onClick = { toggle(ChecklistLine.DIPS) },
+                below = ready?.dips?.takeIf { it.isNotEmpty() }?.let { dips ->
+                    {
+                        // Wraps rather than clipping: a chip cut to "FBTC" has lost its number.
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            dips.take(3).forEach { e ->
+                                com.stocktracker.app.ui.components.Pill(
+                                    e.symbol + ((e.pctOff52w ?: e.pctOffHigh)?.let { " " + "%.0f%%".format(it) } ?: ""),
+                                    LossRed,
+                                )
+                            }
+                        }
+                    }
+                },
+            )
+            if (open == ChecklistLine.DIPS) Box(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) { dipCard() }
+        }
+
+        // One refresh for everything the card reads, instead of a button on each card.
+        Row(
+            Modifier.fillMaxWidth().clickable(onClickLabel = "Refresh the market readings") { onRefreshAll() }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.Refresh, contentDescription = null, tint = neutral, modifier = Modifier.size(14.dp))
+            Text(" Refresh all", style = MaterialTheme.typography.labelMedium, color = neutral)
+        }
+    }
+}
+
+@Composable
+private fun ChecklistRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    title: String,
+    detail: String?,
+    expanded: Boolean,
+    onClick: () -> Unit,
+    detailColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    chevron: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
+    below: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 52.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(Modifier.size(28.dp).background(tint.copy(alpha = 0.15f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+            detail?.let {
+                Text(it, style = MaterialTheme.typography.labelMedium, color = detailColor, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+            }
+            below?.let { Box(Modifier.padding(top = 4.dp)) { it() } }
+        }
+        trailing?.invoke()
+        Icon(
+            if (chevron) Icons.AutoMirrored.Filled.KeyboardArrowRight else if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (chevron) "Open $title" else if (expanded) "Hide $title detail" else "Show $title detail",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+/** The trend line's detail: the analyst's note and where the S&P sits, without the card's header. */
+@Composable
+private fun RegimeDetail(ui: RegimeUi) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val r = ui.result?.regime
+    val st = ui.result?.spyTrend
+    fun signed(v: Double): String {
+        val t = String.format(Locale.US, "%.1f", v)
+        val d = t.toDoubleOrNull() ?: v
+        return (if (d > 0) "+" else "") + (if (d == 0.0) "0.0" else t) + "%"
+    }
+    Column(Modifier.padding(start = 50.dp, end = 12.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (ui.error != null && !ui.loading) {
+            Text(if (r != null) "Couldn't refresh — showing the last read." else ui.error,
+                style = MaterialTheme.typography.labelSmall, color = Signal)
+        }
+        r?.note?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        val bits = listOfNotNull(
+            st?.pctVsSma50?.let { "vs 50-day ${signed(it)}" },
+            st?.pctVsSma200?.let { "vs 200-day ${signed(it)}" },
+            st?.rsi14?.let { "RSI ${String.format(Locale.US, "%.0f", it)}" },
+        )
+        if (bits.isNotEmpty()) {
+            Text("S&P 500 · " + bits.joinToString("  ·  "), style = MaterialTheme.typography.labelMedium, color = neutral)
+        }
+        if (r != null && r.note.isBlank() && bits.isEmpty()) {
+            Text("No additional detail available.", style = MaterialTheme.typography.labelSmall, color = neutral)
+        }
+    }
+}
+
+/** The checks line's detail: each of the checks with its number, without the card's header. */
+@Composable
+private fun GateDetail(ui: GateUi) {
+    val legs = ui.result?.legs.orEmpty()
+    Column(Modifier.padding(start = 42.dp, end = 4.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (ui.error != null && !ui.loading) {
+            Text(if (ui.result != null) "Couldn't refresh — showing the last read." else ui.error,
+                style = MaterialTheme.typography.labelSmall, color = Signal)
+        }
+        if (legs.isEmpty()) {
+            Text("No checks were reported.", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            // Two short lines per check: what it is, and its number against the bar. What each one
+            // MEANS is a tap away, in the same explainer the Daily Pick card opens.
+            legs.forEach { CompactLeg(it) }
+            var explain by rememberSaveable { mutableStateOf(false) }
+            Text(
+                "What these mean ›",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { explain = true }.padding(vertical = 6.dp),
+            )
+            val resp = ui.result
+            if (explain && resp != null) MarketChecksDialog(resp, footer = null, onDismiss = { explain = false })
+        }
+    }
+}
+
+@Composable
+private fun CompactLeg(leg: com.stocktracker.app.data.remote.GateLeg) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    // Pass green, fail amber, unread a dash — a check that could not be read is not a failure.
+    val (mark, color) = when (leg.ok) { true -> "✓" to GainGreen; false -> "✕" to Signal; null -> "–" to neutral }
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(vertical = 2.dp)) {
+        Text(mark, color = color, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(14.dp))
+        Column {
+            Text(GateRead.plain(leg.key)?.title ?: GateRead.legLabel(leg), style = MaterialTheme.typography.bodySmall,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (leg.ok == false) color else MaterialTheme.colorScheme.onSurface)
+            (GateRead.plainValue(leg) ?: GateRead.legValue(leg))?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/** A 56dp bar filled to [fraction] (clamped), for "how far through" readings. */
+@Composable
+private fun MiniBar(fraction: Float, color: Color) {
+    Box(Modifier.width(56.dp).height(6.dp).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f), RoundedCornerShape(50))) {
+        Box(Modifier.fillMaxWidth(fraction.coerceIn(0.03f, 1f)).height(6.dp).background(color, RoundedCornerShape(50)))
+    }
+}
+
+/** One dot per market check: green passes, amber fails, grey couldn't be read (never red). */
+@Composable
+private fun LegDots(legs: List<com.stocktracker.app.data.remote.GateLeg>) {
+    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        legs.forEach { l ->
+            val c = when (l.ok) { true -> GainGreen; false -> Signal; null -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f) }
+            Box(Modifier.size(8.dp).background(c, RoundedCornerShape(50)))
+        }
     }
 }
 
@@ -1401,315 +1726,6 @@ private fun DipRejectGroup(
             style = MaterialTheme.typography.labelSmall,
             color = neutral,
         )
-    }
-}
-
-/**
- * Theme D — the market-regime banner. COLLAPSED by default to a one-line summary (trend-colored label +
- * volatility + the S&P's position vs its 200-day); tap to expand the positioning note and the S&P's
- * 50/200-day + RSI stats. Auto-loaded, cached ~30 min server-side. Refresh (top-right) is always
- * reachable — including on a failed load — and errors are surfaced rather than swallowed.
- */
-@Composable
-private fun RegimeCard(ui: RegimeUi, onRefresh: () -> Unit) {
-    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val green = GainGreen
-    val red = Signal
-    val amber = Signal
-    val r = ui.result?.regime
-    val st = ui.result?.spyTrend
-    val hasContent = r != null && r.label.isNotBlank()
-    val trendColor = when (r?.trend?.lowercase()) {
-        "up" -> green
-        "down" -> red
-        else -> amber
-    }
-    // rememberSaveable so the expanded view survives the LazyColumn recycling the header item on scroll
-    // and survives a configuration change / process death.
-    var open by rememberSaveable { mutableStateOf(false) }
-    // Locale-safe + negative-zero-safe signed percent ("+1.2%", "-0.8%", "0.0%" — never "+-0.0%").
-    fun signed(v: Double): String {
-        val s = String.format(Locale.US, "%.1f", v)
-        val d = s.toDoubleOrNull() ?: v
-        return (if (d > 0) "+" else "") + (if (d == 0.0) "0.0" else s) + "%"
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .then(if (hasContent) Modifier.clickable { open = !open } else Modifier)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // Header: the label chip IS the collapsed summary; the note lives behind the chevron. Refresh
-        // stays in the header so it's reachable whether collapsed, expanded, or errored.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (hasContent) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .background(trendColor.copy(alpha = 0.16f), RoundedCornerShape(50))
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                    ) {
-                        Text(r!!.label, style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold, color = trendColor,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    // Collapsed summary stays to a clean "label · vol" — the S&P's 200-day position is
-                    // shown in the expanded stats line, so it doesn't crowd the header here.
-                    r.volatility.takeIf { it.isNotBlank() }?.let {
-                        Text("· vol ${it.lowercase()}", style = MaterialTheme.typography.labelMedium,
-                            color = neutral, maxLines = 1)
-                    }
-                }
-            } else {
-                Text("Market regime", style = MaterialTheme.typography.labelLarge, color = neutral,
-                    modifier = Modifier.weight(1f))
-            }
-            if (ui.loading) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // The controls the honesty model depends on — the ones you reach for when a
-                    // card is showing a stale read — were the hardest to hit in the app at 28dp.
-                    IconButton(onClick = onRefresh, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh regime",
-                            tint = if (ui.error != null) red else neutral, modifier = Modifier.size(20.dp))
-                    }
-                    if (hasContent) {
-                        Icon(
-                            if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = if (open) "Collapse market regime" else "Expand market regime",
-                            tint = neutral,
-                        )
-                    }
-                }
-            }
-        }
-
-        // Surface a load/refresh failure (visible collapsed or expanded); the header ↻ retries.
-        if (ui.error != null && !ui.loading) {
-            Text(
-                if (hasContent) "Couldn't refresh — showing the last read." else ui.error,
-                style = MaterialTheme.typography.labelSmall, color = red,
-            )
-        }
-
-        if (hasContent && open) {
-            if (r!!.note.isNotBlank()) {
-                Text(r.note, style = MaterialTheme.typography.bodySmall)
-            }
-            val bits = listOfNotNull(
-                st?.pctVsSma50?.let { "vs 50-day ${signed(it)}" },
-                st?.pctVsSma200?.let { "vs 200-day ${signed(it)}" },
-                st?.rsi14?.let { "RSI ${String.format(Locale.US, "%.0f", it)}" },
-            )
-            if (bits.isNotEmpty()) {
-                Text("S&P 500 · " + bits.joinToString("  ·  "),
-                    style = MaterialTheme.typography.labelMedium, color = neutral)
-            }
-            if (r.note.isBlank() && bits.isEmpty()) {
-                Text("No additional detail available.", style = MaterialTheme.typography.labelSmall, color = neutral)
-            }
-        } else if (!hasContent && ui.loading) {
-            Text("Reading the tape…", style = MaterialTheme.typography.bodySmall, color = neutral)
-        }
-    }
-}
-
-/**
- * SWT-13 — the five-leg market gate, beside the regime banner.
- *
- * The banner next to this one is the NARRATIVE read: an analyst's sentence about the backdrop. This
- * is the checkable half of the same question — five stated conditions, the number behind each, and
- * the threshold it had to clear — so the verdict can be argued with instead of believed.
- *
- * FOUR outcomes, and the third is the reason this card is written carefully:
- *   - open   → green
- *   - shut   → red, and the failing legs are NAMED, because "shut" without "which" is a mood
- *   - could not be measured (`passed == null`) → AMBER, never the shut red. A leg that couldn't be
- *     read is not a bearish market; colouring it red asserts one out of a failed fetch.
- *   - nothing measurable at all (`available == false`) → grey, and it says so plainly.
- *
- * A failed REFRESH keeps the last reading and prints the error beside it (the [GateUi] shape), so a
- * blip never blanks a card that is still holding a real answer. Refresh is reachable in every state.
- */
-@Composable
-private fun GateCard(ui: GateUi, onRefresh: () -> Unit) {
-    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val green = GainGreen
-    val red = Signal
-    val amber = Signal
-    val summary = GateRead.summary(ui.result)
-    val verdictColor = when (summary?.verdict) {
-        GateVerdict.OPEN -> green
-        GateVerdict.SHUT -> red
-        // Unmeasured and unavailable are ABSENCES of a verdict. They must never share the shut
-        // colour, or a failed fetch reads as a market call.
-        GateVerdict.UNMEASURED -> amber
-        GateVerdict.UNAVAILABLE -> neutral
-        null -> neutral
-    }
-    val score = GateRead.scoreText(ui.result)
-    // rememberSaveable so the legs stay open across the LazyColumn recycling this item on scroll.
-    var open by rememberSaveable { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .then(if (summary != null) Modifier.clickable { open = !open } else Modifier)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (summary != null) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .background(verdictColor.copy(alpha = 0.16f), RoundedCornerShape(50))
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                    ) {
-                        Text(
-                            summary.headline, style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold, color = verdictColor,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    // The score is null whenever a leg went unmeasured — the server refuses to
-                    // average over a hole, so this prints a dash rather than a confident middle.
-                    Text(
-                        "Score ${score?.let { "$it/100" } ?: "—"}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = neutral,
-                        maxLines = 1,
-                    )
-                }
-            } else {
-                Text(
-                    "Market checks", style = MaterialTheme.typography.labelLarge, color = neutral,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            if (ui.loading) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onRefresh, modifier = Modifier.size(48.dp)) {
-                        Icon(
-                            Icons.Filled.Refresh, contentDescription = "Refresh the market checks",
-                            tint = if (ui.error != null) red else neutral, modifier = Modifier.size(18.dp),
-                        )
-                    }
-                    if (summary != null) {
-                        Icon(
-                            if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = if (open) "Collapse the market checks" else "Expand the market checks",
-                            tint = neutral,
-                        )
-                    }
-                }
-            }
-        }
-
-        // Which legs, and in which direction. Shown collapsed too: "shut" that doesn't say what shut
-        // it is a colour, not a reason, and the unmeasured case NEEDS its sentence to not read as a fail.
-        summary?.detail?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (summary.verdict == GateVerdict.OPEN) neutral else verdictColor,
-            )
-        }
-
-        if (ui.error != null && !ui.loading) {
-            Text(
-                if (summary != null) "Couldn't refresh — showing the last read." else ui.error,
-                style = MaterialTheme.typography.labelSmall, color = red,
-            )
-        }
-
-        if (summary != null && open) {
-            val legs = ui.result?.legs.orEmpty()
-            // The gate's own sentence, verbatim — it is the one that says WHY.
-            ui.result?.note?.takeIf { it.isNotBlank() }?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall)
-            }
-            if (legs.isEmpty()) {
-                Text(
-                    "This reading came with no legs, so there's nothing to check it against.",
-                    style = MaterialTheme.typography.labelSmall, color = neutral,
-                )
-            } else {
-                legs.forEach { GateLegRow(it) }
-            }
-            GateRead.cachedNote(ui.result)?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
-            }
-        } else if (summary == null && ui.loading) {
-            Text("Checking the gate…", style = MaterialTheme.typography.bodySmall, color = neutral)
-        }
-    }
-}
-
-/**
- * One leg: its mark, its name, the server's sentence, and the number vs the threshold.
- *
- * `ok == null` renders as a DASH. A cross would say we checked SPY and it is under its 50-EMA — a
- * trend claim nobody made — when the truth is the leg could not be read at all.
- */
-@Composable
-private fun GateLegRow(leg: GateLeg) {
-    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val (glyph, tint) = when (GateRead.mark(leg.ok)) {
-        LegMark.PASS -> "✓" to GainGreen
-        LegMark.FAIL -> "✗" to Signal
-        LegMark.UNKNOWN -> "—" to neutral
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            glyph,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            color = tint,
-            modifier = Modifier.width(14.dp),
-        )
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(GateRead.legTitle(leg), style = MaterialTheme.typography.bodySmall)
-            // A measured leg says what it means in plain words; an unmeasured one keeps the server's
-            // note, because that note is the only thing that says WHY it could not be read.
-            val sub = if (leg.ok != null) GateRead.plain(leg.key)?.meaning ?: leg.note else leg.note
-            sub.takeIf { it.isNotBlank() }?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
-            }
-        }
-        // Dropped entirely when neither number arrived — never a "0 vs 0".
-        GateRead.plainValue(leg)?.let {
-            Text(it, style = MaterialTheme.typography.labelSmall, color = neutral)
-        }
     }
 }
 

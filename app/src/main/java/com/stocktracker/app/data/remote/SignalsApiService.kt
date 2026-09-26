@@ -221,7 +221,7 @@ class SignalsApiService {
     }
 
     /**
-     * FUND-1/2: what each fund covers, every pair's overlap and the "same bet" sets. Free (no LLM).
+     * FUND-1/2: what each fund covers, every pair's overlap and the sets that move together. Free (no LLM).
      * Takes whole lists — single stocks come back in [FundOverlapResponse.notFunds]. Only symbols
      * are sent; what the user holds, and how much, is weighed on the phone.
      */
@@ -2562,7 +2562,7 @@ data class FundOverlapResponse(
     /** Funds past the server's limit, never measured. Named so they are not mistaken for stocks. */
     val unmeasured: List<String> = emptyList(),
     val pairs: List<FundPair> = emptyList(),
-    /** Funds that rise and fall together, each set counted as one bet. Every fund is in exactly one. */
+    /** Funds that rise and fall together. Every fund is in exactly one set. */
     @SerialName("same_bets") val sameBets: List<List<String>> = emptyList(),
     @SerialName("same_bet_corr") val sameBetCorr: Double = 0.9,
     val live: Boolean = true,

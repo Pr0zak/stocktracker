@@ -1,6 +1,25 @@
 package com.stocktracker.app.ui.funds
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.graphics.Color
+import com.stocktracker.app.ui.components.spotlightGlow
+import com.stocktracker.app.ui.theme.LossRed
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -47,7 +66,6 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stocktracker.app.data.model.Asset
 import com.stocktracker.app.data.remote.FundGroup
 import com.stocktracker.app.data.remote.FundOverlapResponse
@@ -63,26 +81,40 @@ import com.stocktracker.app.ui.theme.Signal
 import kotlinx.coroutines.launch
 
 /**
- * FUND-1..6 — the Funds spoke of the Markets tab: how your funds overlap (and how many different
- * bets they really are), what they cost you a year, a check before buying another, a side-by-side
- * comparison, and every group of funds measured to hold the same thing.
+ * FUND-1..6 — the Funds spoke of the Markets tab, laid out as Tiles (the layout the user picked on
+ * 2026-09-26, the same family as Reports): one headline that names the funds that overlap, then a
+ * tile each for performance, overlap, fees, a before-you-buy check and cheaper copies. Every tile
+ * opens its detail; nothing below the headline needs reading to get the gist.
+ *
+ * [vm] is shared with the three detail screens, so they draw the same reading without refetching.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FundsScreen(
+    vm: FundsViewModel,
     onBack: () -> Unit,
     onOpenDetail: (Asset) -> Unit,
     onOpenCompare: (List<String>) -> Unit,
+    onOpenRanking: (RankSort) -> Unit,
+    onOpenOverlap: () -> Unit,
+    onOpenCopies: () -> Unit,
     onOpenSignalsSettings: () -> Unit = {},
 ) {
-    val vm: FundsViewModel = viewModel()
     val ui by vm.state.collectAsStateWithLifecycle()
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    var showCheck by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Funds") },
+                title = {
+                    Column {
+                        Text("Funds")
+                        FundsLogic.asOfLine(ui.perf?.alignedTo)?.let {
+                            Text(it, style = MaterialTheme.typography.labelMedium, color = neutral)
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -97,21 +129,10 @@ fun FundsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             BackendStatusBanner()
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = ui.mode == FundsViewModel.Mode.HOLDINGS,
-                    onClick = { vm.setMode(FundsViewModel.Mode.HOLDINGS) },
-                    label = { Text("Your holdings") },
-                )
-                FilterChip(
-                    selected = ui.mode == FundsViewModel.Mode.WATCHLIST,
-                    onClick = { vm.setMode(FundsViewModel.Mode.WATCHLIST) },
-                    label = { Text("Watchlist") },
-                )
-            }
+            ModeChips(ui, vm)
             val resp = ui.overlap
             when {
                 !ui.configured -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -120,8 +141,9 @@ fun FundsScreen(
                     TextButton(onClick = onOpenSignalsSettings) { Text("Set up signals") }
                 }
                 ui.loading && resp == null -> {
-                    Skeleton(Modifier.fillMaxWidth().height(96.dp))
-                    Skeleton(Modifier.fillMaxWidth().height(160.dp))
+                    Skeleton(Modifier.fillMaxWidth().height(150.dp))
+                    Skeleton(Modifier.fillMaxWidth().height(190.dp))
+                    Skeleton(Modifier.fillMaxWidth().height(130.dp))
                 }
                 ui.failed && resp == null -> Column {
                     Text("Couldn't load your funds.", style = MaterialTheme.typography.bodyMedium, color = Signal)
@@ -131,97 +153,157 @@ fun FundsScreen(
                     if (ui.failed) {
                         Text("Couldn't refresh — showing the last result.", style = MaterialTheme.typography.labelMedium, color = Signal)
                     }
-                    HeadlineCard(ui, resp)
+                    val ov = FundsLogic.overlapView(resp, ui.values)
+                    HeroCard(ui, resp, ov)
                     if (resp.funds.isNotEmpty()) {
-                        Label("HOW THEY OVERLAP")
-                        BetCards(ui, resp, onOpenDetail)
-                        AlsoOverlapping(resp)
-                    }
-                    if (ui.mode == FundsViewModel.Mode.HOLDINGS && ui.values.isNotEmpty()) {
-                        Label("WHAT THEY COST YOU")
-                        FeesCard(ui, resp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
+                            PerformanceTile(ui, resp, Modifier.weight(1f).fillMaxHeight()) { onOpenRanking(RankSort.RETURN) }
+                            OverlapTile(resp, ov, Modifier.weight(1f).fillMaxHeight(), onOpenOverlap)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
+                            FeesTile(ui, resp, Modifier.weight(1f).fillMaxHeight()) { onOpenRanking(RankSort.FEE) }
+                            CheckTile(Modifier.weight(1f).fillMaxHeight()) { showCheck = true }
+                        }
+                        CopiesTile(ui, resp, onOpenCopies)
+                    } else {
+                        CheckTile(Modifier.fillMaxWidth()) { showCheck = true }
                     }
                 }
             }
-            if (ui.configured) {
-                Label("BEFORE YOU BUY")
-                BeforeYouBuyCard(ui.check, onCheck = { vm.check(it) }, onClear = { vm.clearCheck() },
-                    onCompare = { sym ->
-                        val mine = ui.overlap?.funds?.keys?.toList().orEmpty()
-                        onOpenCompare((listOf(sym) + mine.filter { it != sym }).take(2))
-                    })
-                CompareCard(resp, ui.values) { onOpenCompare(it) }
-                Label("LOOK-ALIKE FUNDS")
-                GroupsCard(ui, onOpen = { vm.loadGroupPerf(it) }, onOpenDetail = onOpenDetail)
-                FeeAlertToggle()
-            }
+            if (ui.configured) FeeAlertToggle()
             Text(
-                "Overlap is measured from two years of prices: funds that rise and fall together count as one bet. " +
-                    "Holdings are each fund's 10 largest, all Yahoo lists. Context, not advice.",
+                "Funds that rise and fall together over two years count as overlapping. Context, not advice.",
                 style = MaterialTheme.typography.bodySmall,
                 color = neutral,
                 modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),
             )
         }
     }
+
+    if (showCheck) {
+        ModalBottomSheet(onDismissRequest = { showCheck = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+                BeforeYouBuyCard(ui.check, onCheck = { vm.check(it) }, onClear = { vm.clearCheck() },
+                    onCompare = { sym ->
+                        showCheck = false
+                        val mine = ui.overlap?.funds?.keys?.toList().orEmpty()
+                        onOpenCompare((listOf(sym) + mine.filter { it != sym }).take(2))
+                    })
+            }
+        }
+    }
 }
 
 @Composable
-private fun Label(text: String) {
+internal fun ModeChips(ui: FundsViewModel.UiState, vm: FundsViewModel) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = ui.mode == FundsViewModel.Mode.HOLDINGS,
+            onClick = { vm.setMode(FundsViewModel.Mode.HOLDINGS) },
+            label = { Text("Your holdings") },
+        )
+        FilterChip(
+            selected = ui.mode == FundsViewModel.Mode.WATCHLIST,
+            onClick = { vm.setMode(FundsViewModel.Mode.WATCHLIST) },
+            label = { Text("Watchlist") },
+        )
+    }
+}
+
+/** The colour each group that moves together is drawn in, in the order FundsLogic.overlapView gives. */
+internal val GroupColors = listOf(Color(0xFFB4A0FF), Color(0xFFD9A54A), Color(0xFF5CC8D6), Color(0xFFE89AC7))
+internal val OwnWayColor = Color(0xFF5B6470)
+
+internal fun groupColor(i: Int): Color = GroupColors[i % GroupColors.size]
+
+@Composable
+internal fun Label(text: String) {
     Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
 }
 
+/** A Funds tile: the Markets-hub tile, same shape, same header, tappable into its detail. */
 @Composable
-private fun HeadlineCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse) {
-    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    GlowCard(tint = null, spacing = 6.dp) {
-        Text(if (ui.mode == FundsViewModel.Mode.HOLDINGS) "Your funds" else "Your watchlist's funds",
-            style = MaterialTheme.typography.labelLarge, color = neutral)
-        // What could not be looked up or measured is named, never folded into "not a fund".
-        val gaps = @Composable {
-            if (resp.unknown.isNotEmpty()) {
-                Text("Couldn't look up ${resp.unknown.joinToString(", ")}: the quote service didn't answer, so " +
-                    "they're left out.", style = MaterialTheme.typography.labelMedium, color = Signal)
-            }
-            if (resp.unmeasured.isNotEmpty()) {
-                Text("Too many funds to measure at once; left out: ${resp.unmeasured.joinToString(", ")}.",
-                    style = MaterialTheme.typography.labelMedium, color = Signal)
-            }
+private fun FundsTile(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    tint: Color? = null,
+    onClick: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .spotlightGlow(tint)
+            .clickable(onClickLabel = "Open $title", onClick = onClick)
+            .heightIn(min = 112.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+            Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1)
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
+        content()
+    }
+}
+
+/** "7 of your 12 funds overlap", the funds named, and a bar of how they split. */
+@Composable
+private fun HeroCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse, ov: OverlapView) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    GlowCard(tint = if (ov.overlapping > 0) GroupColors[0] else null, spacing = 8.dp) {
+        Text(if (ui.mode == FundsViewModel.Mode.HOLDINGS) "YOUR FUNDS" else "YOUR WATCHLIST'S FUNDS",
+            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = neutral)
         if (resp.funds.isEmpty()) {
-            Text("No funds here", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("No funds here", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             if (resp.unknown.isEmpty()) {
                 Text(if (ui.mode == FundsViewModel.Mode.HOLDINGS) "None of your holdings is a fund." else "Your watchlist has no funds.",
-                    style = MaterialTheme.typography.bodySmall, color = neutral)
+                    style = MaterialTheme.typography.bodyMedium, color = neutral)
             }
-            gaps()
-            return@GlowCard
-        }
-        Text(FundsLogic.betsHeadline(resp.funds.size, resp.sameBets.size),
-            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        if (ui.mode == FundsViewModel.Mode.HOLDINGS && ui.values.isNotEmpty()) {
-            val fees = FundsLogic.feesYouPay(ui.values, resp.funds, ui.groupsById)
-            val total = FundCostText.dollars(Math.round(ui.values.values.sum()).toDouble())
-            Text(
-                when {
-                    // A total that excluded money must say so; one that counted nothing is not "$0".
-                    fees.knownCount == 0 -> "$total in funds · yearly fees unknown"
-                    fees.unknownFee.isEmpty() -> "$total in funds · about ${FundCostText.dollars(fees.perYear)} a year in fees"
-                    else -> "$total in funds · about ${FundCostText.dollars(fees.perYear)} a year in fees on the " +
-                        "${FundCostText.dollars(Math.round(fees.countedValue).toDouble())} with a known fee"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        } else if (ui.mode == FundsViewModel.Mode.HOLDINGS && ui.unpriced.isNotEmpty()) {
-            Text("Couldn't price ${ui.unpriced.joinToString(", ")}, so there are no dollar figures here.",
-                style = MaterialTheme.typography.labelMedium, color = Signal)
+        } else {
+            Text(FundsLogic.overlapHeadline(resp.funds.size, ov.overlapping),
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            ov.groups.forEach { g ->
+                Text(FundsLogic.groupSentence(g, resp.funds), style = MaterialTheme.typography.bodyMedium)
+            }
+            if (ov.groups.isEmpty()) {
+                Text("Each one moves its own way.", style = MaterialTheme.typography.bodyMedium, color = neutral)
+            }
+            SplitBar(ov, resp)
+            if (ui.mode == FundsViewModel.Mode.HOLDINGS && ui.values.isNotEmpty()) {
+                val fees = FundsLogic.feesYouPay(ui.values, resp.funds, ui.groupsById)
+                val total = FundCostText.dollars(Math.round(ui.values.values.sum()).toDouble())
+                Text(
+                    when {
+                        fees.knownCount == 0 -> "$total in funds · yearly fees unknown"
+                        fees.unknownFee.isEmpty() -> "$total in funds · about ${FundCostText.dollars(fees.perYear)} a year in fees"
+                        else -> "$total in funds · about ${FundCostText.dollars(fees.perYear)} a year in fees on the " +
+                            "${FundCostText.dollars(Math.round(fees.countedValue).toDouble())} with a known fee"
+                    },
+                    style = MaterialTheme.typography.bodyMedium, color = neutral,
+                )
+            } else if (ui.mode == FundsViewModel.Mode.HOLDINGS && ui.unpriced.isNotEmpty()) {
+                Text("Couldn't price ${ui.unpriced.joinToString(", ")}, so there are no dollar figures here.",
+                    style = MaterialTheme.typography.labelMedium, color = Signal)
+            }
         }
         if (ui.cachePriced.isNotEmpty()) {
             Text("Priced from the last saved quote (a live one failed): ${ui.cachePriced.joinToString(", ")}.",
                 style = MaterialTheme.typography.labelSmall, color = neutral)
         }
-        gaps()
+        if (resp.unknown.isNotEmpty()) {
+            Text("Couldn't look up ${resp.unknown.joinToString(", ")}: the quote service didn't answer, so they're left out.",
+                style = MaterialTheme.typography.labelMedium, color = Signal)
+        }
+        if (resp.unmeasured.isNotEmpty()) {
+            Text("Too many funds to measure at once; left out: ${resp.unmeasured.joinToString(", ")}.",
+                style = MaterialTheme.typography.labelMedium, color = Signal)
+        }
         if (ui.noHeldFunds) {
             Text("None of your holdings is a fund, so this shows your watchlist's.",
                 style = MaterialTheme.typography.bodySmall, color = neutral)
@@ -229,62 +311,166 @@ private fun HeadlineCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse) 
     }
 }
 
+/** One segment per fund, coloured by the group it moves with; grey for a fund on its own. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun BetCards(ui: FundsViewModel.UiState, resp: FundOverlapResponse, onOpenDetail: (Asset) -> Unit) {
+private fun SplitBar(ov: OverlapView, resp: FundOverlapResponse) {
+    Row(Modifier.fillMaxWidth().height(10.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        ov.groups.forEachIndexed { i, g ->
+            Box(Modifier.weight(g.size.toFloat()).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(groupColor(i)))
+        }
+        ov.singles.forEach { _ ->
+            Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(OwnWayColor))
+        }
+    }
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        ov.groups.forEachIndexed { i, g -> LegendDot(groupColor(i), "${FundsLogic.groupName(g, resp.funds)} · ${g.size}") }
+        if (ov.singles.isNotEmpty()) LegendDot(OwnWayColor, "Each its own way · ${ov.singles.size}")
+    }
+}
+
+@Composable
+internal fun LegendDot(color: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.size(8.dp).clip(RoundedCornerShape(4.dp)).background(color))
+        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** A thin bar for a return: green up, red down, its length relative to [max]. Unknown draws nothing. */
+@Composable
+internal fun ReturnBar(value: Double?, max: Double, modifier: Modifier = Modifier) {
+    Box(modifier.height(6.dp).clip(RoundedCornerShape(3.dp)).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f))) {
+        if (value != null && max > 0) {
+            val frac = (kotlin.math.abs(value) / max).toFloat().coerceIn(0.02f, 1f)
+            Box(Modifier.fillMaxWidth(frac).fillMaxHeight().clip(RoundedCornerShape(3.dp))
+                .background(if (value >= 0) GainGreen else LossRed))
+        }
+    }
+}
+
+@Composable
+private fun PerformanceTile(ui: FundsViewModel.UiState, resp: FundOverlapResponse, modifier: Modifier, onClick: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val total = ui.values.values.sum()
-    val bets = resp.sameBets.sortedWith(
-        compareByDescending<List<String>> { bet -> bet.sumOf { ui.values[it] ?: 0.0 } }.thenByDescending { it.size },
-    )
-    for (bet in bets) {
-        GlowCard(tint = null, spacing = 6.dp) {
-            if (bet.size > 1) {
-                val weakest = bet.flatMap { a -> bet.filter { it > a }.map { b -> resp.pair(a, b)?.corr } }
-                    .filterNotNull().minOrNull()
-                val verdict = PairVerdict.of(weakest)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("One bet: ${bet.size} funds", style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Pill(verdict.words, if (verdict == PairVerdict.SAME_FUND) Signal else MaterialTheme.colorScheme.primary)
+    val syms = resp.funds.keys
+    val period = FundsLogic.bestPeriod(ui.perf, syms)
+    val rows = FundsLogic.ranking(syms, ui.perf, resp.funds, period, RankSort.RETURN).filter { it.ret != null }
+    val max = rows.maxOfOrNull { kotlin.math.abs(it.ret!!) } ?: 0.0
+    FundsTile("Performance", Icons.AutoMirrored.Filled.TrendingUp, modifier,
+        tint = rows.firstOrNull()?.ret?.let { com.stocktracker.app.ui.components.directionTint(it) }, onClick = onClick) {
+        when {
+            ui.perf == null && !ui.perfFailed -> Skeleton(Modifier.fillMaxWidth().height(80.dp))
+            rows.isEmpty() -> Text(if (ui.perfFailed) "Couldn't load returns." else "No returns to rank yet.",
+                style = MaterialTheme.typography.bodySmall, color = if (ui.perfFailed) Signal else neutral)
+            else -> {
+                Text("${FundsLogic.periodWords(period)}, dividends in", style = MaterialTheme.typography.labelMedium, color = neutral)
+                val shown = if (rows.size > 3) rows.take(2) + rows.last() else rows
+                shown.forEach { r ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(r.symbol, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, modifier = Modifier.width(44.dp))
+                        ReturnBar(r.ret, max, Modifier.weight(1f))
+                        Text(FundsLogic.pctShort(r.ret), style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace,
+                            color = if ((r.ret ?: 0.0) >= 0) GainGreen else LossRed)
+                    }
                 }
-                Text(
-                    if (bet.size == 2) "They rise and fall together (${FundsLogic.corr(weakest)}), so owning both adds little."
-                    else "They rise and fall together (every pair ${FundsLogic.corr(weakest)} or closer), so owning several adds little.",
-                    style = MaterialTheme.typography.bodySmall, color = neutral,
-                )
-            } else {
-                Text("Its own bet", style = MaterialTheme.typography.labelLarge, color = neutral)
-            }
-            val value = bet.sumOf { ui.values[it] ?: 0.0 }
-            if (ui.mode == FundsViewModel.Mode.HOLDINGS && value > 0.0 && total > 0.0) {
-                Text("Your money here: ${FundCostText.dollars(Math.round(value).toDouble())} " +
-                    "(${String.format(java.util.Locale.US, "%.0f", value / total * 100)}% of your funds)",
-                    style = MaterialTheme.typography.bodyMedium)
-            }
-            for (sym in bet) {
-                val p = resp.funds[sym] ?: continue
-                FundLine(p, ui.values[sym], onClick = { onOpenDetail(Asset(sym, com.stocktracker.app.data.model.AssetType.STOCK, p.name ?: sym)) })
-            }
-            if (bet.size > 1) {
-                val pairs = bet.flatMap { a -> bet.filter { it > a }.mapNotNull { b -> resp.pair(a, b) } }
-                    .sortedByDescending { it.corr ?: -1.0 }.take(3)
-                for (p in pairs) {
-                    val v = PairVerdict.of(p.corr)
-                    Text("${p.a} + ${p.b}: ${v.words.lowercase()} (${FundsLogic.corr(p.corr)})" +
-                        if (p.sharedTopCount > 0) " · ${p.sharedTopCount} top holdings shared" else "",
-                        style = MaterialTheme.typography.labelMedium, color = neutral)
+                if (rows.size > 3) {
+                    Text("Top 2 and last of ${rows.size}", style = MaterialTheme.typography.labelSmall, color = neutral)
                 }
-            }
-            FundsLogic.directCryptoNote(bet.map { resp.funds[it]?.groupId }, ui.heldCoins)?.let {
-                Text(it, style = MaterialTheme.typography.labelMedium, color = Signal)
             }
         }
     }
 }
 
-/** One fund in a bet: ticker, what it covers, its fee, and what the user has in it. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun FundLine(p: FundProfile, value: Double?, onClick: () -> Unit) {
+private fun OverlapTile(resp: FundOverlapResponse, ov: OverlapView, modifier: Modifier, onClick: () -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    FundsTile("Overlap", Icons.Filled.Layers, modifier, tint = if (ov.groups.isNotEmpty()) GroupColors[0] else null, onClick = onClick) {
+        if (ov.groups.isEmpty()) {
+            Text("None of these move together.", style = MaterialTheme.typography.bodySmall, color = neutral)
+        } else {
+            Text("Move together", style = MaterialTheme.typography.labelMedium, color = neutral)
+            ov.groups.take(3).forEachIndexed { i, g ->
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    g.forEach { s -> Pill(s, groupColor(i)) }
+                }
+            }
+            // The tightest pair, said once, is the one fact most worth knowing here.
+            val tight = resp.pairs.filter { PairVerdict.of(it.corr) == PairVerdict.SAME_FUND }.maxByOrNull { it.corr ?: 0.0 }
+            tight?.let {
+                Text("${it.a} & ${it.b}: same fund", style = MaterialTheme.typography.labelMedium, color = neutral)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeesTile(ui: FundsViewModel.UiState, resp: FundOverlapResponse, modifier: Modifier, onClick: () -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val range = FundsLogic.feeRange(resp.funds.keys, resp.funds)
+    FundsTile("Fees", Icons.Filled.Receipt, modifier, onClick = onClick) {
+        Text("A year per \$10,000", style = MaterialTheme.typography.labelMedium, color = neutral)
+        if (range == null) {
+            Text("Not enough known fees to compare.", style = MaterialTheme.typography.bodySmall, color = neutral)
+        } else {
+            Text(range.first, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            Text("Cheapest ${range.second.joinToString(", ")} · priciest ${range.third}",
+                style = MaterialTheme.typography.labelMedium, color = neutral)
+        }
+        if (ui.mode == FundsViewModel.Mode.HOLDINGS && ui.values.isNotEmpty()) {
+            val fees = FundsLogic.feesYouPay(ui.values, resp.funds, ui.groupsById)
+            if (fees.knownCount > 0) {
+                Text("Yours: about ${FundCostText.dollars(fees.perYear)} a year", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CheckTile(modifier: Modifier, onClick: () -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    FundsTile("Before you buy", Icons.Filled.Search, modifier, onClick = onClick) {
+        Text("Does it repeat what you own?", style = MaterialTheme.typography.labelMedium, color = neutral)
+        Box(
+            Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(8.dp))
+                .border(1.dp, neutral.copy(alpha = 0.5f), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text("Ticker, e.g. QQQM", style = MaterialTheme.typography.bodyMedium, color = neutral)
+        }
+    }
+}
+
+@Composable
+private fun CopiesTile(ui: FundsViewModel.UiState, resp: FundOverlapResponse, onClick: () -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val holdings = ui.mode == FundsViewModel.Mode.HOLDINGS && ui.values.isNotEmpty()
+    val copies = FundsLogic.cheaperCopies(resp.funds.keys, resp.funds, ui.groupsById, if (holdings) ui.values else emptyMap())
+    FundsTile("Cheaper copies", Icons.Filled.ContentCopy, Modifier.fillMaxWidth(), onClick = onClick) {
+        when {
+            ui.groups == null && !ui.groupsFailed -> Skeleton(Modifier.fillMaxWidth().height(48.dp))
+            ui.groups == null -> Text("Couldn't load the look-alike groups.", style = MaterialTheme.typography.bodySmall, color = Signal)
+            copies.isEmpty() -> Text("Each of these is already the cheapest of its measured look-alikes, or has none.",
+                style = MaterialTheme.typography.bodySmall, color = neutral)
+            else -> {
+                copies.take(3).forEach { c ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${c.from} → ${c.to}" + (c.toNote?.let { " ($it)" } ?: ""),
+                            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Text("saves " + FundCostText.dollars(if (holdings && c.savesYours != null) c.savesYours else c.savesPer10k),
+                            style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, color = GainGreen)
+                    }
+                }
+                Text(if (holdings) "A year, on your money" else "A year per \$10,000 · ${ui.groups.groups.size} measured groups",
+                    style = MaterialTheme.typography.labelMedium, color = neutral)
+            }
+        }
+    }
+}
+
+/** One fund in a group: ticker, what it covers, its fee, and what the user has in it. */
+@Composable
+internal fun FundLine(p: FundProfile, value: Double?, onClick: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick)
@@ -318,7 +504,7 @@ private fun FundLine(p: FundProfile, value: Double?, onClick: () -> Unit) {
  * same as "different" — the bet count treats it as separate, so the screen says why.
  */
 @Composable
-private fun AlsoOverlapping(resp: FundOverlapResponse) {
+internal fun AlsoOverlapping(resp: FundOverlapResponse) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val betOf = resp.sameBets.flatMapIndexed { i, b -> b.map { it to i } }.toMap()
     val close = setOf(PairVerdict.SAME_FUND, PairVerdict.MOVE_TOGETHER, PairVerdict.OVERLAP_A_LOT)
@@ -345,7 +531,7 @@ private fun AlsoOverlapping(resp: FundOverlapResponse) {
 }
 
 @Composable
-private fun FeesCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse) {
+internal fun FeesCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val fees = FundsLogic.feesYouPay(ui.values, resp.funds, ui.groupsById)
     GlowCard(tint = null, spacing = 6.dp) {
@@ -401,7 +587,7 @@ private fun FeesCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse) {
 }
 
 @Composable
-private fun BeforeYouBuyCard(
+internal fun BeforeYouBuyCard(
     check: FundsViewModel.Check?,
     onCheck: (String) -> Unit,
     onClear: () -> Unit,
@@ -444,7 +630,7 @@ private fun BeforeYouBuyCard(
 }
 
 @Composable
-private fun CompareCard(resp: FundOverlapResponse?, values: Map<String, Double>, onCompare: (List<String>) -> Unit) {
+internal fun CompareCard(resp: FundOverlapResponse?, values: Map<String, Double>, onCompare: (List<String>) -> Unit) {
     val picks = resp?.funds?.keys?.sortedByDescending { values[it] ?: 0.0 }?.take(2).orEmpty()
     GlowCard(tint = null, spacing = 6.dp, modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable { onCompare(picks) }) {
         Text("Compare funds side by side", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -454,7 +640,7 @@ private fun CompareCard(resp: FundOverlapResponse?, values: Map<String, Double>,
 }
 
 @Composable
-private fun GroupsCard(
+internal fun GroupsCard(
     ui: FundsViewModel.UiState,
     onOpen: (FundGroup) -> Unit,
     onOpenDetail: (Asset) -> Unit,
@@ -473,7 +659,7 @@ private fun GroupsCard(
 }
 
 @Composable
-private fun GroupRow(
+internal fun GroupRow(
     g: FundGroup,
     perf: FundsViewModel.GroupPerf?,
     onOpen: (FundGroup) -> Unit,
@@ -550,7 +736,7 @@ private fun GroupRow(
 }
 
 @Composable
-private fun FeeAlertToggle() {
+internal fun FeeAlertToggle() {
     val settings = ServiceLocator.settingsStore
     val on by settings.fundFeeNotifyEnabled.collectAsState(initial = true)
     val scope = rememberCoroutineScope()

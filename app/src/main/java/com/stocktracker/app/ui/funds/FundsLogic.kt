@@ -17,10 +17,10 @@ import kotlin.math.pow
  * alike by sector while holding none of the same companies (see fund_overlap.py in the backend).
  */
 enum class PairVerdict(val words: String) {
-    SAME_FUND("Same fund, twice"),
-    MOVE_TOGETHER("Move together"),
-    OVERLAP_A_LOT("Overlap a lot"),
-    DIFFERENT("Move differently"),
+    SAME_FUND("Same fund"),
+    MOVE_TOGETHER("Close copies"),
+    OVERLAP_A_LOT("Similar"),
+    DIFFERENT("Different"),
     UNKNOWN("Not measured");
 
     companion object {
@@ -60,6 +60,29 @@ data class FeesYouPay(
     val notCompared: List<String> = emptyList(),
 )
 
+/** The funds' groups that move together (two or more), and the funds that move on their own. */
+data class OverlapView(val groups: List<List<String>>, val singles: List<String>) {
+    /** Funds that sit in a group with at least one other. */
+    val overlapping: Int get() = groups.sumOf { it.size }
+}
+
+/** One row of the performance ranking. Any figure may be null: unknown, never zero. */
+data class RankRow(val symbol: String, val ret: Double?, val worstDrop: Double?, val feePct: Double?)
+
+enum class RankSort { RETURN, DROP, FEE }
+
+/**
+ * A cheaper fund that holds the same thing. [savesPer10k] is dollars a year per $10,000;
+ * [savesYours] is on the user's own money in [from], when it is known.
+ */
+data class CheaperCopy(
+    val from: String,
+    val to: String,
+    val toNote: String?,
+    val savesPer10k: Double,
+    val savesYours: Double?,
+)
+
 internal object FundsLogic {
 
     /** Below this a fund is small enough that closing is a real possibility. */
@@ -69,14 +92,145 @@ internal object FundsLogic {
 
     private fun plural(n: Int, word: String) = if (n == 1) word else word + "s"
 
-    /** "9 funds, 4 different bets". */
-    fun betsHeadline(funds: Int, bets: Int): String =
-        "$funds ${plural(funds, "fund")}, $bets different ${plural(bets, "bet")}"
+    /**
+     * Groups of two or more funds that move together, biggest (by the user's money, then by size)
+     * first, and the funds that move on their own.
+     */
+    fun overlapView(resp: FundOverlapResponse, values: Map<String, Double> = emptyMap()): OverlapView {
+        val groups = resp.sameBets.filter { it.size > 1 }.sortedWith(
+            compareByDescending<List<String>> { g -> g.sumOf { values[it] ?: 0.0 } }
+                .thenByDescending { it.size }
+                .thenBy { it.first() },
+        )
+        return OverlapView(groups, resp.sameBets.filter { it.size == 1 }.map { it.first() })
+    }
+
+    /** "A", "A and B", "A, B and C". */
+    fun joinNames(names: List<String>): String = when (names.size) {
+        0 -> ""
+        1 -> names[0]
+        2 -> "${names[0]} and ${names[1]}"
+        else -> names.dropLast(1).joinToString(", ") + " and " + names.last()
+    }
+
+    /** "7 of your 12 funds overlap" — the headline the user picked on 2026-09-26. */
+    fun overlapHeadline(total: Int, overlapping: Int): String = when {
+        total <= 1 -> "$total ${plural(total, "fund")}, nothing to overlap with"
+        overlapping == 0 -> "None of your $total funds overlap"
+        else -> "$overlapping of your $total funds overlap"
+    }
+
+    /** "SPY, VOO and VTI move almost the same." / "FBTC and IBIT are both bitcoin." */
+    fun groupSentence(group: List<String>, funds: Map<String, FundProfile>): String {
+        val coin = group.all { funds[it]?.region == "crypto" }
+        val label = funds[group.first()]?.regionLabel?.lowercase()
+        return if (coin && label != null) {
+            "${joinNames(group)} are ${if (group.size == 2) "both" else "all"} $label."
+        } else {
+            "${joinNames(group)} move almost the same."
+        }
+    }
+
+    /** A short legend name for a group: "Bitcoin", or "SPY and 4 more". */
+    fun groupName(group: List<String>, funds: Map<String, FundProfile>): String {
+        val coin = group.all { funds[it]?.region == "crypto" }
+        val label = funds[group.first()]?.regionLabel
+        return if (coin && label != null) label else "${group.first()} and ${group.size - 1} more"
+    }
+
+    /** The longest period at least two funds have a record for, so a ranking ranks something. */
+    fun bestPeriod(perf: com.stocktracker.app.data.remote.FundPerformanceResponse?, symbols: Collection<String>): String {
+        for (p in listOf("5y", "3y", "1y")) {
+            if (symbols.count { perf?.funds?.get(it)?.returns?.get(p) != null } >= 2) return p
+        }
+        return "1y"
+    }
+
+    /** "Sep 25 close" from the day every return is measured to; null when there is none. */
+    fun asOfLine(iso: String?): String? = iso?.let {
+        runCatching { LocalDate.parse(it).format(DateTimeFormatter.ofPattern("MMM d", Locale.US)) + " close" }.getOrNull()
+    }
+
+    fun periodWords(p: String): String = when (p) {
+        "5y" -> "5 years"
+        "3y" -> "3 years"
+        else -> "1 year"
+    }
+
+    /** The ranking, with every unknown figure sorted last — never treated as zero. */
+    fun ranking(
+        symbols: Collection<String>,
+        perf: com.stocktracker.app.data.remote.FundPerformanceResponse?,
+        funds: Map<String, FundProfile>,
+        period: String,
+        sort: RankSort,
+    ): List<RankRow> {
+        val rows = symbols.map { s ->
+            val p = perf?.funds?.get(s)?.takeIf { it.available }
+            RankRow(s, p?.returns?.get(period), p?.worstDropPct, funds[s]?.expenseRatioPct)
+        }
+        return when (sort) {
+            RankSort.RETURN -> rows.sortedWith(compareBy<RankRow> { it.ret == null }.thenByDescending { it.ret ?: 0.0 })
+            RankSort.DROP -> rows.sortedWith(compareBy<RankRow> { it.worstDrop == null }.thenByDescending { it.worstDrop ?: 0.0 })
+            RankSort.FEE -> rows.sortedWith(compareBy<RankRow> { it.feePct == null }.thenBy { it.feePct ?: 0.0 })
+        }
+    }
+
+    /**
+     * For each fund, the cheapest ETF measured to hold the same thing (a Fidelity mutual fund only
+     * when no cheaper ETF exists), biggest saving first — on the user's money when it is known.
+     */
+    fun cheaperCopies(
+        symbols: Collection<String>,
+        funds: Map<String, FundProfile>,
+        groups: Map<String, FundGroup>?,
+        values: Map<String, Double> = emptyMap(),
+    ): List<CheaperCopy> {
+        val out = mutableListOf<CheaperCopy>()
+        for (s in symbols) {
+            val f = funds[s] ?: continue
+            val fee = f.expenseRatioPct ?: continue
+            val peers = f.groupId?.let { groups?.get(it) }?.funds.orEmpty()
+                .filter { it.symbol != s && it.expenseRatioPct != null && it.expenseRatioPct < fee - 1e-9 }
+            val alt = peers.filter { it.kind == "etf" }.minByOrNull { it.expenseRatioPct!! }
+                ?: peers.minByOrNull { it.expenseRatioPct!! } ?: continue
+            val gap = fee - alt.expenseRatioPct!!
+            out += CheaperCopy(
+                from = s,
+                to = alt.symbol,
+                toNote = when {
+                    alt.fidelityOnly -> "Fidelity-only"
+                    alt.isMutualFund -> "mutual fund"
+                    else -> null
+                },
+                savesPer10k = gap * 100.0,
+                savesYours = values[s]?.let { it * gap / 100.0 },
+            )
+        }
+        return if (values.isNotEmpty()) out.sortedByDescending { it.savesYours ?: -1.0 } else out.sortedByDescending { it.savesPer10k }
+    }
+
+    /** Fee range across [symbols] per $10,000, the cheapest names and the priciest; null with < 2 known. */
+    fun feeRange(symbols: Collection<String>, funds: Map<String, FundProfile>): Triple<String, List<String>, String>? {
+        val known = symbols.mapNotNull { s -> funds[s]?.expenseRatioPct?.let { s to it } }
+        if (known.size < 2) return null
+        val min = known.minOf { it.second }
+        val max = known.maxOf { it.second }
+        val cheapest = known.filter { it.second - min < 1e-9 }.map { it.first }
+        val priciest = known.first { max - it.second < 1e-9 }.first
+        return Triple("${FundCostText.perTenK(min)} – ${FundCostText.perTenK(max)}", cheapest, priciest)
+    }
 
     /** "+86.9%", "−24.5%" with a real minus sign, "—" when unknown. */
     fun pct(p: Double?): String {
         if (p == null || !p.isFinite()) return "—"
         return (if (p >= 0) "+" else "−") + String.format(Locale.US, "%.1f", abs(p)) + "%"
+    }
+
+    /** "+108%", "−21%": whole percents for a tile, where a decimal only crowds the bar. */
+    fun pctShort(p: Double?): String {
+        if (p == null || !p.isFinite()) return "—"
+        return (if (p >= 0) "+" else "−") + String.format(Locale.US, "%.0f", abs(p)) + "%"
     }
 
     /** "$1.76 trillion", "$104 billion", "$38 million". Null for unknown. */
@@ -164,10 +318,10 @@ internal object FundsLogic {
             val (o, p) = best
             val cc = corr(p.corr)
             lines += when (PairVerdict.of(p.corr)) {
-                PairVerdict.SAME_FUND -> "Same thing as your $o ($cc): owning both is one bet."
-                PairVerdict.MOVE_TOGETHER -> "Moves with your $o ($cc): mostly the same bet."
-                PairVerdict.OVERLAP_A_LOT -> "Overlaps a lot with your $o ($cc)."
-                PairVerdict.DIFFERENT -> "A different bet: its closest match among your funds is $o, at $cc."
+                PairVerdict.SAME_FUND -> "Same fund as your $o ($cc): owning both doubles up."
+                PairVerdict.MOVE_TOGETHER -> "Moves almost the same as your $o ($cc)."
+                PairVerdict.OVERLAP_A_LOT -> "Similar to your $o ($cc)."
+                PairVerdict.DIFFERENT -> "Moves its own way: its closest match among your funds is $o, at $cc."
                 PairVerdict.UNKNOWN -> "Couldn't measure it against your funds (too little shared price history)."
             }
             // Yahoo lists at most ten holdings, fewer once share classes are merged, so the count is
@@ -244,15 +398,17 @@ internal object FundsLogic {
     fun costRange(g: FundGroup): String? {
         val fees = g.funds.mapNotNull { it.expenseRatioPct }
         if (fees.size < 2) return null
-        return "${FundCostText.perTenK(fees.min())}–${FundCostText.perTenK(fees.max())} per \$10,000"
+        val lo = FundCostText.perTenK(fees.min())
+        val hi = FundCostText.perTenK(fees.max())
+        return if (lo == hi) "All $lo per \$10,000" else "$lo–$hi per \$10,000"
     }
 
     /** A note for a bitcoin or ether bet when the user also holds the coin itself. */
     fun directCryptoNote(betGroupIds: Collection<String?>, heldCoins: Collection<String>): String? {
         val coins = heldCoins.map { it.uppercase().removeSuffix("-USD") }.toSet()
         return when {
-            "bitcoin" in betGroupIds && "BTC" in coins -> "You also own bitcoin directly: same bet."
-            "ether" in betGroupIds && "ETH" in coins -> "You also own ether directly: same bet."
+            "bitcoin" in betGroupIds && "BTC" in coins -> "You also own bitcoin itself, so this doubles up."
+            "ether" in betGroupIds && "ETH" in coins -> "You also own ether itself, so this doubles up."
             else -> null
         }
     }

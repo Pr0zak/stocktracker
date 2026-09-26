@@ -258,12 +258,57 @@ fun StockTrackerRoot(
                     onOpenFunds = { nav.navigate(Routes.FUNDS) },
                 )
             }
-            composable(Routes.FUNDS) {
+            composable(Routes.FUNDS) { entry ->
+                // One view model for the Funds screen and its drill-downs, scoped to this entry, so a
+                // detail screen draws the reading the tiles summarised instead of fetching its own.
+                val fundsVm: com.stocktracker.app.ui.funds.FundsViewModel =
+                    androidx.lifecycle.viewmodel.compose.viewModel(viewModelStoreOwner = entry)
                 com.stocktracker.app.ui.funds.FundsScreen(
+                    vm = fundsVm,
                     onBack = { nav.popBackStack() },
                     onOpenDetail = { nav.navigate(Routes.detail(it)) },
                     onOpenCompare = { nav.navigate(Routes.fundCompare(it)) },
+                    onOpenRanking = { nav.navigate(Routes.fundsRanking(it.name)) },
+                    onOpenOverlap = { nav.navigate(Routes.FUNDS_OVERLAP) },
+                    onOpenCopies = { nav.navigate(Routes.FUNDS_COPIES) },
                     onOpenSignalsSettings = openSignalsSettings,
+                )
+            }
+            composable(
+                route = Routes.FUNDS_RANKING_PATTERN,
+                arguments = listOf(navArgument("sort") { type = NavType.StringType; defaultValue = "RETURN" }),
+            ) { entry ->
+                val parent = androidx.compose.runtime.remember(entry) { nav.getBackStackEntry(Routes.FUNDS) }
+                val fundsVm: com.stocktracker.app.ui.funds.FundsViewModel =
+                    androidx.lifecycle.viewmodel.compose.viewModel(viewModelStoreOwner = parent)
+                val sort = runCatching {
+                    com.stocktracker.app.ui.funds.RankSort.valueOf(entry.arguments?.getString("sort") ?: "RETURN")
+                }.getOrDefault(com.stocktracker.app.ui.funds.RankSort.RETURN)
+                com.stocktracker.app.ui.funds.FundRankingScreen(
+                    vm = fundsVm, initialSort = sort,
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                )
+            }
+            composable(Routes.FUNDS_OVERLAP) { entry ->
+                val parent = androidx.compose.runtime.remember(entry) { nav.getBackStackEntry(Routes.FUNDS) }
+                val fundsVm: com.stocktracker.app.ui.funds.FundsViewModel =
+                    androidx.lifecycle.viewmodel.compose.viewModel(viewModelStoreOwner = parent)
+                com.stocktracker.app.ui.funds.FundOverlapScreen(
+                    vm = fundsVm,
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                    onOpenCompare = { nav.navigate(Routes.fundCompare(it)) },
+                )
+            }
+            composable(Routes.FUNDS_COPIES) { entry ->
+                val parent = androidx.compose.runtime.remember(entry) { nav.getBackStackEntry(Routes.FUNDS) }
+                val fundsVm: com.stocktracker.app.ui.funds.FundsViewModel =
+                    androidx.lifecycle.viewmodel.compose.viewModel(viewModelStoreOwner = parent)
+                com.stocktracker.app.ui.funds.FundCopiesScreen(
+                    vm = fundsVm,
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { nav.navigate(Routes.detail(it)) },
                 )
             }
             composable(

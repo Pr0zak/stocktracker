@@ -62,6 +62,9 @@ class FundsViewModel : ViewModel() {
         val heldCoins: List<String> = emptyList(),
         val groups: FundGroupsResponse? = null,
         val groupsFailed: Boolean = false,
+        /** Returns and worst drops for every fund shown, measured to one shared day. */
+        val perf: FundPerformanceResponse? = null,
+        val perfFailed: Boolean = false,
         val groupPerf: Map<String, GroupPerf> = emptyMap(),
         val check: Check? = null,
     ) {
@@ -88,7 +91,7 @@ class FundsViewModel : ViewModel() {
         // ("Your watchlist's funds" over the holdings, with their dollars) until the new load landed.
         _state.update {
             it.copy(mode = mode, noHeldFunds = false, loading = true, failed = false, overlap = null,
-                values = emptyMap(), unpriced = emptyList(), cachePriced = emptyList())
+                values = emptyMap(), unpriced = emptyList(), cachePriced = emptyList(), perf = null, perfFailed = false)
         }
         load()
     }
@@ -130,6 +133,11 @@ class FundsViewModel : ViewModel() {
                 return@launch
             }
 
+            // Performance runs beside the pricing: a history read per fund, cached on the server.
+            val perfCall = async {
+                val syms = resp?.funds?.keys?.toList().orEmpty().take(40)
+                if (syms.isEmpty()) null else runCatching { api.fundPerformance(base, syms) }.getOrNull()
+            }
             val values = mutableMapOf<String, Double>()
             val unpriced = mutableListOf<String>()
             val cachePriced = mutableListOf<String>()
@@ -148,6 +156,7 @@ class FundsViewModel : ViewModel() {
                 }
             }
             val groups = groupsCall.await()
+            val perf = perfCall.await()
             ensureActive()
             _state.update {
                 it.copy(
@@ -160,6 +169,8 @@ class FundsViewModel : ViewModel() {
                     heldCoins = held.filter { a -> a.type == AssetType.CRYPTO }.map { a -> a.symbol },
                     groups = groups ?: it.groups,
                     groupsFailed = groups == null,
+                    perf = perf ?: it.perf,
+                    perfFailed = perf == null && resp?.funds?.isNotEmpty() == true,
                 )
             }
         }

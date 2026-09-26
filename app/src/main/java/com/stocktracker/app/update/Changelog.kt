@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.17.0" to listOf(
+            "Funds redesigned as tiles you can glance at, each opening its own detail screen",
+            "The top line now names the funds that overlap, like \"VOO, VTI and QQQM move almost the same\"",
+            "Rank your funds by 1, 3 or 5 year return, smallest drop or lowest fee",
+            "See how closely each pair of funds moves, and every cheaper copy in one list",
+        ),
         "1.16.0" to listOf(
             "New Funds screen on Markets: how your funds overlap, and how many different bets they are",
             "What your funds cost you a year in dollars, and cheaper funds that hold the same thing",

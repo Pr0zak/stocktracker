@@ -52,26 +52,79 @@ class FundsLogicTest {
         assertEquals(PairVerdict.UNKNOWN, PairVerdict.of(Double.NaN))
     }
 
-    @Test fun `the headline counts funds and bets`() {
-        assertEquals("4 funds, 2 different bets", FundsLogic.betsHeadline(4, 2))
-        assertEquals("1 fund, 1 different bet", FundsLogic.betsHeadline(1, 1))
+    @Test fun `the headline counts the funds that overlap and names them`() {
+        assertEquals("7 of your 12 funds overlap", FundsLogic.overlapHeadline(12, 7))
+        assertEquals("None of your 5 funds overlap", FundsLogic.overlapHeadline(5, 0))
+        assertEquals("1 fund, nothing to overlap with", FundsLogic.overlapHeadline(1, 0))
+        val ov = FundsLogic.overlapView(resp)
+        assertEquals(listOf(listOf("VOO", "SPY", "QQQM")), ov.groups)
+        assertEquals(listOf("SCHD"), ov.singles)
+        assertEquals(3, ov.overlapping)
+        assertEquals("VOO, SPY and QQQM move almost the same.", FundsLogic.groupSentence(ov.groups[0], resp.funds))
+        val coins = mapOf(
+            "FBTC" to FundProfile(symbol = "FBTC", region = "crypto", regionLabel = "Bitcoin"),
+            "IBIT" to FundProfile(symbol = "IBIT", region = "crypto", regionLabel = "Bitcoin"),
+        )
+        assertEquals("FBTC and IBIT are both bitcoin.", FundsLogic.groupSentence(listOf("FBTC", "IBIT"), coins))
+        assertEquals("Bitcoin", FundsLogic.groupName(listOf("FBTC", "IBIT"), coins))
+        assertEquals("VOO and 2 more", FundsLogic.groupName(ov.groups[0], resp.funds))
+    }
+
+    @Test fun `the ranking sorts unknown figures last, never as zero`() {
+        val perf = FundPerformanceResponse(funds = mapOf(
+            "VOO" to com.stocktracker.app.data.remote.FundPerf("VOO", true, returns = mapOf("5y" to 86.9), worstDropPct = -24.5),
+            "SPY" to com.stocktracker.app.data.remote.FundPerf("SPY", true, returns = mapOf("5y" to 86.3), worstDropPct = -24.5),
+            "QQQM" to com.stocktracker.app.data.remote.FundPerf("QQQM", true, returns = mapOf("5y" to 107.8), worstDropPct = -35.0),
+            "SCHD" to com.stocktracker.app.data.remote.FundPerf("SCHD", false),
+        ))
+        val syms = listOf("VOO", "SPY", "QQQM", "SCHD")
+        assertEquals(listOf("QQQM", "VOO", "SPY", "SCHD"),
+            FundsLogic.ranking(syms, perf, resp.funds, "5y", RankSort.RETURN).map { it.symbol })
+        assertEquals("SCHD", FundsLogic.ranking(syms, perf, resp.funds, "5y", RankSort.DROP).last().symbol)
+        assertEquals(listOf("VOO", "SCHD", "SPY", "QQQM"),
+            FundsLogic.ranking(syms, perf, resp.funds, "5y", RankSort.FEE).map { it.symbol })
+        assertEquals("5y", FundsLogic.bestPeriod(perf, syms))
+        assertEquals("1y", FundsLogic.bestPeriod(null, syms))
+    }
+
+    @Test fun `cheaper copies prefer a like-for-like ETF and name a Fidelity-only fund`() {
+        val groups = mapOf("sp500" to FundGroup("sp500", "the S&P 500", null, listOf(
+            FundCost("FNILX", kind = "mutual_fund", expenseRatioPct = 0.0, fidelity = true, fidelityOnly = true),
+            FundCost("SPYM", kind = "etf", expenseRatioPct = 0.02),
+            FundCost("VOO", kind = "etf", expenseRatioPct = 0.03),
+            FundCost("SPY", kind = "etf", expenseRatioPct = 0.0945),
+        )))
+        val copies = FundsLogic.cheaperCopies(listOf("SPY", "VOO", "SCHD"), resp.funds, groups)
+        assertEquals(listOf("SPY", "VOO"), copies.map { it.from })
+        assertEquals("SPYM", copies[0].to)
+        assertEquals(7.45, copies[0].savesPer10k, 1e-9)
+        assertNull(copies[0].toNote)
+        val onlyFidelity = mapOf("sp500" to groups.getValue("sp500").copy(funds = groups.getValue("sp500").funds.filter { it.symbol != "SPYM" }))
+        val c2 = FundsLogic.cheaperCopies(listOf("VOO"), resp.funds, onlyFidelity, mapOf("VOO" to 10_000.0))
+        assertEquals("FNILX", c2.single().to)
+        assertEquals("Fidelity-only", c2.single().toNote)
+        assertEquals(3.0, c2.single().savesYours!!, 1e-9)
+        val range = FundsLogic.feeRange(listOf("VOO", "SPY", "SCHD"), resp.funds)!!
+        assertEquals("\$3 – \$9.45", range.first)
+        assertEquals(listOf("VOO"), range.second)
+        assertEquals("SPY", range.third)
     }
 
     @Test fun `before you buy leads with the closest fund you own`() {
         val lines = FundsLogic.beforeYouBuy("QQQM", resp, ownedFunds = listOf("VOO", "SCHD"), ownedStocks = listOf("AAPL", "TSLA"))
-        assertEquals("Moves with your VOO (0.95): mostly the same bet.", lines[0])
+        assertEquals("Moves almost the same as your VOO (0.95).", lines[0])
         assertEquals("3 of its 4 biggest holdings are also among VOO's biggest.", lines[1])
         assertEquals("You already own AAPL directly: 7% of this fund.", lines[2])
     }
 
     @Test fun `the same fund twice is called that`() {
         val lines = FundsLogic.beforeYouBuy("SPY", resp, ownedFunds = listOf("VOO"), ownedStocks = emptyList())
-        assertEquals("Same thing as your VOO (1.00): owning both is one bet.", lines[0])
+        assertEquals("Same fund as your VOO (1.00): owning both doubles up.", lines[0])
     }
 
     @Test fun `a different fund says how close its nearest match is`() {
         val lines = FundsLogic.beforeYouBuy("SCHD", resp, ownedFunds = listOf("VOO", "QQQM"), ownedStocks = emptyList())
-        assertEquals("A different bet: its closest match among your funds is VOO, at 0.52.", lines[0])
+        assertEquals("Moves its own way: its closest match among your funds is VOO, at 0.52.", lines[0])
         assertEquals(1, lines.size)                            // no shared top holdings to report
     }
 
@@ -82,7 +135,7 @@ class FundsLogicTest {
     @Test fun `a fund you already hold says so first`() {
         val lines = FundsLogic.beforeYouBuy("VOO", resp, listOf("SPY"), emptyList(), alreadyOwned = true)
         assertEquals("You already own VOO.", lines[0])
-        assertEquals("Same thing as your SPY (1.00): owning both is one bet.", lines[1])
+        assertEquals("Same fund as your SPY (1.00): owning both doubles up.", lines[1])
     }
 
     @Test fun `fees you pay, and the cheapest look-alike for each fund`() {
@@ -157,6 +210,8 @@ class FundsLogicTest {
         assertEquals("−53.4% (Oct 2025–Jun 2026)", FundsLogic.worstDrop(-53.4, "2025-10-06", "2026-06-30"))
         val g = FundGroup("x", "x", null, listOf(FundCost("A", expenseRatioPct = 0.0), FundCost("B", expenseRatioPct = 0.0945), FundCost("C")))
         assertEquals("\$0–\$9.45 per \$10,000", FundsLogic.costRange(g))
+        val same = FundGroup("y", "y", null, listOf(FundCost("D", expenseRatioPct = 0.03), FundCost("E", expenseRatioPct = 0.03)))
+        assertEquals("All \$3 per \$10,000", FundsLogic.costRange(same))
     }
 
     @Test fun `covers says region and sectors, or that holdings are unknown`() {
@@ -165,8 +220,8 @@ class FundsLogicTest {
         assertEquals("holdings unavailable right now", FundsLogic.covers(broken))
     }
 
-    @Test fun `holding the coin and its ETF is one bet`() {
-        assertEquals("You also own bitcoin directly: same bet.", FundsLogic.directCryptoNote(listOf("bitcoin"), listOf("BTC")))
+    @Test fun `holding the coin and its ETF doubles up`() {
+        assertEquals("You also own bitcoin itself, so this doubles up.", FundsLogic.directCryptoNote(listOf("bitcoin"), listOf("BTC")))
         assertNull(FundsLogic.directCryptoNote(listOf("sp500"), listOf("BTC")))
     }
 

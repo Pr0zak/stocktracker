@@ -34,6 +34,7 @@ object AlertNotifier {
     private const val SANDBOX_CHANNEL_ID = "sandbox_trades"
     private const val SCAN_CHANNEL_ID = "signal_scan"
     private const val PICK_CHANNEL_ID = "daily_pick"
+    private const val REPORT_CHANNEL_ID = "reports"
 
     /** Groups every scan-family post (see [notifyScan]) so they collapse together in the shade instead
      *  of listing separately from a channel a user may not have even opened Settings to name yet. */
@@ -111,6 +112,15 @@ object AlertNotifier {
         )
     }
 
+    /** RPT-1: the week in review (Friday after the close) and the month in review (its last close). */
+    fun ensureReportChannel(context: Context) {
+        ensureChannel(
+            context, REPORT_CHANNEL_ID, "Weekly & monthly reports",
+            "The week in review after Friday's close and the month in review after its last close: the market, your portfolio and the AI sandbox",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+    }
+
     private fun ensureChannel(
         context: Context,
         id: String,
@@ -147,6 +157,10 @@ object AlertNotifier {
     /** Post a Daily Pick notification (its own default-importance channel). */
     fun notifyPick(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
         post(context, PICK_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
+
+    /** Post a weekly or monthly report notification (its own default-importance channel). */
+    fun notifyReport(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, REPORT_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
 
     /** Post a sandbox paper-trade notification (its own default-importance channel). */
     fun notifySandbox(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
@@ -191,6 +205,7 @@ object AlertNotifier {
             BRIEF_CHANNEL_ID -> ensureBriefChannel(context)
             SANDBOX_CHANNEL_ID -> ensureSandboxChannel(context)
             PICK_CHANNEL_ID -> ensurePickChannel(context)
+            REPORT_CHANNEL_ID -> ensureReportChannel(context)
             SCAN_CHANNEL_ID -> ensureScanChannel(context)
             else -> ensureChannel(context)
         }

@@ -93,6 +93,8 @@ fun StockTrackerRoot(
         Routes.VIX to TopDest.Markets,
         TopDest.Ideas.route to TopDest.Portfolio,
         TopDest.Journal.route to TopDest.Portfolio,
+        Routes.REPORTS to TopDest.Markets,
+        Routes.REPORT_PATTERN to TopDest.Markets,
     )
     // Calendar is a spoke too, but it is also opened per-asset from a ticker's overflow, where it
     // IS a modal task. Only the market-wide form (no symbol argument) keeps the bar.
@@ -125,7 +127,7 @@ fun StockTrackerRoot(
         // at all — the navigation was swallowed as "already here". So it is used only for the
         // routes where it does what it sounds like: the fixed ones, where it stops repeated taps
         // stacking duplicate copies of the same screen.
-        val parameterised = route.startsWith("detail/") || route.startsWith("calendar")
+        val parameterised = route.startsWith("detail/") || route.startsWith("calendar") || route.startsWith("report/")
         runCatching { nav.navigate(route) { launchSingleTop = !parameterised } }
         onRouteConsumed()
     }
@@ -247,11 +249,41 @@ fun StockTrackerRoot(
             composable(TopDest.Widgets.route) { WidgetGalleryScreen() }
             composable(TopDest.Markets.route) {
                 com.stocktracker.app.ui.markets.MarketsScreen(
+                    onOpenReports = { nav.navigate(Routes.REPORTS) },
                     onOpenScan = { nav.navigate(TopDest.MarketScan.route) },
                     onOpenHeatmap = { nav.navigate(TopDest.Heatmap.route) },
                     onOpenCalendar = { nav.navigate(Routes.calendar()) },
                     onOpenDips = { nav.navigate(Routes.DIPS) },
                     onOpenVix = { nav.navigate(Routes.VIX) },
+                )
+            }
+            composable(Routes.REPORTS) {
+                com.stocktracker.app.ui.report.ReportsScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenReport = { nav.navigate(Routes.report(it)) },
+                    onOpenSignalsSettings = openSignalsSettings,
+                )
+            }
+            composable(
+                route = Routes.REPORT_PATTERN,
+                arguments = listOf(navArgument("id") { type = NavType.StringType }),
+            ) { entry ->
+                // Tabs are switched to, never pushed, so Back from them does not land on a copy.
+                val switchTo: (TopDest) -> Unit = { dest ->
+                    nav.navigate(dest.route) {
+                        popUpTo(TopDest.Watchlist.route) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+                com.stocktracker.app.ui.report.ReportScreen(
+                    reportId = entry.arguments?.getString("id").orEmpty(),
+                    onBack = { nav.popBackStack() },
+                    onOpenReports = { nav.navigate(Routes.REPORTS) { launchSingleTop = true } },
+                    onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                    onOpenSandbox = { switchTo(TopDest.Sandbox) },
+                    onOpenPortfolio = { switchTo(TopDest.Portfolio) },
+                    onOpenSignalsSettings = openSignalsSettings,
                 )
             }
             composable(TopDest.Settings.route) {

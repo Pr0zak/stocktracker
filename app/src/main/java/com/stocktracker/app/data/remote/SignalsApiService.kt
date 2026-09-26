@@ -789,6 +789,24 @@ class SignalsApiService {
         return Http.json.decodeFromString<DailyPickResponse>(sGet("${baseUrl.trimEnd('/')}/daily_pick"))
     }
 
+    /** RPT-1: stored weekly/monthly reports, newest first. Token-gated (a row carries the sandbox result). Throws on failure. */
+    suspend fun reports(baseUrl: String, kind: String? = null, limit: Int = 30): ReportList? {
+        if (baseUrl.isBlank()) return null
+        val q = buildString {
+            append("?limit=").append(limit)
+            if (kind != null) append("&kind=").append(kind)
+        }
+        return Http.json.decodeFromString<ReportList>(sGet("${baseUrl.trimEnd('/')}/reports$q"))
+    }
+
+    /** RPT-1: one report by id ("week-2026-09-25"). Throws on failure, including a 404. */
+    suspend fun report(baseUrl: String, id: String): Report? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<Report>(
+            sGet("${baseUrl.trimEnd('/')}/report/${java.net.URLEncoder.encode(id, "UTF-8")}"),
+        )
+    }
+
     /** Re-check this morning's pick with live prices (one deep-model call; 10-minute cooldown). Throws on failure. */
     suspend fun recheckDailyPick(baseUrl: String): DailyPickRecheck? {
         if (baseUrl.isBlank()) return null

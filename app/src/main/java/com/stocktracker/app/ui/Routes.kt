@@ -41,7 +41,10 @@ object Routes {
     const val DIPS = "dips"
     const val ADD = "add"
 
+    const val REPORTS = "reports"
+
     const val CALENDAR_PATTERN = "calendar?symbol={symbol}"
+    const val REPORT_PATTERN = "report/{id}"
     const val DETAIL_PATTERN = "detail/{type}/{symbol}?name={name}&cg={cg}"
 
     /**
@@ -53,6 +56,9 @@ object Routes {
         val cg = Uri.encode(asset.coinGeckoId ?: "")
         return "detail/${asset.type.name}/${Uri.encode(asset.symbol)}?name=$name&cg=$cg"
     }
+
+    /** One weekly or monthly report by its id ("week-2026-09-25"), as the backend names it. */
+    fun report(id: String): String = "report/${Uri.encode(id)}"
 
     /** The catalyst calendar: whole-market with no symbol, one ticker's with one. */
     fun calendar(symbol: String? = null): String =

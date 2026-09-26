@@ -367,6 +367,39 @@ class SettingsStore(private val context: Context) {
     suspend fun setDailyPickReportCards(entries: Set<String>) =
         context.dataStore.edit { it[dailyPickReportCardsKey] = entries }
 
+    // --- Weekly & monthly report (RPT-1) ---
+
+    private val reportWeeklyNotifyKey = booleanPreferencesKey("report_weekly_notify_enabled")
+    private val reportMonthlyNotifyKey = booleanPreferencesKey("report_monthly_notify_enabled")
+    private val reportNotifiedKey = stringSetPreferencesKey("report_notified_ids")
+    private val reportPortfolioKey = stringPreferencesKey("report_portfolio_snapshots")
+
+    /** Friday-after-the-close "week in review" alert. ON by default: the user asked for it, and it
+     *  costs nothing extra — the backend builds the report once and this only reads it. */
+    val reportWeeklyNotifyEnabled: Flow<Boolean> = context.dataStore.data.map { it[reportWeeklyNotifyKey] ?: true }
+    suspend fun setReportWeeklyNotifyEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[reportWeeklyNotifyKey] = enabled }
+
+    /** Month-end "month in review" alert. ON by default, for the same reasons. */
+    val reportMonthlyNotifyEnabled: Flow<Boolean> = context.dataStore.data.map { it[reportMonthlyNotifyKey] ?: true }
+    suspend fun setReportMonthlyNotifyEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[reportMonthlyNotifyKey] = enabled }
+
+    /** Report ids already announced (or deliberately skipped as too old to announce). */
+    val reportNotifiedIds: Flow<Set<String>> = context.dataStore.data.map { it[reportNotifiedKey] ?: emptySet() }
+    suspend fun setReportNotifiedIds(ids: Set<String>) =
+        context.dataStore.edit { it[reportNotifiedKey] = ids }
+
+    /**
+     * The portfolio section of each report, as computed on this phone, keyed by report id (JSON).
+     *
+     * Stored, not recomputed on every open, so a report keeps saying what the portfolio did THAT week
+     * even after the holdings change. Written and read only by [com.stocktracker.app.ui.report.ReportPortfolioStore].
+     */
+    val reportPortfolioSnapshots: Flow<String> = context.dataStore.data.map { it[reportPortfolioKey] ?: "" }
+    suspend fun setReportPortfolioSnapshots(json: String) =
+        context.dataStore.edit { it[reportPortfolioKey] = json }
+
     // --- Raw accessors for com.stocktracker.app.data.BackupManager only ---
     //
     // A backup restore touches [watchlistGroups] and [investableCash] alongside four other stores'

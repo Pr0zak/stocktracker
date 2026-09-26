@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.14.0" to listOf(
+            "New: a weekly and a monthly report \u2014 the market, your portfolio and the AI sandbox side by side",
+            "Top and bottom stocks and ETFs for the week or month, with plain names like \"Chip makers\"",
+            "An alert after Friday's close (and the month's last close) opens the report; switch them off in Reports",
+            "Find every report from the new Reports tile on the Markets tab",
+        ),
         "1.13.1" to listOf(
             "\"Updated …\" now sits under the title, beside refresh",
             "The market summary folds to one short line; opened, it's one card with a line per question",

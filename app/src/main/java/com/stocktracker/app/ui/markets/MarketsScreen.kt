@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Leaderboard
@@ -92,6 +93,7 @@ import com.stocktracker.app.util.readingAgeLabel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MarketsScreen(
+    onOpenReports: () -> Unit = {},
     onOpenScan: () -> Unit = {},
     onOpenHeatmap: () -> Unit = {},
     onOpenCalendar: () -> Unit = {},
@@ -137,6 +139,17 @@ fun MarketsScreen(
                 value = if (base.isBlank()) Result.success(null)
                 else runCatching { SignalsApiService().heatmap(base, mode = "market") }
             }
+            // RPT-1: the newest weekly or monthly report, leading the hub because it is the one door
+            // that summarises all the others (and the user's portfolio and the sandbox besides).
+            val latestReport by produceState<Result<Pair<com.stocktracker.app.data.remote.ReportSummary?, Double?>>?>(initialValue = null) {
+                val base = ServiceLocator.settingsStore.signalsApiUrl.first()
+                value = if (base.isBlank()) Result.success(null to null)
+                else runCatching {
+                    val r = SignalsApiService().reports(base, limit = 1)?.reports?.firstOrNull()
+                    r to r?.id?.let { com.stocktracker.app.ui.report.ReportPortfolioStore.get(it)?.changePct }
+                }
+            }
+            ReportsTile(latestReport, onOpenReports)
             ScanTile(marketScanStatus(market, marketScan), marketScan?.getOrNull(), onOpenScan)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
                 HeatTile(heat, onOpenHeatmap, Modifier.weight(1f).fillMaxHeight())
@@ -312,6 +325,41 @@ private fun BreadthBar(pct: Double, color: Color) {
         val mx = size.width * (BREADTH_HEALTHY_PCT / 100.0).toFloat()
         var yy = 0f
         while (yy < size.height) { drawLine(mark, Offset(mx, yy), Offset(mx, yy + 3.dp.toPx()), 1.5.dp.toPx()); yy += 5.dp.toPx() }
+    }
+}
+
+/**
+ * RPT-1: the newest report — its period, then the S&P, the user's portfolio and the AI sandbox as one
+ * row of pills. "You" appears only once the phone has priced the portfolio for that report; before
+ * that it is left out rather than shown as a number the phone has not worked out.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun ReportsTile(r: Result<Pair<com.stocktracker.app.data.remote.ReportSummary?, Double?>>?, onClick: () -> Unit) {
+    val (sum, you) = r?.getOrNull() ?: (null to null)
+    Tile("Reports", Icons.Filled.Assessment, onClick, Modifier.fillMaxWidth(),
+        tint = sum?.sp500Pct?.let { com.stocktracker.app.ui.components.directionTint(it) }) {
+        when {
+            r == null -> Skeleton(Modifier.fillMaxWidth().height(40.dp))
+            r.isFailure -> Text("Couldn't load reports", style = MaterialTheme.typography.labelMedium, color = Signal)
+            sum == null -> Text("A weekly and a monthly review of the market, your portfolio and the AI sandbox.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else -> {
+                Text(com.stocktracker.app.ui.report.rowTitle(sum), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    fun col(p: Double?) = if (p == null) Signal else if (p >= 0) GainGreen else LossRed
+                    val pct = com.stocktracker.app.ui.report.ReportRead::pct
+                    com.stocktracker.app.ui.components.Pill("S&P ${pct(sum.sp500Pct)}", col(sum.sp500Pct))
+                    you?.let { com.stocktracker.app.ui.components.Pill("You ${pct(it)}", col(it)) }
+                    sum.sandboxPct?.let { com.stocktracker.app.ui.components.Pill("AI ${pct(it)}", col(it)) }
+                }
+                sum.headline?.let {
+                    Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
     }
 }
 

@@ -194,6 +194,8 @@ fun DetailScreen(
     onOpenCalendar: () -> Unit = {},
     onOpenCalls: () -> Unit = {},
     onOpenSignalsSettings: () -> Unit = {},
+    /** Opens another symbol's detail screen — the fund comparison's rows. */
+    onOpenDetail: (Asset) -> Unit = {},
 ) {
     val vm: DetailViewModel = viewModel(key = asset.id) { DetailViewModel(asset) }
     val state by vm.state.collectAsState()
@@ -712,6 +714,26 @@ fun DetailScreen(
                     Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
                 },
             )
+
+            // FC-1: what the fund charges a year, beside the money it is charged on, and the funds
+            // that hold the same thing for less. A single stock comes back EMPTY and draws nothing.
+            val fundCost = state.fundCost
+            when {
+                fundCost.status == LensStatus.READY -> fundCost.value?.let { fc ->
+                    FundCostCard(
+                        lookup = fc,
+                        shares = state.shares,
+                        price = quote?.price,
+                        onRetry = { vm.loadLenses(only = LensId.FUND_COST) },
+                        onOpenFund = { f -> onOpenDetail(Asset(f.symbol, AssetType.STOCK, f.name ?: f.symbol)) },
+                    )
+                }
+                // A failed ask earns a retry row only on a known fund. Every stock-type symbol is
+                // asked, so on a company this would be a retry for a question nobody had.
+                fundCost.isFailed && state.isEtf -> LensRetryRow(LensId.FUND_COST) {
+                    vm.loadLenses(only = LensId.FUND_COST)
+                }
+            }
 
 
             if (state.aiEnabled) {

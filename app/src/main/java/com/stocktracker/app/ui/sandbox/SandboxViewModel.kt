@@ -49,6 +49,9 @@ data class SandboxUiState(
     val error: String? = null,
     /** The server refused the access token (401/403). Fixable in Settings, unlike an outage. */
     val authRejected: Boolean = false,
+    /** FC-1: yearly fees for the Bitcoin ETFs the settings screen offers. Null until loaded, and
+     *  left null when the load fails, so the picker shows no fee line rather than a wrong one. */
+    val btcEtfFees: Map<String, com.stocktracker.app.data.remote.FundCost>? = null,
 )
 
 /** Drives the Sandbox tab — the read-only view of the server-side autonomous paper trader plus the
@@ -62,6 +65,16 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
     val state = _state.asStateFlow()
 
     init { refresh() }
+
+    /** FC-1: fetch the fees behind the Bitcoin-ETF picker. Free (no LLM), cached on the server. */
+    fun loadBtcEtfFees(symbols: List<String>) {
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isBlank()) return@launch
+            val r = runCatching { api.fundCosts(base, symbols) }.getOrNull() ?: return@launch
+            _state.update { it.copy(btcEtfFees = r.funds) }
+        }
+    }
 
     /** Bumped per refresh; a slower earlier response must not overwrite a newer one — that is how a
      *  completed reset got the pre-reset book restored underneath it. */

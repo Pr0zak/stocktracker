@@ -379,16 +379,30 @@ fun SandboxSettingsScreen(onBack: () -> Unit) {
                             "coin, so the ETF is preferred. The AI picks one vehicle per exposure.",
                     )
                     if (s.allowCryptoEtf) {
+                        val btcChoices = listOf("FBTC", "IBIT", "BITB", "ARKB")
+                        LaunchedEffect(Unit) { vm.loadBtcEtfFees(btcChoices) }
                         Spacer(Modifier.height(8.dp))
                         Label("Bitcoin ETF")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("FBTC", "IBIT", "BITB", "ARKB").forEach { t ->
+                            btcChoices.forEach { t ->
                                 FilterChip(
                                     selected = s.preferredBtcEtf.equals(t, ignoreCase = true),
                                     onClick = { vm.setPreferredBtcEtf(t) },
                                     label = { Text(t) },
                                 )
                             }
+                        }
+                        // FC-1: the helper below calls this a fee choice, so show the fees. A fund
+                        // whose fee is unknown is left out of the line, never shown as $0.
+                        val fees = ui.btcEtfFees?.let { m ->
+                            btcChoices.mapNotNull { t -> m[t]?.expenseRatioPct?.let { t to it } }
+                        }.orEmpty()
+                        if (fees.isNotEmpty()) {
+                            Helper(
+                                "Yearly cost per \$10,000: " + fees.joinToString(" · ") { (t, pct) ->
+                                    "$t ${com.stocktracker.app.ui.detail.FundCostText.perTenK(pct)}"
+                                },
+                            )
                         }
                         Helper(
                             "They all hold the same bitcoin, so this is a custody and fee choice, not a " +

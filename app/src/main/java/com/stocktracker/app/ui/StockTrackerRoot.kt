@@ -324,6 +324,7 @@ fun StockTrackerRoot(
                     },
                     onOpenCalendar = { nav.navigate(Routes.calendar(Routes.calendarSymbol(asset))) },
                     onOpenSignalsSettings = openSignalsSettings,
+                    onOpenDetail = { nav.navigate(Routes.detail(it)) },
                 )
             }
         }

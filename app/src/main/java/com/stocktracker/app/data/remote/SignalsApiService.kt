@@ -203,6 +203,24 @@ class SignalsApiService {
         return Http.json.decodeFromString<SectorsResponse>(body).sectors
     }
 
+    /**
+     * FC-1 — what each fund charges a year, and the funds measured to hold the same thing. FREE (no
+     * LLM). A single stock comes back with kind "other"; a fee the server could not find is null.
+     */
+    suspend fun fundCosts(baseUrl: String, symbols: List<String>): FundCostsResponse? {
+        if (baseUrl.isBlank() || symbols.isEmpty()) return null
+        val q = symbols.joinToString(",") { it.uppercase() }
+        val body = sGet("${baseUrl.trimEnd('/')}/fund_costs?symbols=$q")
+        return Http.json.decodeFromString<FundCostsResponse>(body)
+    }
+
+    /** One symbol's row from [fundCosts], with whether the server's fee source answered live. */
+    suspend fun fundCost(baseUrl: String, symbol: String): FundCostLookup? {
+        val r = fundCosts(baseUrl, listOf(symbol)) ?: return null
+        val row = r.funds[symbol.uppercase()] ?: return null
+        return FundCostLookup(row, r.live)
+    }
+
     /** Theme C — where insiders and members of Congress have been BUYING across the watchlist.
      *  FREE (no LLM). Corroborating context, not a buy signal: insider buys are disclosed within two
      *  business days, congressional filings lag up to ~45 days and report amount ranges. */
@@ -2438,6 +2456,59 @@ data class SectorProfile(
     val sector: String? = null,
     val industry: String? = null,
 )
+
+/** GET /fund_costs — FC-1. Keyed by the requested symbols, upper-cased. */
+@Serializable
+data class FundCostsResponse(
+    val funds: Map<String, FundCost> = emptyMap(),
+    /** False when the server asked Yahoo and got no answer; each row then says where its fee came from. */
+    val live: Boolean = true,
+)
+
+/**
+ * One fund's yearly fee (its expense ratio), and, for the fund that was asked about, its [group]: every
+ * fund measured to hold the same thing, itself included, cheapest first.
+ */
+@Serializable
+data class FundCost(
+    val symbol: String = "",
+    val name: String? = null,
+    /** "etf", "mutual_fund", "other" (a single stock) or "unknown". */
+    val kind: String = "unknown",
+    /** Percent of the holding per year: 0.03 means 0.03%. Null = unknown, which is not 0. */
+    @SerialName("expense_ratio_pct") val expenseRatioPct: Double? = null,
+    /** "yahoo" (live), "issuer" (the fund company's own figure, because Yahoo's was wrong), "saved"
+     *  (the server's saved list), or null when unknown. */
+    @SerialName("fee_source") val feeSource: String? = null,
+    /** Epoch seconds of the live read, for "yahoo" rows. */
+    @SerialName("fee_checked_at") val feeCheckedAt: Double? = null,
+    /** "2026-09-26" — when an "issuer" or "saved" figure was last checked. */
+    @SerialName("fee_dated") val feeDated: String? = null,
+    /** Yahoo listed this ETF at 0%, which the server does not believe (an ended fee waiver). */
+    @SerialName("listed_zero") val listedZero: Boolean = false,
+    /** One of Fidelity's own funds. */
+    val fidelity: Boolean = false,
+    /** A Fidelity ZERO fund: held only at Fidelity, so moving brokers means selling it. */
+    @SerialName("fidelity_only") val fidelityOnly: Boolean = false,
+    /** Also earns staking rewards, so its fee overstates what holding it costs. */
+    val staking: Boolean = false,
+    val group: FundGroup? = null,
+) {
+    val isFund: Boolean get() = kind == "etf" || kind == "mutual_fund"
+    val isMutualFund: Boolean get() = kind == "mutual_fund"
+}
+
+@Serializable
+data class FundGroup(
+    val id: String = "",
+    /** What every fund in the group holds, in plain words: "the whole US stock market". */
+    val label: String = "",
+    val note: String? = null,
+    val funds: List<FundCost> = emptyList(),
+)
+
+/** [FundCost] for one symbol plus the response-level [FundCostsResponse.live] it arrived with. */
+data class FundCostLookup(val fund: FundCost, val live: Boolean)
 
 /** GET /heatmap — tile values for the treemap. Free, no LLM. */
 @Serializable

@@ -85,4 +85,8 @@ enum class LensId(val label: String) {
     VALUE_TRAP("Value trap"),
     TREND("200-week line"),
     CYCLE("Halving cycle"),
+    /** FC-1 — a fund's yearly fee and its look-alikes. Deliberately absent from the screen's
+     *  not-applicable / nothing-to-show footers: on a single stock "What it costs" does not exist,
+     *  and naming it under every company would be noise. */
+    FUND_COST("What it costs"),
 }

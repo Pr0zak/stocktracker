@@ -26,6 +26,7 @@ import com.stocktracker.app.data.remote.CycleResponse
 import com.stocktracker.app.data.remote.NewsMovesBlock
 import com.stocktracker.app.data.remote.SeasonalityBlock
 import com.stocktracker.app.data.remote.EntryPlan
+import com.stocktracker.app.data.remote.FundCostLookup
 import com.stocktracker.app.data.remote.HttpStatusException
 import com.stocktracker.app.data.remote.InsiderResponse
 import com.stocktracker.app.data.remote.OptionsResponse
@@ -176,6 +177,11 @@ data class DetailUiState(
     /** True once the quote says this is a fund — insiders and Congress do not file against an ETF. */
     val isEtf: Boolean = false,
     /**
+     * FC-1 — what this fund charges a year and which funds hold the same thing. Asked for every
+     * stock-type symbol: READY only when the server says it is a fund, EMPTY for a single stock.
+     */
+    val fundCost: Lens<FundCostLookup> = Lens.idle,
+    /**
      * MONEY-4: a detected split affecting one or more of this holding's DATED lots, awaiting the
      * user's confirmation. Never applied automatically — see [DetailViewModel.confirmSplitAdjustment].
      * Null when nothing has been checked yet, nothing was found, or the user already acted on it.
@@ -304,6 +310,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 valueTrap = if (LensId.VALUE_TRAP in na) Lens.notApplicable else st.valueTrap,
                 stockTrend = if (LensId.TREND in na) Lens.notApplicable else st.stockTrend,
                 cycleInfo = if (LensId.CYCLE in na) Lens.notApplicable else st.cycleInfo,
+                fundCost = if (LensId.FUND_COST in na) Lens.notApplicable else st.fundCost,
             )
         }
 
@@ -354,6 +361,17 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                         _state.update { it.copy(valueTrap = Lens.loading) }
                         val r = runCatching { signalsApi.valueTrap(base, asset.symbol) }
                         _state.update { it.copy(valueTrap = Lens.from(r) { v -> v.belowLine == true }) }
+                    }
+                }
+                // FC-1: what the fund costs. Asked for every stock-type symbol rather than only when
+                // the quote says ETF, because that flag is Yahoo's and it is wrong for at least one
+                // S&P 500 fund (SPYM is filed as an EQUITY). The server knows which symbols are funds;
+                // a single stock comes back as not one, which is EMPTY and draws nothing.
+                launch {
+                    if (wanted(LensId.FUND_COST) && LensId.FUND_COST !in na) {
+                        _state.update { it.copy(fundCost = Lens.loading) }
+                        val r = runCatching { signalsApi.fundCost(base, asset.symbol) }
+                        _state.update { it.copy(fundCost = Lens.from(r) { v -> v.fund.isFund }) }
                     }
                 }
                 // Below-the-200-week-line context (the equity mirror of crypto's cycle card) plus the

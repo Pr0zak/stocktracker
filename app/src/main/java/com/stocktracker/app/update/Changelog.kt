@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.15.0" to listOf(
+            "ETFs now say what they cost in dollars, like \"\$9.45 a year per \$10,000\"",
+            "See the funds that hold the same thing for less, Fidelity's own included, cheapest first",
+            "Tap a fund in that list to open it; Fidelity-only and once-a-day funds are marked",
+            "Sandbox settings show each Bitcoin ETF's yearly cost",
+        ),
         "1.14.0" to listOf(
             "New: a weekly and a monthly report \u2014 the market, your portfolio and the AI sandbox side by side",
             "Top and bottom stocks and ETFs for the week or month, with plain names like \"Chip makers\"",

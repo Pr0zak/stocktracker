@@ -367,6 +367,28 @@ class SettingsStore(private val context: Context) {
     suspend fun setDailyPickReportCards(entries: Set<String>) =
         context.dataStore.edit { it[dailyPickReportCardsKey] = entries }
 
+    // --- Funds (FUND-6) ---
+
+    private val fundFeeNotifyKey = booleanPreferencesKey("fund_fee_notify_enabled")
+    private val fundFeesSeenKey = stringSetPreferencesKey("fund_fees_seen")
+    private val fundFeeCheckedKey = longPreferencesKey("fund_fee_checked_ms")
+
+    /** Alert when a fund the user holds changes its yearly fee. ON by default: a fee change is rare,
+     *  and the one that prompted this (a waiver ending) raises the cost of a fund silently. */
+    val fundFeeNotifyEnabled: Flow<Boolean> = context.dataStore.data.map { it[fundFeeNotifyKey] ?: true }
+    suspend fun setFundFeeNotifyEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[fundFeeNotifyKey] = enabled }
+
+    /** The last fee seen for each held fund, as "SYMBOL=percent" entries. */
+    val fundFeesSeen: Flow<Set<String>> = context.dataStore.data.map { it[fundFeesSeenKey] ?: emptySet() }
+    suspend fun setFundFeesSeen(entries: Set<String>) =
+        context.dataStore.edit { it[fundFeesSeenKey] = entries }
+
+    /** When the fee check last ran, epoch ms (0 = never). */
+    val fundFeeCheckedMs: Flow<Long> = context.dataStore.data.map { it[fundFeeCheckedKey] ?: 0L }
+    suspend fun setFundFeeCheckedMs(ms: Long) =
+        context.dataStore.edit { it[fundFeeCheckedKey] = ms }
+
     // --- Weekly & monthly report (RPT-1) ---
 
     private val reportWeeklyNotifyKey = booleanPreferencesKey("report_weekly_notify_enabled")

@@ -214,6 +214,34 @@ class SignalsApiService {
         return Http.json.decodeFromString<FundCostsResponse>(body)
     }
 
+    /** FUND-4: every measured look-alike group with each fund's fee, cheapest first. Free (no LLM). */
+    suspend fun fundGroups(baseUrl: String): FundGroupsResponse? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<FundGroupsResponse>(sGet("${baseUrl.trimEnd('/')}/funds/groups"))
+    }
+
+    /**
+     * FUND-1/2: what each fund covers, every pair's overlap and the "same bet" sets. Free (no LLM).
+     * Takes whole lists — single stocks come back in [FundOverlapResponse.notFunds]. Only symbols
+     * are sent; what the user holds, and how much, is weighed on the phone.
+     */
+    suspend fun fundOverlap(baseUrl: String, symbols: List<String>): FundOverlapResponse? {
+        if (baseUrl.isBlank() || symbols.isEmpty()) return null
+        val q = symbols.joinToString(",") { it.uppercase() }
+        return Http.json.decodeFromString<FundOverlapResponse>(
+            sGet("${baseUrl.trimEnd('/')}/funds/overlap?symbols=$q", slow = true),
+        )
+    }
+
+    /** FUND-5: dividends-in returns, worst drop and (with [series]) a weekly price line. Free. */
+    suspend fun fundPerformance(baseUrl: String, symbols: List<String>, series: Boolean = false): FundPerformanceResponse? {
+        if (baseUrl.isBlank() || symbols.isEmpty()) return null
+        val q = symbols.joinToString(",") { it.uppercase() }
+        return Http.json.decodeFromString<FundPerformanceResponse>(
+            sGet("${baseUrl.trimEnd('/')}/funds/performance?symbols=$q&series=$series", slow = true),
+        )
+    }
+
     /** One symbol's row from [fundCosts], with whether the server's fee source answered live. */
     suspend fun fundCost(baseUrl: String, symbol: String): FundCostLookup? {
         val r = fundCosts(baseUrl, listOf(symbol)) ?: return null
@@ -2493,6 +2521,11 @@ data class FundCost(
     /** Also earns staking rewards, so its fee overstates what holding it costs. */
     val staking: Boolean = false,
     val group: FundGroup? = null,
+    /** Fund size in dollars. Null = unknown. */
+    @SerialName("net_assets") val netAssets: Double? = null,
+    /** Last regular-session bid/ask spread as a percent of price, measured at [spreadAt]. */
+    @SerialName("spread_pct") val spreadPct: Double? = null,
+    @SerialName("spread_at") val spreadAt: Double? = null,
 ) {
     val isFund: Boolean get() = kind == "etf" || kind == "mutual_fund"
     val isMutualFund: Boolean get() = kind == "mutual_fund"
@@ -2509,6 +2542,130 @@ data class FundGroup(
 
 /** [FundCost] for one symbol plus the response-level [FundCostsResponse.live] it arrived with. */
 data class FundCostLookup(val fund: FundCost, val live: Boolean)
+
+/** GET /funds/groups — FUND-4. */
+@Serializable
+data class FundGroupsResponse(
+    val groups: List<FundGroup> = emptyList(),
+    val live: Boolean = true,
+    @SerialName("as_of") val asOf: Double? = null,
+)
+
+/** GET /funds/overlap — FUND-1/2. */
+@Serializable
+data class FundOverlapResponse(
+    val funds: Map<String, FundProfile> = emptyMap(),
+    /** Asked about, and Yahoo positively said it is not a fund (a single stock, a coin). */
+    @SerialName("not_funds") val notFunds: List<String> = emptyList(),
+    /** Asked about, and the lookup did not answer: unknown, which is NOT "not a fund". */
+    val unknown: List<String> = emptyList(),
+    /** Funds past the server's limit, never measured. Named so they are not mistaken for stocks. */
+    val unmeasured: List<String> = emptyList(),
+    val pairs: List<FundPair> = emptyList(),
+    /** Funds that rise and fall together, each set counted as one bet. Every fund is in exactly one. */
+    @SerialName("same_bets") val sameBets: List<List<String>> = emptyList(),
+    @SerialName("same_bet_corr") val sameBetCorr: Double = 0.9,
+    val live: Boolean = true,
+    @SerialName("as_of") val asOf: Double? = null,
+) {
+    fun pair(a: String, b: String): FundPair? =
+        pairs.firstOrNull { (it.a == a && it.b == b) || (it.a == b && it.b == a) }
+}
+
+/** One fund: its fee row plus what it covers. Lists are null when the holdings lookup failed. */
+@Serializable
+data class FundProfile(
+    val symbol: String = "",
+    val name: String? = null,
+    val kind: String = "unknown",
+    @SerialName("expense_ratio_pct") val expenseRatioPct: Double? = null,
+    @SerialName("fee_source") val feeSource: String? = null,
+    @SerialName("fee_checked_at") val feeCheckedAt: Double? = null,
+    @SerialName("fee_dated") val feeDated: String? = null,
+    @SerialName("listed_zero") val listedZero: Boolean = false,
+    val fidelity: Boolean = false,
+    @SerialName("fidelity_only") val fidelityOnly: Boolean = false,
+    val staking: Boolean = false,
+    @SerialName("net_assets") val netAssets: Double? = null,
+    @SerialName("spread_pct") val spreadPct: Double? = null,
+    @SerialName("spread_at") val spreadAt: Double? = null,
+    @SerialName("group_id") val groupId: String? = null,
+    /** False = the holdings lookup failed: unknown, not "holds nothing". */
+    @SerialName("profile_ok") val profileOk: Boolean = false,
+    val category: String? = null,
+    val region: String? = null,
+    @SerialName("region_label") val regionLabel: String? = null,
+    @SerialName("stock_pct") val stockPct: Double? = null,
+    @SerialName("bond_pct") val bondPct: Double? = null,
+    val sectors: List<FundSector>? = null,
+    /** The fund's ten largest holdings (Yahoo lists no more), share classes of one company merged. */
+    @SerialName("top_holdings") val topHoldings: List<FundHolding>? = null,
+    @SerialName("top10_pct") val top10Pct: Double? = null,
+    @SerialName("history_start") val historyStart: String? = null,
+) {
+    val isMutualFund: Boolean get() = kind == "mutual_fund"
+
+    /** The fee half of this profile, for the wording FC-1 already has. */
+    fun toCost(): FundCost = FundCost(
+        symbol = symbol, name = name, kind = kind, expenseRatioPct = expenseRatioPct, feeSource = feeSource,
+        feeCheckedAt = feeCheckedAt, feeDated = feeDated, listedZero = listedZero, fidelity = fidelity,
+        fidelityOnly = fidelityOnly, staking = staking, netAssets = netAssets, spreadPct = spreadPct,
+        spreadAt = spreadAt,
+    )
+}
+
+@Serializable
+data class FundSector(val key: String = "", val label: String = "", val pct: Double = 0.0)
+
+@Serializable
+data class FundHolding(val symbol: String = "", val name: String? = null, val pct: Double = 0.0)
+
+/** How two funds overlap. [corr] leads; the top-ten figures are a floor, never the whole overlap. */
+@Serializable
+data class FundPair(
+    val a: String = "",
+    val b: String = "",
+    /** Correlation of returns over two years; null = could not be measured. */
+    val corr: Double? = null,
+    @SerialName("corr_basis") val corrBasis: String = "weekly",
+    @SerialName("corr_points") val corrPoints: Int = 0,
+    @SerialName("shared_top") val sharedTop: List<String> = emptyList(),
+    @SerialName("shared_top_count") val sharedTopCount: Int = 0,
+    @SerialName("shared_top_min_pct") val sharedTopMinPct: Double = 0.0,
+    @SerialName("sector_alike_pct") val sectorAlikePct: Double? = null,
+)
+
+/** GET /funds/performance — FUND-5. */
+@Serializable
+data class FundPerformanceResponse(
+    val funds: Map<String, FundPerf> = emptyMap(),
+    /** With `series=true`: every readable fund's line on shared days. Null when none could be drawn. */
+    val chart: FundChart? = null,
+    /** "2026-09-25": the day every fund's returns are measured to, so side-by-side figures share an end. */
+    @SerialName("aligned_to") val alignedTo: String? = null,
+    @SerialName("as_of") val asOf: Double? = null,
+)
+
+/** Percent change since the first day every fund had a price, sampled weekly on shared days. */
+@Serializable
+data class FundChart(
+    val dates: List<String> = emptyList(),
+    val lines: Map<String, List<Double>> = emptyMap(),
+)
+
+@Serializable
+data class FundPerf(
+    val symbol: String = "",
+    /** False = the price history could not be read. Every figure below is then absent, never 0. */
+    val available: Boolean = false,
+    @SerialName("history_start") val historyStart: String? = null,
+    @SerialName("last_date") val lastDate: String? = null,
+    /** Dividends-in total return, percent, keyed "1y" "2y" "3y" "5y"; null where history is shorter. */
+    val returns: Map<String, Double?> = emptyMap(),
+    @SerialName("worst_drop_pct") val worstDropPct: Double? = null,
+    @SerialName("worst_drop_from") val worstDropFrom: String? = null,
+    @SerialName("worst_drop_to") val worstDropTo: String? = null,
+)
 
 /** GET /heatmap — tile values for the treemap. Free, no LLM. */
 @Serializable

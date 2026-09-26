@@ -35,6 +35,7 @@ object AlertNotifier {
     private const val SCAN_CHANNEL_ID = "signal_scan"
     private const val PICK_CHANNEL_ID = "daily_pick"
     private const val REPORT_CHANNEL_ID = "reports"
+    private const val FUND_CHANNEL_ID = "fund_fees"
 
     /** Groups every scan-family post (see [notifyScan]) so they collapse together in the shade instead
      *  of listing separately from a channel a user may not have even opened Settings to name yet. */
@@ -121,6 +122,15 @@ object AlertNotifier {
         )
     }
 
+    /** FUND-6: a fund the user holds changed its yearly fee. */
+    fun ensureFundChannel(context: Context) {
+        ensureChannel(
+            context, FUND_CHANNEL_ID, "Fund fee changes",
+            "A fund you hold raised or cut its yearly fee",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+    }
+
     private fun ensureChannel(
         context: Context,
         id: String,
@@ -161,6 +171,10 @@ object AlertNotifier {
     /** Post a weekly or monthly report notification (its own default-importance channel). */
     fun notifyReport(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
         post(context, REPORT_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
+
+    /** FUND-6: a held fund's fee changed. Its own channel, so it can be muted on its own. */
+    fun notifyFundFee(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, FUND_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
 
     /** Post a sandbox paper-trade notification (its own default-importance channel). */
     fun notifySandbox(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
@@ -206,6 +220,7 @@ object AlertNotifier {
             SANDBOX_CHANNEL_ID -> ensureSandboxChannel(context)
             PICK_CHANNEL_ID -> ensurePickChannel(context)
             REPORT_CHANNEL_ID -> ensureReportChannel(context)
+            FUND_CHANNEL_ID -> ensureFundChannel(context)
             SCAN_CHANNEL_ID -> ensureScanChannel(context)
             else -> ensureChannel(context)
         }

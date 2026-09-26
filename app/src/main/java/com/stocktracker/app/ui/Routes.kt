@@ -42,6 +42,8 @@ object Routes {
     const val ADD = "add"
 
     const val REPORTS = "reports"
+    const val FUNDS = "funds"
+    const val FUND_COMPARE_PATTERN = "funds/compare?symbols={symbols}"
 
     const val CALENDAR_PATTERN = "calendar?symbol={symbol}"
     const val REPORT_PATTERN = "report/{id}"
@@ -56,6 +58,10 @@ object Routes {
         val cg = Uri.encode(asset.coinGeckoId ?: "")
         return "detail/${asset.type.name}/${Uri.encode(asset.symbol)}?name=$name&cg=$cg"
     }
+
+    /** FUND-5: the side-by-side comparison, preloaded with up to three symbols. */
+    fun fundCompare(symbols: List<String>): String =
+        "funds/compare?symbols=${Uri.encode(symbols.joinToString(","))}"
 
     /** One weekly or monthly report by its id ("week-2026-09-25"), as the backend names it. */
     fun report(id: String): String = "report/${Uri.encode(id)}"

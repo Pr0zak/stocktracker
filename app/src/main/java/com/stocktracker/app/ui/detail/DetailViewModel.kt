@@ -181,12 +181,23 @@ data class DetailUiState(
      * stock-type symbol: READY only when the server says it is a fund, EMPTY for a single stock.
      */
     val fundCost: Lens<FundCostLookup> = Lens.idle,
+    /** FUND-2/6 — what the fund holds, and its overlap with what the user owns. Loaded once
+     *  [fundCost] says this is a fund. */
+    val fundHolds: Lens<FundHoldsView> = Lens.idle,
     /**
      * MONEY-4: a detected split affecting one or more of this holding's DATED lots, awaiting the
      * user's confirmation. Never applied automatically — see [DetailViewModel.confirmSplitAdjustment].
      * Null when nothing has been checked yet, nothing was found, or the user already acted on it.
      */
     val splitPrompt: SplitPromptUi? = null,
+)
+
+/** FUND-2/6 — the overlap read for a fund's detail screen, and which of the symbols the user owns. */
+data class FundHoldsView(
+    val resp: com.stocktracker.app.data.remote.FundOverlapResponse,
+    val ownedFunds: List<String>,
+    val ownedStocks: List<String>,
+    val heldCoins: List<String>,
 )
 
 /** MONEY-4 — what a detected split would do to this holding, for the confirmation dialog. */
@@ -311,6 +322,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 stockTrend = if (LensId.TREND in na) Lens.notApplicable else st.stockTrend,
                 cycleInfo = if (LensId.CYCLE in na) Lens.notApplicable else st.cycleInfo,
                 fundCost = if (LensId.FUND_COST in na) Lens.notApplicable else st.fundCost,
+                fundHolds = if (LensId.FUND_HOLDS in na) Lens.notApplicable else st.fundHolds,
             )
         }
 
@@ -371,8 +383,11 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     if (wanted(LensId.FUND_COST) && LensId.FUND_COST !in na) {
                         _state.update { it.copy(fundCost = Lens.loading) }
                         val r = runCatching { signalsApi.fundCost(base, asset.symbol) }
-                        _state.update { it.copy(fundCost = Lens.from(r) { v -> v.fund.isFund }) }
+                        val lens = Lens.from(r) { v -> v.fund.isFund }
+                        _state.update { it.copy(fundCost = lens) }
+                        if (lens.status == LensStatus.READY) loadFundHolds(base)
                     }
+                    if (only == LensId.FUND_HOLDS) loadFundHolds(base)
                 }
                 // Below-the-200-week-line context (the equity mirror of crypto's cycle card) plus the
                 // touch study. A 404 for a name with under ~4 years of weekly history is an EMPTY,
@@ -396,6 +411,27 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                 }
             }
         }
+    }
+
+    /**
+     * FUND-2/6: what this fund holds and how it overlaps the user's own holdings. Only symbols are
+     * sent; which of them the user holds, and how much, stays here.
+     */
+    private suspend fun loadFundHolds(base: String) {
+        _state.update { it.copy(fundHolds = Lens.loading) }
+        val me = asset.symbol.uppercase()
+        val list = store.watchlist.first()
+        val held = list.filter { it.type == AssetType.STOCK && (it.shares ?: 0.0) > 0.0 }
+            .map { it.symbol.uppercase() }.filter { it != me }.distinct().take(79)
+        val coins = list.filter { it.type == AssetType.CRYPTO && (it.shares ?: 0.0) > 0.0 }.map { it.symbol }
+        val r = runCatching { signalsApi.fundOverlap(base, listOf(me) + held) }
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        // "Couldn't look it up" is a failure worth a retry, not an absent card.
+        val view = r.mapCatching { resp ->
+            if (resp != null && me in resp.unknown) error("lookup did not answer for $me")
+            resp?.let { FundHoldsView(it, held.filter { s -> s in it.funds }, held.filter { s -> s in it.notFunds }, coins) }
+        }
+        _state.update { it.copy(fundHolds = Lens.from(view) { v -> me in v.resp.funds }) }
     }
 
     /** Fetch the Tier-2 Claude analyst verdict, if a Signals API URL is configured in Settings. */

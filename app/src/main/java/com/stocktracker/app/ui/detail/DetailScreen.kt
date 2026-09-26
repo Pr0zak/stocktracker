@@ -196,6 +196,8 @@ fun DetailScreen(
     onOpenSignalsSettings: () -> Unit = {},
     /** Opens another symbol's detail screen — the fund comparison's rows. */
     onOpenDetail: (Asset) -> Unit = {},
+    /** Opens the side-by-side fund comparison with these symbols. */
+    onOpenCompare: (List<String>) -> Unit = {},
 ) {
     val vm: DetailViewModel = viewModel(key = asset.id) { DetailViewModel(asset) }
     val state by vm.state.collectAsState()
@@ -733,6 +735,15 @@ fun DetailScreen(
                 fundCost.isFailed && state.isEtf -> LensRetryRow(LensId.FUND_COST) {
                     vm.loadLenses(only = LensId.FUND_COST)
                 }
+            }
+            // FUND-2/6: what it holds, and how it overlaps what the user already owns — asked for
+            // only once the cost card has established this is a fund.
+            val fundHolds = state.fundHolds
+            when {
+                fundHolds.status == LensStatus.READY -> fundHolds.value?.let { v ->
+                    FundHoldsCard(asset.symbol, v, onOpenCompare = onOpenCompare)
+                }
+                fundHolds.isFailed -> LensRetryRow(LensId.FUND_HOLDS) { vm.loadLenses(only = LensId.FUND_HOLDS) }
             }
 
 

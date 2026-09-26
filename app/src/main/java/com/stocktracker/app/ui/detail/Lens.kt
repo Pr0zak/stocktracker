@@ -89,4 +89,6 @@ enum class LensId(val label: String) {
      *  not-applicable / nothing-to-show footers: on a single stock "What it costs" does not exist,
      *  and naming it under every company would be noise. */
     FUND_COST("What it costs"),
+    /** FUND-2/6 — what a fund holds and how it overlaps what the user owns. Footer-exempt, like FUND_COST. */
+    FUND_HOLDS("What it holds"),
 }

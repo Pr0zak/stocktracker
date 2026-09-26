@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.16.0" to listOf(
+            "New Funds screen on Markets: how your funds overlap, and how many different bets they are",
+            "What your funds cost you a year in dollars, and cheaper funds that hold the same thing",
+            "Check a fund against what you own before buying, or compare up to three side by side",
+            "ETF pages show what the fund holds; get an alert when a fund you own changes its fee",
+        ),
         "1.15.0" to listOf(
             "ETFs now say what they cost in dollars, like \"\$9.45 a year per \$10,000\"",
             "See the funds that hold the same thing for less, Fidelity's own included, cheapest first",

@@ -255,7 +255,23 @@ fun StockTrackerRoot(
                     onOpenCalendar = { nav.navigate(Routes.calendar()) },
                     onOpenDips = { nav.navigate(Routes.DIPS) },
                     onOpenVix = { nav.navigate(Routes.VIX) },
+                    onOpenFunds = { nav.navigate(Routes.FUNDS) },
                 )
+            }
+            composable(Routes.FUNDS) {
+                com.stocktracker.app.ui.funds.FundsScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                    onOpenCompare = { nav.navigate(Routes.fundCompare(it)) },
+                    onOpenSignalsSettings = openSignalsSettings,
+                )
+            }
+            composable(
+                route = Routes.FUND_COMPARE_PATTERN,
+                arguments = listOf(navArgument("symbols") { type = NavType.StringType; defaultValue = "" }),
+            ) { entry ->
+                val syms = entry.arguments?.getString("symbols").orEmpty().split(",").filter { it.isNotBlank() }
+                com.stocktracker.app.ui.funds.FundCompareScreen(initial = syms, onBack = { nav.popBackStack() })
             }
             composable(Routes.REPORTS) {
                 com.stocktracker.app.ui.report.ReportsScreen(
@@ -325,6 +341,7 @@ fun StockTrackerRoot(
                     onOpenCalendar = { nav.navigate(Routes.calendar(Routes.calendarSymbol(asset))) },
                     onOpenSignalsSettings = openSignalsSettings,
                     onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                    onOpenCompare = { nav.navigate(Routes.fundCompare(it)) },
                 )
             }
         }

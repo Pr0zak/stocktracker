@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Speed
@@ -99,6 +100,7 @@ fun MarketsScreen(
     onOpenCalendar: () -> Unit = {},
     onOpenDips: () -> Unit = {},
     onOpenVix: () -> Unit = {},
+    onOpenFunds: () -> Unit = {},
 ) {
     // The same reading the watchlist strip and the dip radar are looking at, from the one store
     // that holds it. A hub whose rows only describe what is behind each door in the abstract asks
@@ -151,6 +153,12 @@ fun MarketsScreen(
             }
             ReportsTile(latestReport, onOpenReports)
             ScanTile(marketScanStatus(market, marketScan), marketScan?.getOrNull(), onOpenScan)
+            // FUND-1..6. Describes rather than reads: the overlap map needs the holdings priced and a
+            // multi-fund history fetch, which is the screen's work, not the hub's.
+            Tile("Funds", Icons.Filled.Layers, onOpenFunds, Modifier.fillMaxWidth()) {
+                Text("How your funds overlap, what they cost you a year, and cheaper funds that hold the same thing.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
                 HeatTile(heat, onOpenHeatmap, Modifier.weight(1f).fillMaxHeight())
                 VixTile(market, vixStatus(market), onOpenVix, Modifier.weight(1f).fillMaxHeight())

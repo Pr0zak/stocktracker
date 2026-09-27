@@ -50,7 +50,6 @@ import com.stocktracker.app.ui.detail.FundCostText
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.ui.theme.Signal
-import java.util.Locale
 
 /** A plain back-arrow screen shell for the Funds drill-downs. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -125,7 +124,7 @@ fun FundRankingScreen(vm: FundsViewModel, initialSort: RankSort, onBack: () -> U
             resp == null -> Skeleton(Modifier.fillMaxWidth().height(300.dp))
             ui.perf == null && !ui.perfFailed -> Skeleton(Modifier.fillMaxWidth().height(300.dp))
             else -> {
-                if (ui.perfFailed) Text("Couldn't load returns; ranking by what is known.", style = MaterialTheme.typography.labelMedium, color = Signal)
+                if (ui.perfFailed) Text("Couldn't load returns.", style = MaterialTheme.typography.labelMedium, color = Signal)
                 val colors = colorsFor(resp, ui.values)
                 val rows = FundsLogic.ranking(syms, ui.perf, resp.funds, period, sort)
                 val max = rows.mapNotNull { it.ret }.maxOfOrNull { kotlin.math.abs(it) } ?: 0.0
@@ -168,10 +167,8 @@ fun FundRankingScreen(vm: FundsViewModel, initialSort: RankSort, onBack: () -> U
                         }
                     }
                 }
-                Text("Returns include dividends. Worst drop is the deepest fall from a high in the last 5 years (less for a younger fund). " +
-                    "Fee is per \$10,000 a year. A fund without a record that long shows — and sorts last.",
-                    style = MaterialTheme.typography.bodySmall, color = neutral)
-                Text("Past returns show what a fund held, not what comes next. Context, not advice.",
+                Text("Returns include dividends. Worst drop: the biggest fall from a high, up to 5 years. " +
+                    "Fee: cost a year per \$10,000. —: too new. Not advice.",
                     style = MaterialTheme.typography.bodySmall, color = neutral)
             }
         }
@@ -211,7 +208,7 @@ fun FundOverlapScreen(vm: FundsViewModel, onBack: () -> Unit, onOpenDetail: (Ass
                 Text(FundsLogic.groupSentence(g, resp.funds), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 val weakest = g.flatMap { a -> g.filter { it > a }.map { b -> resp.pair(a, b)?.corr } }.filterNotNull().minOrNull()
                 weakest?.let {
-                    Text("Every pair moved together at ${FundsLogic.corr(it)} or closer, so owning more than one adds little spread.",
+                    Text("Every pair is ${FundsLogic.corr(it)} alike or more. Owning more than one adds little.",
                         style = MaterialTheme.typography.bodySmall, color = neutral)
                 }
                 if (g.size in 2..6) ClosenessGrid(g, resp)
@@ -247,9 +244,12 @@ fun FundOverlapScreen(vm: FundsViewModel, onBack: () -> Unit, onOpenDetail: (Ass
                 val copies = FundsLogic.cheaperCopies(g, resp.funds, ui.groupsById).filter { it.to !in g }
                 if (cheapest != null) {
                     val tied = rows.filter { it.feePct != null && it.feePct - cheapest.feePct!! < 1e-9 }.map { it.symbol }
-                    Text("Cheapest here: ${FundsLogic.joinNames(tied)}, ${FundCostText.perTenK(cheapest.feePct!!)} a year per \$10,000" +
-                        (copies.firstOrNull()?.let { c -> " · cheaper still: ${c.to}" + (c.toNote?.let { " ($it)" } ?: "") } ?: ""),
+                    Text("Cheapest here: ${FundsLogic.joinNames(tied)}, ${FundCostText.perTenK(cheapest.feePct!!)} a year.",
                         style = MaterialTheme.typography.bodySmall)
+                    copies.firstOrNull()?.let { c ->
+                        Text("Cheaper still: ${c.to}" + (c.toNote?.let { " ($it)" } ?: "") + ".",
+                            style = MaterialTheme.typography.bodySmall, color = GainGreen)
+                    }
                 }
                 if (g.size >= 2) {
                     androidx.compose.material3.TextButton(onClick = { onOpenCompare(g.take(3)) }) {
@@ -284,8 +284,8 @@ fun FundOverlapScreen(vm: FundsViewModel, onBack: () -> Unit, onOpenDetail: (Ass
             }
         }
         AlsoOverlapping(resp)
-        Text("How close: same fund (0.98+), close copies (0.90+), similar (0.80+), different. Measured from two years of " +
-            "weekly returns. Shared holdings count only each fund's 10 largest, all Yahoo lists.",
+        Text("1.00 means they move exactly alike. Same fund: 0.98+. Close copies: 0.90+. Similar: 0.80+. " +
+            "From 2 years of weekly prices.",
             style = MaterialTheme.typography.bodySmall, color = neutral)
     }
 }
@@ -350,7 +350,7 @@ fun FundCopiesScreen(vm: FundsViewModel, onBack: () -> Unit, onOpenDetail: (Asse
                 when {
                     ui.groups == null && !ui.groupsFailed -> Skeleton(Modifier.fillMaxWidth().height(60.dp))
                     ui.groups == null -> Text("Couldn't load the look-alike groups.", style = MaterialTheme.typography.bodySmall, color = Signal)
-                    copies.isEmpty() -> Text("Each of these is already the cheapest of its measured look-alikes, or has none.",
+                    copies.isEmpty() -> Text("No cheaper copies found.",
                         style = MaterialTheme.typography.bodyMedium, color = neutral)
                     else -> copies.forEach { c ->
                         Row(
@@ -373,14 +373,13 @@ fun FundCopiesScreen(vm: FundsViewModel, onBack: () -> Unit, onOpenDetail: (Asse
                     }
                 }
                 if (copies.isNotEmpty()) {
-                    Text("Selling to switch can mean tax on gains, so the gap matters most for new money.",
-                        style = MaterialTheme.typography.labelSmall, color = neutral)
+                    Text(FundsLogic.TAX_NOTE, style = MaterialTheme.typography.labelSmall, color = neutral)
                 }
             }
         }
         Label("ALL LOOK-ALIKE GROUPS")
         GroupsCard(ui, onOpen = { vm.loadGroupPerf(it) }, onOpenDetail = onOpenDetail)
-        Text(String.format(Locale.US, "Measured groups: funds whose returns moved together at 0.995 or better over two years."),
+        Text("Each group is measured: 2 years of prices, 0.995 alike or more.",
             style = MaterialTheme.typography.bodySmall, color = neutral)
     }
 }

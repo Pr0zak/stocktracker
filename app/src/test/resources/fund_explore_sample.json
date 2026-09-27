@@ -1,0 +1,487 @@
+{
+ "categories": [
+  {
+   "id": "us",
+   "label": "US stocks",
+   "count": 18
+  },
+  {
+   "id": "style",
+   "label": "Growth & value",
+   "count": 20
+  },
+  {
+   "id": "size",
+   "label": "Small & mid",
+   "count": 14
+  },
+  {
+   "id": "income",
+   "label": "Dividends",
+   "count": 10
+  },
+  {
+   "id": "sector",
+   "label": "Sectors",
+   "count": 41
+  },
+  {
+   "id": "theme",
+   "label": "Themes",
+   "count": 10
+  },
+  {
+   "id": "world",
+   "label": "Outside the US",
+   "count": 23
+  },
+  {
+   "id": "bonds",
+   "label": "Bonds & cash",
+   "count": 15
+  },
+  {
+   "id": "commodities",
+   "label": "Gold & oil",
+   "count": 11
+  },
+  {
+   "id": "crypto",
+   "label": "Crypto",
+   "count": 19
+  }
+ ],
+ "funds": [
+  {
+   "symbol": "VOO",
+   "name": "S&P 500",
+   "category": "us",
+   "long_name": "Vanguard S&P 500 ETF",
+   "kind": "etf",
+   "expense_ratio_pct": 0.03,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": 1756880440000.0,
+   "group_id": "sp500",
+   "group_label": "the S&P 500, 500 of the biggest US companies",
+   "cheaper": {
+    "symbol": "SPYM",
+    "name": "S&P 500",
+    "long_name": "State Street SPDR Portfolio S&P 500 ETF",
+    "expense_ratio_pct": 0.02,
+    "saves_per_10k": 1.0,
+    "mutual_fund": false,
+    "fidelity_only": false
+   },
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 18.56,
+    "3y": 85.46,
+    "5y": 86.87
+   },
+   "drops": {
+    "1y": -8.9,
+    "3y": -18.7,
+    "5y": -24.5
+   }
+  },
+  {
+   "symbol": "SPY",
+   "name": "S&P 500",
+   "category": "us",
+   "long_name": "State Street SPDR S&P 500 ETF Trust",
+   "kind": "etf",
+   "expense_ratio_pct": 0.0945,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": 811937040000.0,
+   "group_id": "sp500",
+   "group_label": "the S&P 500, 500 of the biggest US companies",
+   "cheaper": {
+    "symbol": "SPYM",
+    "name": "S&P 500",
+    "long_name": "State Street SPDR Portfolio S&P 500 ETF",
+    "expense_ratio_pct": 0.02,
+    "saves_per_10k": 7.45,
+    "mutual_fund": false,
+    "fidelity_only": false
+   },
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 18.48,
+    "3y": 85.05,
+    "5y": 86.32
+   },
+   "drops": {
+    "1y": -8.9,
+    "3y": -18.8,
+    "5y": -24.5
+   }
+  },
+  {
+   "symbol": "SPYM",
+   "name": "S&P 500",
+   "category": "us",
+   "long_name": "State Street SPDR Portfolio S&P 500 ETF",
+   "kind": "etf",
+   "expense_ratio_pct": 0.02,
+   "fee_source": "issuer",
+   "fee_dated": "2026-09-26",
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": null,
+   "group_id": "sp500",
+   "group_label": "the S&P 500, 500 of the biggest US companies",
+   "cheaper": {
+    "symbol": "FNILX",
+    "name": "S&P 500",
+    "long_name": "Fidelity ZERO Large Cap Index",
+    "expense_ratio_pct": 0.0,
+    "saves_per_10k": 2.0,
+    "mutual_fund": true,
+    "fidelity_only": true
+   },
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 18.59,
+    "3y": 85.51,
+    "5y": 86.94
+   },
+   "drops": {
+    "1y": -8.9,
+    "3y": -18.7,
+    "5y": -24.5
+   }
+  },
+  {
+   "symbol": "FXAIX",
+   "name": "S&P 500",
+   "category": "us",
+   "long_name": "Fidelity 500 Index",
+   "kind": "mutual_fund",
+   "expense_ratio_pct": 0.015,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": true,
+   "fidelity_only": false,
+   "net_assets": 859163130000.0,
+   "group_id": "sp500",
+   "group_label": "the S&P 500, 500 of the biggest US companies",
+   "cheaper": {
+    "symbol": "FNILX",
+    "name": "S&P 500",
+    "long_name": "Fidelity ZERO Large Cap Index",
+    "expense_ratio_pct": 0.0,
+    "saves_per_10k": 1.5,
+    "mutual_fund": true,
+    "fidelity_only": true
+   },
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 18.6,
+    "3y": 85.61,
+    "5y": 87.07
+   },
+   "drops": {
+    "1y": -8.9,
+    "3y": -18.8,
+    "5y": -24.5
+   }
+  },
+  {
+   "symbol": "FNILX",
+   "name": "S&P 500",
+   "category": "us",
+   "long_name": "Fidelity ZERO Large Cap Index",
+   "kind": "mutual_fund",
+   "expense_ratio_pct": 0.0,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": true,
+   "fidelity_only": true,
+   "net_assets": 19350476800.0,
+   "group_id": "sp500",
+   "group_label": "the S&P 500, 500 of the biggest US companies",
+   "cheaper": null,
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 18.1,
+    "3y": 86.44,
+    "5y": 84.66
+   },
+   "drops": {
+    "1y": -9.0,
+    "3y": -19.1,
+    "5y": -25.4
+   }
+  },
+  {
+   "symbol": "QQQM",
+   "name": "Nasdaq-100",
+   "category": "us",
+   "long_name": "Invesco NASDAQ 100 ETF",
+   "kind": "etf",
+   "expense_ratio_pct": 0.15,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": 104376492000.0,
+   "group_id": "nasdaq100",
+   "group_label": "the Nasdaq-100, the 100 biggest Nasdaq companies",
+   "cheaper": null,
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 26.07,
+    "3y": 110.94,
+    "5y": 107.84
+   },
+   "drops": {
+    "1y": -12.0,
+    "3y": -22.7,
+    "5y": -35.0
+   }
+  },
+  {
+   "symbol": "XLK",
+   "name": "Tech",
+   "category": "sector",
+   "long_name": "State Street Technology Select Sector SPDR ETF",
+   "kind": "etf",
+   "expense_ratio_pct": 0.08,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": 121437733000.0,
+   "group_id": null,
+   "group_label": null,
+   "cheaper": null,
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 41.93,
+    "3y": 142.52,
+    "5y": 162.46
+   },
+   "drops": {
+    "1y": -15.9,
+    "3y": -25.7,
+    "5y": -33.6
+   }
+  },
+  {
+   "symbol": "VGT",
+   "name": "Tech",
+   "category": "sector",
+   "long_name": "Vanguard Information Technology Index Fund ETF Shares",
+   "kind": "etf",
+   "expense_ratio_pct": 0.09,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": 170651173000.0,
+   "group_id": "tech",
+   "group_label": "US tech stocks",
+   "cheaper": {
+    "symbol": "FTEC",
+    "name": "Tech",
+    "long_name": "Fidelity MSCI Information Technology Index ETF",
+    "expense_ratio_pct": 0.084,
+    "saves_per_10k": 0.6,
+    "mutual_fund": false,
+    "fidelity_only": false
+   },
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 37.59,
+    "3y": 146.58,
+    "5y": 149.63
+   },
+   "drops": {
+    "1y": -16.4,
+    "3y": -27.2,
+    "5y": -35.1
+   }
+  },
+  {
+   "symbol": "FTEC",
+   "name": "Tech",
+   "category": "sector",
+   "long_name": "Fidelity MSCI Information Technology Index ETF",
+   "kind": "etf",
+   "expense_ratio_pct": 0.084,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": true,
+   "fidelity_only": false,
+   "net_assets": 21250689000.0,
+   "group_id": "tech",
+   "group_label": "US tech stocks",
+   "cheaper": null,
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 37.96,
+    "3y": 148.06,
+    "5y": 152.17
+   },
+   "drops": {
+    "1y": -16.3,
+    "3y": -27.3,
+    "5y": -35.0
+   }
+  },
+  {
+   "symbol": "SMH",
+   "name": "Chip makers",
+   "category": "sector",
+   "long_name": "VanEck Semiconductor ETF",
+   "kind": "etf",
+   "expense_ratio_pct": 0.35,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": 67787031000.0,
+   "group_id": null,
+   "group_label": null,
+   "cheaper": null,
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 89.51,
+    "3y": 330.07,
+    "5y": 360.65
+   },
+   "drops": {
+    "1y": -24.6,
+    "3y": -35.7,
+    "5y": -45.3
+   }
+  },
+  {
+   "symbol": "SGOV",
+   "name": "T-bills, like cash",
+   "category": "bonds",
+   "long_name": "iShares 0-3 Month Treasury Bond ETF",
+   "kind": "etf",
+   "expense_ratio_pct": 0.09,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": 105976480000.0,
+   "group_id": null,
+   "group_label": null,
+   "cheaper": null,
+   "available": true,
+   "history_start": "2021-09-27",
+   "returns": {
+    "1y": 3.76,
+    "3y": 14.3,
+    "5y": 20.35
+   },
+   "drops": {
+    "1y": -0.0,
+    "3y": -0.0,
+    "5y": -0.0
+   }
+  },
+  {
+   "symbol": "IBIT",
+   "name": "Bitcoin",
+   "category": "crypto",
+   "long_name": "iShares Bitcoin Trust ETF",
+   "kind": "etf",
+   "expense_ratio_pct": 0.25,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": 61435101000.0,
+   "group_id": "bitcoin",
+   "group_label": "bitcoin",
+   "cheaper": {
+    "symbol": "BTC",
+    "name": "Bitcoin (mini trust)",
+    "long_name": "Grayscale Bitcoin Mini Trust ETF",
+    "expense_ratio_pct": 0.15,
+    "saves_per_10k": 10.0,
+    "mutual_fund": false,
+    "fidelity_only": false
+   },
+   "available": true,
+   "history_start": "2024-01-11",
+   "returns": {
+    "1y": -23.4,
+    "3y": null,
+    "5y": null
+   },
+   "drops": {
+    "1y": -53.3,
+    "3y": null,
+    "5y": null
+   }
+  },
+  {
+   "symbol": "BTC",
+   "name": "Bitcoin (mini trust)",
+   "category": "crypto",
+   "long_name": "Grayscale Bitcoin Mini Trust ETF",
+   "kind": "etf",
+   "expense_ratio_pct": 0.15,
+   "fee_source": "yahoo",
+   "fee_dated": null,
+   "listed_zero": false,
+   "fidelity": false,
+   "fidelity_only": false,
+   "net_assets": 4872841700.0,
+   "group_id": "bitcoin",
+   "group_label": "bitcoin",
+   "cheaper": null,
+   "available": true,
+   "history_start": "2024-07-31",
+   "returns": {
+    "1y": -23.25,
+    "3y": null,
+    "5y": null
+   },
+   "drops": {
+    "1y": -53.3,
+    "3y": null,
+    "5y": null
+   }
+  }
+ ],
+ "aligned_to": "2026-09-25",
+ "measured": 181,
+ "live": true,
+ "built_at": 1790469798.1881409,
+ "refreshing": false,
+ "as_of": 1790469798.1881409
+}

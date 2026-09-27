@@ -13,6 +13,7 @@ import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.detail.FundCostText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -194,33 +195,7 @@ class FundsViewModel : ViewModel() {
         checkJob?.cancel()
         checkJob = viewModelScope.launch {
             _state.update { it.copy(check = Check(sym, loading = true)) }
-            val base = settings.signalsApiUrl.first()
-            val allHeld = store.watchlist.first()
-                .filter { it.type == AssetType.STOCK && (it.shares ?: 0.0) > 0.0 }
-                .map { it.symbol.uppercase() }
-                .distinct()
-            val held = allHeld.filter { it != sym }.take(79)
-            val resp = runCatching { api.fundOverlap(base, listOf(sym) + held) }.getOrNull()
-            // A superseded check (a newer check() or clearCheck()) must not write its stale result.
-            ensureActive()
-            val check = when {
-                resp == null || sym in resp.unknown -> Check(sym, failed = true)
-                sym !in resp.funds -> Check(sym, notAFund = true)
-                else -> {
-                    val ownedFunds = held.filter { it in resp.funds }
-                    val ownedStocks = held.filter { it in resp.notFunds }
-                    val p = resp.funds.getValue(sym)
-                    val lines = FundsLogic.beforeYouBuy(sym, resp, ownedFunds, ownedStocks, alreadyOwned = sym in allHeld)
-                    Check(
-                        sym,
-                        fee = FundCostText.headline(p.expenseRatioPct),
-                        covers = FundsLogic.covers(p),
-                        lines = lines.ifEmpty {
-                            listOf("You don't hold any funds or stocks for it to overlap with.")
-                        },
-                    )
-                }
-            }
+            val check = checkAgainstHoldings(api, settings.signalsApiUrl.first(), sym)
             _state.update { it.copy(check = check) }
         }
     }
@@ -232,4 +207,36 @@ class FundsViewModel : ViewModel() {
 
     /** The asset to open for a fund row. */
     fun assetFor(symbol: String, name: String?): Asset = Asset(symbol, AssetType.STOCK, name ?: symbol)
+}
+
+/**
+ * "Before you buy": [sym] against every stock and fund the user holds — shared by the Funds screen
+ * and Explore. Only symbols go to the server. Throws CancellationException when the caller was
+ * cancelled mid-call, so a superseded check never writes its stale result.
+ */
+internal suspend fun checkAgainstHoldings(api: SignalsApiService, base: String, sym: String): FundsViewModel.Check {
+    val allHeld = ServiceLocator.watchlistStore.watchlist.first()
+        .filter { it.type == AssetType.STOCK && (it.shares ?: 0.0) > 0.0 }
+        .map { it.symbol.uppercase() }
+        .distinct()
+    val held = allHeld.filter { it != sym }.take(79)
+    val resp = runCatching { api.fundOverlap(base, listOf(sym) + held) }.getOrNull()
+    // runCatching swallows the CancellationException of a superseded check; this rethrows it.
+    currentCoroutineContext().ensureActive()
+    return when {
+        resp == null || sym in resp.unknown -> FundsViewModel.Check(sym, failed = true)
+        sym !in resp.funds -> FundsViewModel.Check(sym, notAFund = true)
+        else -> {
+            val ownedFunds = held.filter { it in resp.funds }
+            val ownedStocks = held.filter { it in resp.notFunds }
+            val p = resp.funds.getValue(sym)
+            val lines = FundsLogic.beforeYouBuy(sym, resp, ownedFunds, ownedStocks, alreadyOwned = sym in allHeld)
+            FundsViewModel.Check(
+                sym,
+                fee = FundCostText.headline(p.expenseRatioPct),
+                covers = FundsLogic.covers(p),
+                lines = lines.ifEmpty { listOf(FundsLogic.NOTHING_HELD) },
+            )
+        }
+    }
 }

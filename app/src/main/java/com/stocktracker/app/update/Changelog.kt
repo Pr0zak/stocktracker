@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.18.0" to listOf(
+            "New: Explore ETFs, 180+ funds by type, return, worst drop and fee",
+            "See the best, cheapest and calmest fund of each type at a glance",
+            "Tap a fund for its cheaper copy, similar funds, and what it repeats of yours",
+            "Watch a fund right from Explore; shorter, plainer wording on every Funds screen",
+        ),
         "1.17.0" to listOf(
             "Funds redesigned as tiles you can glance at, each opening its own detail screen",
             "The top line now names the funds that overlap, like \"VOO, VTI and QQQM move almost the same\"",

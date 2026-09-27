@@ -242,6 +242,16 @@ class SignalsApiService {
         )
     }
 
+    /**
+     * FUND-8: about 180 well-known funds to explore, each with a plain name, a type, the fee, 1/3/5-year
+     * returns and worst drops to one shared day, and its cheaper measured copy. Free (no LLM). Served
+     * from the server's last build, so it is quick after the first call following a restart.
+     */
+    suspend fun fundExplore(baseUrl: String): FundExploreResponse? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<FundExploreResponse>(sGet("${baseUrl.trimEnd('/')}/funds/explore", slow = true))
+    }
+
     /** One symbol's row from [fundCosts], with whether the server's fee source answered live. */
     suspend fun fundCost(baseUrl: String, symbol: String): FundCostLookup? {
         val r = fundCosts(baseUrl, listOf(symbol)) ?: return null
@@ -2644,6 +2654,73 @@ data class FundPerformanceResponse(
     /** "2026-09-25": the day every fund's returns are measured to, so side-by-side figures share an end. */
     @SerialName("aligned_to") val alignedTo: String? = null,
     @SerialName("as_of") val asOf: Double? = null,
+)
+
+/** GET /funds/explore — FUND-8. */
+@Serializable
+data class FundExploreResponse(
+    val categories: List<ExploreCategory> = emptyList(),
+    /** In the server's catalogue order. */
+    val funds: List<ExploreFund> = emptyList(),
+    /** "2026-09-25": the day every return and drop is measured to. */
+    @SerialName("aligned_to") val alignedTo: String? = null,
+    /** Funds whose history could be read. */
+    val measured: Int = 0,
+    /** False = the fee source did not answer; fees then say where they came from. */
+    val live: Boolean = true,
+    /** Epoch seconds of the build these figures come from. */
+    @SerialName("built_at") val builtAt: Double? = null,
+    /** A newer build is on its way; this one is older than the server likes. */
+    val refreshing: Boolean = false,
+)
+
+@Serializable
+data class ExploreCategory(val id: String = "", val label: String = "", val count: Int = 0)
+
+@Serializable
+data class ExploreFund(
+    val symbol: String = "",
+    /** Plain words picked by hand: "S&P 500", "Chip makers". */
+    val name: String = "",
+    /** An [ExploreCategory.id]. */
+    val category: String = "",
+    @SerialName("long_name") val longName: String? = null,
+    /** "etf" or "mutual_fund". */
+    val kind: String = "etf",
+    /** Percent of the holding per year. Null = unknown, which is not 0. */
+    @SerialName("expense_ratio_pct") val expenseRatioPct: Double? = null,
+    @SerialName("fee_source") val feeSource: String? = null,
+    @SerialName("fee_dated") val feeDated: String? = null,
+    @SerialName("listed_zero") val listedZero: Boolean = false,
+    val fidelity: Boolean = false,
+    @SerialName("fidelity_only") val fidelityOnly: Boolean = false,
+    @SerialName("net_assets") val netAssets: Double? = null,
+    /** The measured look-alike group, when it has one. Funds in one group hold the same thing. */
+    @SerialName("group_id") val groupId: String? = null,
+    @SerialName("group_label") val groupLabel: String? = null,
+    /** The cheapest fund measured to hold the same thing, when it costs less. */
+    val cheaper: ExploreCopy? = null,
+    /** False = the price history could not be read. Every figure below is then absent, never 0. */
+    val available: Boolean = false,
+    @SerialName("history_start") val historyStart: String? = null,
+    /** Dividends-in return, percent, keyed "1y" "3y" "5y"; null where the fund is too young. */
+    val returns: Map<String, Double?> = emptyMap(),
+    /** Deepest fall from a high inside the same window as [returns], percent (≤ 0). */
+    val drops: Map<String, Double?> = emptyMap(),
+) {
+    val isMutualFund: Boolean get() = kind == "mutual_fund"
+}
+
+@Serializable
+data class ExploreCopy(
+    val symbol: String = "",
+    val name: String? = null,
+    @SerialName("long_name") val longName: String? = null,
+    @SerialName("expense_ratio_pct") val expenseRatioPct: Double? = null,
+    /** Dollars a year per $10,000. */
+    @SerialName("saves_per_10k") val savesPer10k: Double = 0.0,
+    @SerialName("mutual_fund") val mutualFund: Boolean = false,
+    @SerialName("fidelity_only") val fidelityOnly: Boolean = false,
 )
 
 /** Percent change since the first day every fund had a price, sampled weekly on shared days. */

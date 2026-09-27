@@ -55,15 +55,14 @@ internal object FundCostText {
 
     /** Why [f]'s fee is unknown, in the one case the screen can say more than "unknown". */
     fun unknownReason(f: FundCost, live: Boolean): String = when {
-        f.listedZero -> "Yahoo lists 0%, which for an ETF is usually a fee waiver that has ended."
-        !live -> "Couldn't reach the fee source just now."
-        else -> "No fee is listed for this fund."
+        f.listedZero -> "Listed at 0%. For an ETF that is usually an old fee waiver."
+        !live -> "Couldn't reach the fee source."
+        else -> "No fee listed for this fund."
     }
 
     /** The fee in the words a first-time reader needs, and the jargon name to match it against. */
     fun explainer(pct: Double): String =
-        "${percent(pct)} a year, its “expense ratio”. It comes out of the fund's price bit by " +
-            "bit, so you never see a bill."
+        "${percent(pct)} a year (its “expense ratio”). It comes out of the price, so there's no bill."
 
     /** "Your $12,400: about $11.72 a year". */
     fun holdingLine(value: Double, pct: Double): String =

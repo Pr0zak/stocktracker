@@ -256,6 +256,7 @@ fun StockTrackerRoot(
                     onOpenDips = { nav.navigate(Routes.DIPS) },
                     onOpenVix = { nav.navigate(Routes.VIX) },
                     onOpenFunds = { nav.navigate(Routes.FUNDS) },
+                    onOpenExplore = { nav.navigate(Routes.fundsExplore()) },
                 )
             }
             composable(Routes.FUNDS) { entry ->
@@ -271,6 +272,19 @@ fun StockTrackerRoot(
                     onOpenRanking = { nav.navigate(Routes.fundsRanking(it.name)) },
                     onOpenOverlap = { nav.navigate(Routes.FUNDS_OVERLAP) },
                     onOpenCopies = { nav.navigate(Routes.FUNDS_COPIES) },
+                    onOpenExplore = { nav.navigate(Routes.fundsExplore(it)) },
+                    onOpenSignalsSettings = openSignalsSettings,
+                )
+            }
+            composable(
+                route = Routes.FUNDS_EXPLORE_PATTERN,
+                arguments = listOf(navArgument("cat") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) { entry ->
+                com.stocktracker.app.ui.funds.FundExploreScreen(
+                    initialCategory = entry.arguments?.getString("cat"),
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                    onOpenCompare = { nav.navigate(Routes.fundCompare(it)) },
                     onOpenSignalsSettings = openSignalsSettings,
                 )
             }

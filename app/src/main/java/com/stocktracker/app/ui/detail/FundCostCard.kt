@@ -104,7 +104,7 @@ internal fun FundCostCard(
                 Text(FundCostText.explainer(fee), style = MaterialTheme.typography.bodySmall, color = neutral)
             }
             if (group == null) {
-                Text("No look-alike on the comparison list.", style = MaterialTheme.typography.bodySmall, color = neutral)
+                Text("No measured copy of this fund.", style = MaterialTheme.typography.bodySmall, color = neutral)
             } else {
                 Text(
                     "Funds holding ${group.label} · a year per \$10,000",
@@ -127,7 +127,7 @@ internal fun FundCostCard(
                     // Real money: a switch is a sale, and a sale in a taxable account is a tax bill on
                     // the gain. The fee gap is a yearly trickle; the tax is due all at once.
                     Text(
-                        "Selling to switch can mean tax on gains, so the gap matters most for new money.",
+                        com.stocktracker.app.ui.funds.FundsLogic.TAX_NOTE,
                         style = MaterialTheme.typography.labelSmall,
                         color = neutral,
                     )

@@ -181,20 +181,20 @@ fun FundCompareScreen(initial: List<String>, onBack: () -> Unit) {
                 else -> {
                     val notFunds = ui.symbols.filter { it in ui.overlap!!.notFunds }
                     if (notFunds.isNotEmpty()) {
-                        Text("${notFunds.joinToString(", ")} ${if (notFunds.size == 1) "isn't a fund" else "aren't funds"}: " +
-                            "returns shown, fund details left blank.", style = MaterialTheme.typography.labelMedium, color = Signal)
+                        Text("${notFunds.joinToString(", ")} ${if (notFunds.size == 1) "isn't a fund" else "aren't funds"}. " +
+                            "Returns only.", style = MaterialTheme.typography.labelMedium, color = Signal)
                     }
                     val unknown = ui.symbols.filter { it in ui.overlap!!.unknown }
                     if (unknown.isNotEmpty()) {
-                        Text("Couldn't look up ${unknown.joinToString(", ")} right now: fund details left blank.",
+                        Text("Couldn't look up ${unknown.joinToString(", ")}. Returns only.",
                             style = MaterialTheme.typography.labelMedium, color = Signal)
                     }
                     ChartCard(ui.symbols, ui.perf!!)
                     TableCard(ui.symbols, ui.overlap!!, ui.perf!!)
                     OverlapCard(ui.symbols, ui.overlap!!)
                     Text(
-                        "Returns include dividends. They show what these funds held, not what comes next; the fee is the one " +
-                            "number you can count on. \"Fees over 20 years\" assumes 7% a year growth before fees. Context, not advice.",
+                        "Returns include dividends. Past returns don't predict; the fee is the one sure number. " +
+                            "\"Fees over 20 years\" assumes 7% a year growth. Not advice.",
                         style = MaterialTheme.typography.bodySmall, color = neutral, modifier = Modifier.padding(bottom = 20.dp),
                     )
                 }
@@ -253,7 +253,7 @@ private fun ChartCard(symbols: List<String>, perf: FundPerformanceResponse) {
         )
         val since = runCatching { LocalDate.parse(chart.dates.first()).format(DateTimeFormatter.ofPattern("MMM yyyy", Locale.US)) }
             .getOrDefault(chart.dates.first())
-        Text("Since $since, the first week all of them traded. ${drawn.first()} is the solid line.",
+        Text("Since $since. ${drawn.first()} is the solid line.",
             style = MaterialTheme.typography.labelSmall, color = neutral)
         drawn.forEach { s ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -307,12 +307,12 @@ private fun TableCard(symbols: List<String>, ov: FundOverlapResponse, perf: Fund
         })
         profiles.filterNotNull().mapNotNull { it.spreadAt.takeIf { _ -> !it.isMutualFund } }.minOrNull()?.let { oldest ->
             FundsLogic.ago(oldest)?.let {
-                Text("Trading gaps as last measured in market hours; oldest reading $it.",
+                Text("Trading gaps from market hours, oldest $it.",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         perf.alignedTo?.let { d ->
-            Text("Returns measured to $d, the latest day all of them have a price.",
+            Text("Returns to $d, the last day all have a price.",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         profiles.forEach { p -> FundsLogic.smallFundWarning(p?.netAssets)?.let {

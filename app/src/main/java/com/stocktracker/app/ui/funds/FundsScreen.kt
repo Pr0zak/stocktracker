@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -98,6 +100,7 @@ fun FundsScreen(
     onOpenRanking: (RankSort) -> Unit,
     onOpenOverlap: () -> Unit,
     onOpenCopies: () -> Unit,
+    onOpenExplore: (String?) -> Unit = {},
     onOpenSignalsSettings: () -> Unit = {},
 ) {
     val ui by vm.state.collectAsStateWithLifecycle()
@@ -132,11 +135,12 @@ fun FundsScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             BackendStatusBanner()
+            if (ui.configured) ExploreTile(onOpenExplore)
             ModeChips(ui, vm)
             val resp = ui.overlap
             when {
                 !ui.configured -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Fund comparisons come from the self-hosted signals service, which isn't set up yet.",
+                    Text("Needs the signals service. It isn't set up yet.",
                         style = MaterialTheme.typography.bodyMedium, color = neutral)
                     TextButton(onClick = onOpenSignalsSettings) { Text("Set up signals") }
                 }
@@ -172,7 +176,7 @@ fun FundsScreen(
             }
             if (ui.configured) FeeAlertToggle()
             Text(
-                "Funds that rise and fall together over two years count as overlapping. Context, not advice.",
+                "Overlap: funds that rise and fall together. Not advice.",
                 style = MaterialTheme.typography.bodySmall,
                 color = neutral,
                 modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),
@@ -229,6 +233,7 @@ private fun FundsTile(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     modifier: Modifier = Modifier,
     tint: Color? = null,
+    minHeight: androidx.compose.ui.unit.Dp = 112.dp,
     onClick: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -238,7 +243,7 @@ private fun FundsTile(
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .spotlightGlow(tint)
             .clickable(onClickLabel = "Open $title", onClick = onClick)
-            .heightIn(min = 112.dp)
+            .heightIn(min = minHeight)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -252,6 +257,23 @@ private fun FundsTile(
     }
 }
 
+/** FUND-8: the way into Explore, with a pill per popular type that opens straight onto it. */
+@Composable
+private fun ExploreTile(onOpen: (String?) -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    FundsTile("Explore ETFs", Icons.Filled.TravelExplore, Modifier.fillMaxWidth(), tint = MaterialTheme.colorScheme.primary,
+        minHeight = 0.dp, onClick = { onOpen(null) }) {
+        Text("180+ funds by return, fee and type.",
+            style = MaterialTheme.typography.bodySmall, color = neutral)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("us" to "US stocks", "sector" to "Sectors", "income" to "Dividends", "world" to "Outside the US",
+                "bonds" to "Bonds", "commodities" to "Gold").forEach { (id, label) ->
+                Pill(label, MaterialTheme.colorScheme.primary) { onOpen(id) }
+            }
+        }
+    }
+}
+
 /** "7 of your 12 funds overlap", the funds named, and a bar of how they split. */
 @Composable
 private fun HeroCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse, ov: OverlapView) {
@@ -262,8 +284,14 @@ private fun HeroCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse, ov: 
         if (resp.funds.isEmpty()) {
             Text("No funds here", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             if (resp.unknown.isEmpty()) {
-                Text(if (ui.mode == FundsViewModel.Mode.HOLDINGS) "None of your holdings is a fund." else "Your watchlist has no funds.",
-                    style = MaterialTheme.typography.bodyMedium, color = neutral)
+                Text(
+                    when {
+                        ui.noHeldFunds -> "None in your holdings or watchlist. Try Explore ETFs above."
+                        ui.mode == FundsViewModel.Mode.HOLDINGS -> "None of your holdings is a fund."
+                        else -> "Your watchlist has no funds. Try Explore ETFs above."
+                    },
+                    style = MaterialTheme.typography.bodyMedium, color = neutral,
+                )
             }
         } else {
             Text(FundsLogic.overlapHeadline(resp.funds.size, ov.overlapping),
@@ -282,30 +310,29 @@ private fun HeroCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse, ov: 
                     when {
                         fees.knownCount == 0 -> "$total in funds · yearly fees unknown"
                         fees.unknownFee.isEmpty() -> "$total in funds · about ${FundCostText.dollars(fees.perYear)} a year in fees"
-                        else -> "$total in funds · about ${FundCostText.dollars(fees.perYear)} a year in fees on the " +
-                            "${FundCostText.dollars(Math.round(fees.countedValue).toDouble())} with a known fee"
+                        else -> "$total in funds · about ${FundCostText.dollars(fees.perYear)} a year in fees · some unknown"
                     },
                     style = MaterialTheme.typography.bodyMedium, color = neutral,
                 )
             } else if (ui.mode == FundsViewModel.Mode.HOLDINGS && ui.unpriced.isNotEmpty()) {
-                Text("Couldn't price ${ui.unpriced.joinToString(", ")}, so there are no dollar figures here.",
+                Text("Couldn't price ${ui.unpriced.joinToString(", ")}. No dollar figures.",
                     style = MaterialTheme.typography.labelMedium, color = Signal)
             }
         }
         if (ui.cachePriced.isNotEmpty()) {
-            Text("Priced from the last saved quote (a live one failed): ${ui.cachePriced.joinToString(", ")}.",
+            Text("Last saved price used for ${ui.cachePriced.joinToString(", ")}.",
                 style = MaterialTheme.typography.labelSmall, color = neutral)
         }
         if (resp.unknown.isNotEmpty()) {
-            Text("Couldn't look up ${resp.unknown.joinToString(", ")}: the quote service didn't answer, so they're left out.",
+            Text("Couldn't look up ${resp.unknown.joinToString(", ")}. Left out.",
                 style = MaterialTheme.typography.labelMedium, color = Signal)
         }
         if (resp.unmeasured.isNotEmpty()) {
-            Text("Too many funds to measure at once; left out: ${resp.unmeasured.joinToString(", ")}.",
+            Text("Too many funds. Left out: ${resp.unmeasured.joinToString(", ")}.",
                 style = MaterialTheme.typography.labelMedium, color = Signal)
         }
-        if (ui.noHeldFunds) {
-            Text("None of your holdings is a fund, so this shows your watchlist's.",
+        if (ui.noHeldFunds && resp.funds.isNotEmpty()) {
+            Text("No funds in your holdings. Showing your watchlist.",
                 style = MaterialTheme.typography.bodySmall, color = neutral)
         }
     }
@@ -323,6 +350,8 @@ private fun SplitBar(ov: OverlapView, resp: FundOverlapResponse) {
             Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(OwnWayColor))
         }
     }
+    // One colour needs no key: the sentence above already names the group.
+    if (ov.groups.size + (if (ov.singles.isNotEmpty()) 1 else 0) < 2) return
     androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         ov.groups.forEachIndexed { i, g -> LegendDot(groupColor(i), "${FundsLogic.groupName(g, resp.funds)} · ${g.size}") }
         if (ov.singles.isNotEmpty()) LegendDot(OwnWayColor, "Each its own way · ${ov.singles.size}")
@@ -450,7 +479,7 @@ private fun CopiesTile(ui: FundsViewModel.UiState, resp: FundOverlapResponse, on
         when {
             ui.groups == null && !ui.groupsFailed -> Skeleton(Modifier.fillMaxWidth().height(48.dp))
             ui.groups == null -> Text("Couldn't load the look-alike groups.", style = MaterialTheme.typography.bodySmall, color = Signal)
-            copies.isEmpty() -> Text("Each of these is already the cheapest of its measured look-alikes, or has none.",
+            copies.isEmpty() -> Text("No cheaper copies found.",
                 style = MaterialTheme.typography.bodySmall, color = neutral)
             else -> {
                 copies.take(3).forEach { c ->
@@ -514,7 +543,7 @@ internal fun AlsoOverlapping(resp: FundOverlapResponse) {
     if (lots.isEmpty() && unmeasured.isEmpty()) return
     GlowCard(tint = null, spacing = 4.dp) {
         if (lots.isNotEmpty()) {
-            Text("Separate bets that still overlap", style = MaterialTheme.typography.labelLarge, color = neutral)
+            Text("Also alike", style = MaterialTheme.typography.labelLarge, color = neutral)
             lots.take(6).forEach { p ->
                 Text("${p.a} + ${p.b}: ${PairVerdict.of(p.corr).words.lowercase()} (${FundsLogic.corr(p.corr)})" +
                     if (p.sharedTopCount > 0) " · ${p.sharedTopCount} top holdings shared" else "",
@@ -522,7 +551,7 @@ internal fun AlsoOverlapping(resp: FundOverlapResponse) {
             }
         }
         if (unmeasured.isNotEmpty()) {
-            Text("Not measured (too little shared price history), so counted as separate: " +
+            Text("Too new to compare: " +
                 unmeasured.take(8).joinToString(", ") { "${it.a} + ${it.b}" } +
                 if (unmeasured.size > 8) " and ${unmeasured.size - 8} more" else "",
                 style = MaterialTheme.typography.labelSmall, color = Signal)
@@ -539,39 +568,36 @@ internal fun FeesCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse) {
         if (fees.knownCount == 0) {
             // Nothing was counted, so there is no total to state — "$0" here would be a claim.
             Text("Yearly fees unknown", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("No fee could be found for ${fees.unknownFee.joinToString(", ")}.",
+            Text("No fee found for ${fees.unknownFee.joinToString(", ")}.",
                 style = MaterialTheme.typography.labelSmall, color = Signal)
             return@GlowCard
         }
-        Text("About ${FundCostText.dollars(fees.perYear)} a year" +
-            if (fees.unknownFee.isNotEmpty()) " on the ${FundCostText.dollars(Math.round(fees.countedValue).toDouble())} with a known fee" else "",
+        Text("About ${FundCostText.dollars(fees.perYear)} a year" + if (fees.unknownFee.isNotEmpty()) ", some unknown" else "",
             style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         when (val c = fees.cheapestPerYear) {
-            null -> Text("Couldn't check the cheaper look-alikes right now.", style = MaterialTheme.typography.bodySmall, color = neutral)
+            null -> Text("Couldn't check cheaper copies.", style = MaterialTheme.typography.bodySmall, color = neutral)
             else -> if (fees.switches.isEmpty()) {
                 // "Cheapest" is only said about funds that were actually compared with something.
                 when {
-                    fees.compared.isEmpty() -> Text("None of these has a measured look-alike to compare it with.",
+                    fees.compared.isEmpty() -> Text("No measured copies to compare.",
                         style = MaterialTheme.typography.bodySmall, color = neutral)
                     fees.notCompared.isEmpty() && fees.unknownFee.isEmpty() ->
-                        Text("Each of your funds is already the cheapest of its look-alikes.",
+                        Text("Your funds are already the cheapest.",
                             style = MaterialTheme.typography.bodySmall, color = GainGreen)
-                    else -> Text("${fees.compared.joinToString(", ")}: already the cheapest of ${if (fees.compared.size == 1) "its" else "their"} look-alikes.",
+                    else -> Text("${fees.compared.joinToString(", ")}: already the cheapest.",
                         style = MaterialTheme.typography.bodySmall, color = GainGreen)
                 }
             } else {
-                Text("In the cheapest look-alikes: about ${FundCostText.dollars(c)} a year", style = MaterialTheme.typography.bodyMedium)
+                Text("In the cheapest copies: about ${FundCostText.dollars(c)} a year", style = MaterialTheme.typography.bodyMedium)
                 fees.switches.take(4).forEach { s ->
-                    Text("${s.from} → ${s.to}${s.toNote?.let { " ($it)" } ?: ""}: saves about " +
-                        "${FundCostText.dollars(s.savesPerYear)} a year on your ${FundCostText.dollars(Math.round(s.value).toDouble())}",
+                    Text("${s.from} → ${s.to}${s.toNote?.let { " ($it)" } ?: ""}: saves ${FundCostText.dollars(s.savesPerYear)} a year",
                         style = MaterialTheme.typography.bodySmall, color = GainGreen)
                 }
-                Text("Selling to switch can mean tax on gains, so the gap matters most for new money.",
-                    style = MaterialTheme.typography.labelSmall, color = neutral)
+                Text(FundsLogic.TAX_NOTE, style = MaterialTheme.typography.labelSmall, color = neutral)
             }
         }
         if (fees.notCompared.isNotEmpty() && fees.compared.isNotEmpty()) {
-            Text("No measured look-alike for ${fees.notCompared.joinToString(", ")}.",
+            Text("No measured copy for ${fees.notCompared.joinToString(", ")}.",
                 style = MaterialTheme.typography.labelSmall, color = neutral)
         }
         if (fees.unknownFee.isNotEmpty()) {
@@ -580,7 +606,7 @@ internal fun FeesCard(ui: FundsViewModel.UiState, resp: FundOverlapResponse) {
         val source = FundCostText.sourceLine(ui.values.keys.mapNotNull { resp.funds[it]?.toCost() }, resp.live)
         if (source.isNotBlank()) Text(source, style = MaterialTheme.typography.labelSmall, color = neutral)
         if (ui.unpriced.isNotEmpty()) {
-            Text("Couldn't price ${ui.unpriced.joinToString(", ")}, so they're left out of these dollars.",
+            Text("Couldn't price ${ui.unpriced.joinToString(", ")}. Left out.",
                 style = MaterialTheme.typography.labelSmall, color = Signal)
         }
     }
@@ -613,7 +639,7 @@ internal fun BeforeYouBuyCard(
             check == null -> Unit
             check.loading -> Skeleton(Modifier.fillMaxWidth().height(48.dp))
             check.failed -> Text("Couldn't check ${check.symbol} right now.", style = MaterialTheme.typography.bodySmall, color = Signal)
-            check.notAFund -> Text("${check.symbol} isn't a fund (or Yahoo doesn't know it), so there's nothing to overlap.",
+            check.notAFund -> Text("${check.symbol} isn't a fund we know.",
                 style = MaterialTheme.typography.bodySmall, color = neutral)
             else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(check.symbol, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -621,7 +647,7 @@ internal fun BeforeYouBuyCard(
                 check.covers?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = neutral) }
                 check.lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
                 Row {
-                    TextButton(onClick = { onCompare(check.symbol) }) { Text("Compare side by side") }
+                    TextButton(onClick = { onCompare(check.symbol) }) { Text("Compare") }
                     TextButton(onClick = { text = ""; onClear() }) { Text("Clear") }
                 }
             }
@@ -634,7 +660,7 @@ internal fun CompareCard(resp: FundOverlapResponse?, values: Map<String, Double>
     val picks = resp?.funds?.keys?.sortedByDescending { values[it] ?: 0.0 }?.take(2).orEmpty()
     GlowCard(tint = null, spacing = 6.dp, modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable { onCompare(picks) }) {
         Text("Compare funds side by side", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        Text("Returns with dividends, worst drop, fees in dollars, and how much they overlap.",
+        Text("Returns, drops, fees and overlap.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -651,7 +677,7 @@ internal fun GroupsCard(
         groups == null && ui.groupsFailed -> Text("Couldn't load the look-alike groups.", style = MaterialTheme.typography.bodySmall, color = Signal)
         groups == null -> Skeleton(Modifier.fillMaxWidth().height(80.dp))
         else -> GlowCard(tint = null, spacing = 2.dp) {
-            Text("Funds measured to hold the same thing, and what each charges a year per \$10,000.",
+            Text("Funds that hold the same thing. Fee a year per \$10,000.",
                 style = MaterialTheme.typography.bodySmall, color = neutral)
             groups.forEach { g -> GroupRow(g, ui.groupPerf[g.id], onOpen, onOpenDetail) }
         }
@@ -719,16 +745,16 @@ internal fun GroupRow(
             when {
                 perf?.loading == true -> Text("Measuring 2-year results…", style = MaterialTheme.typography.labelSmall, color = neutral)
                 perf?.failed == true -> Text("Couldn't load 2-year results.", style = MaterialTheme.typography.labelSmall, color = Signal)
-                else -> Text("\"2 years\" is each fund's result minus the cheapest one's, dividends in: the fee plus any hidden costs.",
+                else -> Text("\"2 years\": its return minus the cheapest one's. Fees plus hidden costs.",
                     style = MaterialTheme.typography.labelSmall, color = neutral)
             }
             g.note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = neutral) }
             g.funds.firstOrNull { it.feeSource == "issuer" }?.feeDated?.let {
-                Text("* the fund company's own figure (${FundCostText.shortDate(it)}): Yahoo's was wrong or missing.",
+                Text("* From the fund company, ${FundCostText.shortDate(it)}.",
                     style = MaterialTheme.typography.labelSmall, color = neutral)
             }
             g.funds.firstOrNull { it.feeSource == "saved" }?.feeDated?.let {
-                Text("† from a saved list (${FundCostText.shortDate(it)}): Yahoo didn't answer.",
+                Text("† From a saved list, ${FundCostText.shortDate(it)}.",
                     style = MaterialTheme.typography.labelSmall, color = neutral)
             }
         }
@@ -744,7 +770,7 @@ internal fun FeeAlertToggle() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Fee change alerts", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text("Tell me when a fund I hold raises or cuts its fee.", style = MaterialTheme.typography.labelSmall,
+                Text("When a fund you own changes its fee.", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(checked = on, onCheckedChange = { v -> scope.launch { settings.setFundFeeNotifyEnabled(v) } })

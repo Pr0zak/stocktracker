@@ -66,7 +66,7 @@ internal fun FundHoldsCard(symbol: String, view: FundHoldsView, onOpenCompare: (
             )
         }
         if (open && p.top10Pct != null && tops.size >= 5) {
-            Text("Its ${tops.size} biggest holdings are ${String.format(Locale.US, "%.0f", p.top10Pct)}% of the fund.",
+            Text("Top ${tops.size} holdings: ${String.format(Locale.US, "%.0f", p.top10Pct)}% of the fund.",
                 style = MaterialTheme.typography.labelSmall, color = neutral)
         }
 
@@ -75,7 +75,7 @@ internal fun FundHoldsCard(symbol: String, view: FundHoldsView, onOpenCompare: (
                 modifier = Modifier)
             overlap.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
         } else if (view.ownedFunds.isEmpty() && view.ownedStocks.isEmpty()) {
-            Text("You don't hold any funds or stocks for it to overlap with.",
+            Text(FundsLogic.NOTHING_HELD,
                 style = MaterialTheme.typography.bodySmall, color = neutral)
         }
         FundsLogic.directCryptoNote(listOf(p.groupId), view.heldCoins)?.let {
@@ -98,7 +98,7 @@ internal fun FundHoldsCard(symbol: String, view: FundHoldsView, onOpenCompare: (
                     "${it.label} ${String.format(Locale.US, "%.0f", it.pct)}%"
                 }, style = MaterialTheme.typography.labelSmall, color = neutral)
             }
-            Text("Holdings are the 10 largest, all Yahoo lists.", style = MaterialTheme.typography.labelSmall, color = neutral)
+            Text("Yahoo lists only the top 10 holdings.", style = MaterialTheme.typography.labelSmall, color = neutral)
         }
         TextButton(onClick = { onOpenCompare(listOfNotNull(me, closest)) }) {
             Text(if (closest != null) "Compare with your $closest" else "Compare with other funds")

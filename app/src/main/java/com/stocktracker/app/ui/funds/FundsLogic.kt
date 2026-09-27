@@ -85,6 +85,12 @@ data class CheaperCopy(
 
 internal object FundsLogic {
 
+    /** Said under every suggestion to switch funds: a switch is a sale. */
+    const val TAX_NOTE = "Switching means selling, which can mean tax. Best for new money."
+
+    /** The before-you-buy answer when the user holds nothing to compare with. */
+    const val NOTHING_HELD = "You hold no stocks or funds to compare it with."
+
     /** Below this a fund is small enough that closing is a real possibility. */
     const val SMALL_FUND_DOLLARS = 50e6
 
@@ -117,6 +123,8 @@ internal object FundsLogic {
     fun overlapHeadline(total: Int, overlapping: Int): String = when {
         total <= 1 -> "$total ${plural(total, "fund")}, nothing to overlap with"
         overlapping == 0 -> "None of your $total funds overlap"
+        overlapping == total && total == 2 -> "Both your funds overlap"
+        overlapping == total -> "All $total of your funds overlap"
         else -> "$overlapping of your $total funds overlap"
     }
 
@@ -250,8 +258,7 @@ internal object FundsLogic {
     fun smallFundWarning(netAssets: Double?): String? {
         val n = netAssets?.takeIf { it.isFinite() && it > 0 } ?: return null
         if (n >= SMALL_FUND_DOLLARS) return null
-        return "Small fund (${size(n)}). Small funds close more often, and a closing fund pays you out: " +
-            "a sale, with tax on any gain."
+        return "Small fund (${size(n)}). Small funds close more often. A closing fund sells you out, which can mean tax."
     }
 
     /**
@@ -259,10 +266,10 @@ internal object FundsLogic {
      * reading. A mutual fund has no spread at all: it is bought and sold at the day's closing price.
      */
     fun tradingCost(spreadPct: Double?, spreadAt: Double?, isMutualFund: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
-        if (isMutualFund) return "No trading gap: bought and sold at the day's closing price"
+        if (isMutualFund) return "No trading gap: it trades once a day, at the close"
         val sp = spreadPct?.takeIf { it.isFinite() && it >= 0 } ?: return null
         val age = spreadAt?.let { age(nowMs - (it * 1000).toLong()) }
-        return "Buying and selling \$10,000 once costs about ${FundCostText.dollars(sp * 100.0)} in the bid-ask gap" +
+        return "Trading gap: about ${FundCostText.dollars(sp * 100.0)} to buy and sell \$10,000" +
             (age?.let { " (checked $it)" } ?: "")
     }
 
@@ -318,24 +325,24 @@ internal object FundsLogic {
             val (o, p) = best
             val cc = corr(p.corr)
             lines += when (PairVerdict.of(p.corr)) {
-                PairVerdict.SAME_FUND -> "Same fund as your $o ($cc): owning both doubles up."
+                PairVerdict.SAME_FUND -> "Same as your $o ($cc). Owning both doubles up."
                 PairVerdict.MOVE_TOGETHER -> "Moves almost the same as your $o ($cc)."
                 PairVerdict.OVERLAP_A_LOT -> "Similar to your $o ($cc)."
-                PairVerdict.DIFFERENT -> "Moves its own way: its closest match among your funds is $o, at $cc."
-                PairVerdict.UNKNOWN -> "Couldn't measure it against your funds (too little shared price history)."
+                PairVerdict.DIFFERENT -> "Moves its own way. Closest of yours: $o ($cc)."
+                PairVerdict.UNKNOWN -> "Too new to compare with your funds."
             }
             // Yahoo lists at most ten holdings, fewer once share classes are merged, so the count is
             // out of what this fund actually lists — and it is a floor on the real overlap.
             val listed = resp.funds[c]?.topHoldings?.size ?: 0
             if (p.sharedTopCount > 0 && listed > 0) {
-                lines += "${p.sharedTopCount} of its $listed biggest holdings are also among $o's biggest."
+                lines += "Shares ${p.sharedTopCount} of its top $listed holdings with $o."
             }
         }
         val tops = resp.funds[c]?.topHoldings.orEmpty()
         val direct = tops.filter { h -> ownedStocks.any { it.equals(h.symbol, ignoreCase = true) } }
         if (direct.isNotEmpty()) {
             val weight = direct.sumOf { it.pct }
-            lines += "You already own ${direct.joinToString(", ") { it.symbol }} directly: " +
+            lines += "You already own ${direct.joinToString(", ") { it.symbol }}: " +
                 "${String.format(Locale.US, "%.0f", weight)}% of this fund."
         }
         return lines

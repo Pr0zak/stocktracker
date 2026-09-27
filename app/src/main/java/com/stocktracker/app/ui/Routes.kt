@@ -47,6 +47,7 @@ object Routes {
     const val FUNDS_RANKING_PATTERN = "funds/ranking?sort={sort}"
     const val FUNDS_OVERLAP = "funds/overlap"
     const val FUNDS_COPIES = "funds/copies"
+    const val FUNDS_EXPLORE_PATTERN = "funds/explore?cat={cat}"
 
     const val CALENDAR_PATTERN = "calendar?symbol={symbol}"
     const val REPORT_PATTERN = "report/{id}"
@@ -64,6 +65,10 @@ object Routes {
 
     /** The Funds performance ranking, opened sorted by [sort] (a RankSort name). */
     fun fundsRanking(sort: String): String = "funds/ranking?sort=${Uri.encode(sort)}"
+
+    /** FUND-8: Explore ETFs, opened on one type ([category] an ExploreCategory id) or on all of them. */
+    fun fundsExplore(category: String? = null): String =
+        "funds/explore" + (category?.let { "?cat=${Uri.encode(it)}" } ?: "")
 
     /** FUND-5: the side-by-side comparison, preloaded with up to three symbols. */
     fun fundCompare(symbols: List<String>): String =

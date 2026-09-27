@@ -55,6 +55,8 @@ class FundsLogicTest {
     @Test fun `the headline counts the funds that overlap and names them`() {
         assertEquals("7 of your 12 funds overlap", FundsLogic.overlapHeadline(12, 7))
         assertEquals("None of your 5 funds overlap", FundsLogic.overlapHeadline(5, 0))
+        assertEquals("All 3 of your funds overlap", FundsLogic.overlapHeadline(3, 3))
+        assertEquals("Both your funds overlap", FundsLogic.overlapHeadline(2, 2))
         assertEquals("1 fund, nothing to overlap with", FundsLogic.overlapHeadline(1, 0))
         val ov = FundsLogic.overlapView(resp)
         assertEquals(listOf(listOf("VOO", "SPY", "QQQM")), ov.groups)
@@ -113,18 +115,18 @@ class FundsLogicTest {
     @Test fun `before you buy leads with the closest fund you own`() {
         val lines = FundsLogic.beforeYouBuy("QQQM", resp, ownedFunds = listOf("VOO", "SCHD"), ownedStocks = listOf("AAPL", "TSLA"))
         assertEquals("Moves almost the same as your VOO (0.95).", lines[0])
-        assertEquals("3 of its 4 biggest holdings are also among VOO's biggest.", lines[1])
-        assertEquals("You already own AAPL directly: 7% of this fund.", lines[2])
+        assertEquals("Shares 3 of its top 4 holdings with VOO.", lines[1])
+        assertEquals("You already own AAPL: 7% of this fund.", lines[2])
     }
 
     @Test fun `the same fund twice is called that`() {
         val lines = FundsLogic.beforeYouBuy("SPY", resp, ownedFunds = listOf("VOO"), ownedStocks = emptyList())
-        assertEquals("Same fund as your VOO (1.00): owning both doubles up.", lines[0])
+        assertEquals("Same as your VOO (1.00). Owning both doubles up.", lines[0])
     }
 
     @Test fun `a different fund says how close its nearest match is`() {
         val lines = FundsLogic.beforeYouBuy("SCHD", resp, ownedFunds = listOf("VOO", "QQQM"), ownedStocks = emptyList())
-        assertEquals("Moves its own way: its closest match among your funds is VOO, at 0.52.", lines[0])
+        assertEquals("Moves its own way. Closest of yours: VOO (0.52).", lines[0])
         assertEquals(1, lines.size)                            // no shared top holdings to report
     }
 
@@ -135,7 +137,7 @@ class FundsLogicTest {
     @Test fun `a fund you already hold says so first`() {
         val lines = FundsLogic.beforeYouBuy("VOO", resp, listOf("SPY"), emptyList(), alreadyOwned = true)
         assertEquals("You already own VOO.", lines[0])
-        assertEquals("Same fund as your SPY (1.00): owning both doubles up.", lines[1])
+        assertEquals("Same as your SPY (1.00). Owning both doubles up.", lines[1])
     }
 
     @Test fun `fees you pay, and the cheapest look-alike for each fund`() {
@@ -196,7 +198,7 @@ class FundsLogicTest {
 
     @Test fun `trading cost is per round trip, and a mutual fund has none`() {
         val now = 1_790_000_000_000L
-        assertEquals("Buying and selling \$10,000 once costs about \$0.33 in the bid-ask gap (checked 2h ago)",
+        assertEquals("Trading gap: about \$0.33 to buy and sell \$10,000 (checked 2h ago)",
             FundsLogic.tradingCost(0.0033, (now - 2 * 3_600_000) / 1000.0, isMutualFund = false, nowMs = now))
         assertTrue(FundsLogic.tradingCost(null, null, isMutualFund = true)!!.startsWith("No trading gap"))
         assertNull(FundsLogic.tradingCost(null, null, isMutualFund = false))

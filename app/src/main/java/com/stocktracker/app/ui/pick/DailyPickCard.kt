@@ -85,8 +85,11 @@ fun DailyPickCard(
     val vm: DailyPickViewModel = viewModel(key = "daily-pick-$kind") { DailyPickViewModel(kind) }
     val state by vm.state.collectAsState()
     val store = ServiceLocator.settingsStore
-    val collapsed by (if (etf) store.etfPickCardCollapsed else store.dailyPickCardCollapsed)
+    val storedCollapsed by (if (etf) store.etfPickCardCollapsed else store.dailyPickCardCollapsed)
         .collectAsState(initial = false)
+    // Inside the combined box a section is always open: the box's header is the one dropdown, and
+    // a fold inside a fold was one level too many (user, 2026-09-28).
+    val collapsed = framed && storedCollapsed
     val setCollapsed: suspend (Boolean) -> Unit = { v ->
         if (etf) store.setEtfPickCardCollapsed(v) else store.setDailyPickCardCollapsed(v)
     }
@@ -227,7 +230,7 @@ private fun HeaderRow(
     val stale = (shape as? DailyPickRead.Shape.Pick)?.stale == true || (shape as? DailyPickRead.Shape.NoPick)?.stale == true ||
         (shape as? DailyPickRead.Shape.RunFailed)?.stale == true
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle),
+        modifier = Modifier.fillMaxWidth().then(if (framed) Modifier.clickable(onClick = onToggle) else Modifier),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Folded, the card still shows its one number: the pick's confidence (green) or how close
@@ -262,7 +265,7 @@ private fun HeaderRow(
                 Icon(Icons.Filled.Refresh, contentDescription = "Refresh today's pick", tint = neutral, modifier = Modifier.size(18.dp))
             }
         }
-        Icon(
+        if (framed) Icon(
             if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
             contentDescription = if (collapsed) "Expand today's pick" else "Collapse today's pick", tint = neutral,
         )

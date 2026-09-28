@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -89,6 +90,16 @@ fun DailyPickCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenS
     val shape = state.shape
     if (shape is DailyPickRead.Shape.NotConfigured) return
 
+    // Folded on a day with nothing picked, the card is one slim line. As a full card it spent
+    // ~180px of the watchlist's first screen saying "nothing today"; a day WITH a pick keeps the
+    // card, because folded it still shows the ticker and its confidence ring.
+    if (collapsed && shape is DailyPickRead.Shape.NoPick) {
+        SlimNoPick(shape, onExpand = {
+            scope.launch { ServiceLocator.settingsStore.setDailyPickCardCollapsed(false) }
+        })
+        return
+    }
+
     // The glow is the day's verdict: green for a fresh pick, gold for a fresh no-pick day. A stale,
     // failed or loading card gets no glow — it has not earned a mood.
     val glow = when {
@@ -156,6 +167,35 @@ fun DailyPickCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenS
         }
     }
     ExplainDialog(explain.key, explain.title, onDismiss = { explain.dismiss() })
+}
+
+@Composable
+private fun SlimNoPick(shape: DailyPickRead.Shape.NoPick, onExpand: () -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val at = shape.resp.ts?.let { DailyPickRead.pickedAt(it) }?.removePrefix("picked ")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClickLabel = "Show today's pick details", onClick = onExpand)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // Gold, the no-pick day's colour on the full card; grey when the reading is from an
+        // earlier day, which the header text also says.
+        Box(Modifier.size(8.dp).background(if (shape.stale) neutral else ZoneGold, RoundedCornerShape(50)))
+        Text(
+            DailyPickRead.header(shape),
+            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
+            color = if (shape.stale) Signal else neutral,
+            modifier = Modifier.semantics { heading() },
+        )
+        at?.let { Text("· $it", style = MaterialTheme.typography.labelSmall, color = neutral, maxLines = 1) }
+        Spacer(Modifier.weight(1f))
+        Icon(Icons.Filled.ExpandMore, contentDescription = null, tint = neutral, modifier = Modifier.size(20.dp))
+    }
 }
 
 @Composable

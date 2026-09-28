@@ -54,8 +54,10 @@ object DailyPickRead {
     }
 
     /** "TODAY'S PICK", or a header that names the older date instead of passing it off as today's. */
-    fun header(shape: Shape, etf: Boolean = false): String {
-        val p = if (etf) "ETF PICK" else "PICK"
+    fun header(shape: Shape, etf: Boolean = false, named: Boolean = false): String {
+        // `named`: inside the combined box the stock section says "STOCK PICK", so it pairs with
+        // "ETF PICK" beneath it; on its own it stays "PICK", as it always read.
+        val p = if (etf) "ETF PICK" else if (named) "STOCK PICK" else "PICK"
         return when (shape) {
             is Shape.Pick -> if (shape.stale) "$p FROM ${dayLabel(shape.resp.date)}" else "TODAY'S $p"
             is Shape.NoPick -> if (shape.stale) "NO $p ON ${dayLabel(shape.resp.date)}" else "NO $p TODAY"

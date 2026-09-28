@@ -357,22 +357,13 @@ fun WatchlistScreen(
                     item(key = "hdr:offline") { com.stocktracker.app.ui.components.BackendStatusBanner() }
                 }
                 // DP-5: the Daily Pick leads the tab. It renders nothing when no Signals URL is set.
+                // DP-5: both picks lead the tab, in one box. Renders nothing with no Signals URL.
                 item(key = "hdr:pick") {
-                    com.stocktracker.app.ui.pick.DailyPickCard(
+                    com.stocktracker.app.ui.pick.DailyPicksCard(
                         onOpenSymbol = { sym, name ->
                             onOpenDetail(Asset(symbol = sym, type = AssetType.STOCK, displayName = name ?: sym))
                         },
                         onOpenSettings = onOpenSignalsSettings,
-                    )
-                }
-                // The ETF pick, beside the stock pick: a sound, low-cost fund at a better price.
-                item(key = "hdr:pick-etf") {
-                    com.stocktracker.app.ui.pick.DailyPickCard(
-                        onOpenSymbol = { sym, name ->
-                            onOpenDetail(Asset(symbol = sym, type = AssetType.STOCK, displayName = name ?: sym))
-                        },
-                        onOpenSettings = onOpenSignalsSettings,
-                        kind = "etf",
                     )
                 }
                 // Market context — dips, session, regime, VIX — behind ONE line by default.

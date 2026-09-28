@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -76,6 +78,8 @@ fun DailyPickCard(
     onOpenSettings: () -> Unit,
     /** "stock" (the Daily Pick) or "etf" (the ETF pick). */
     kind: String = "stock",
+    /** False inside DailyPicksCard, which draws the one box both picks share. */
+    framed: Boolean = true,
 ) {
     val etf = kind == "etf"
     val vm: DailyPickViewModel = viewModel(key = "daily-pick-$kind") { DailyPickViewModel(kind) }
@@ -105,7 +109,7 @@ fun DailyPickCard(
     // ~180px of the watchlist's first screen saying "nothing today"; a day WITH a pick keeps the
     // card, because folded it still shows the ticker and its confidence ring.
     if (collapsed && shape is DailyPickRead.Shape.NoPick) {
-        SlimNoPick(shape, etf, onExpand = { scope.launch { setCollapsed(false) } })
+        SlimNoPick(shape, etf, framed, onExpand = { scope.launch { setCollapsed(false) } })
         return
     }
 
@@ -119,13 +123,12 @@ fun DailyPickCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .spotlightGlow(glow)
+            .then(if (framed) Modifier.clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant).spotlightGlow(glow) else Modifier)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        HeaderRow(shape, state, collapsed, nowMs, etf,
+        HeaderRow(shape, state, collapsed, nowMs, etf, framed,
             onToggle = { scope.launch { setCollapsed(!collapsed) } },
             onRefresh = { vm.load() })
         if (!collapsed) {
@@ -180,14 +183,14 @@ fun DailyPickCard(
 }
 
 @Composable
-private fun SlimNoPick(shape: DailyPickRead.Shape.NoPick, etf: Boolean, onExpand: () -> Unit) {
+private fun SlimNoPick(shape: DailyPickRead.Shape.NoPick, etf: Boolean, framed: Boolean = true, onExpand: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val at = shape.resp.ts?.let { DailyPickRead.pickedAt(it) }?.removePrefix("picked ")
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .then(if (framed) Modifier.clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant) else Modifier)
             .clickable(onClickLabel = "Show today's pick details", onClick = onExpand)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -197,7 +200,7 @@ private fun SlimNoPick(shape: DailyPickRead.Shape.NoPick, etf: Boolean, onExpand
         // earlier day, which the header text also says.
         Box(Modifier.size(8.dp).background(if (shape.stale) neutral else ZoneGold, RoundedCornerShape(50)))
         Text(
-            DailyPickRead.header(shape, etf),
+            DailyPickRead.header(shape, etf, named = !framed),
             style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
             color = if (shape.stale) Signal else neutral,
             modifier = Modifier.semantics { heading() },
@@ -215,6 +218,7 @@ private fun HeaderRow(
     collapsed: Boolean,
     nowMs: Long,
     etf: Boolean,
+    framed: Boolean,
     onToggle: () -> Unit,
     onRefresh: () -> Unit,
 ) {
@@ -238,7 +242,7 @@ private fun HeaderRow(
         }
         Column(Modifier.weight(1f)) {
             Text(
-                DailyPickRead.header(shape, etf),
+                DailyPickRead.header(shape, etf, named = !framed),
                 style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
                 color = if (stale) Signal else neutral,
                 modifier = Modifier.semantics { heading() },
@@ -506,4 +510,72 @@ private fun RecheckSection(
     }
     state.recheckNote?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = neutral) }
     state.recheckError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = LossRed) }
+}
+
+
+/**
+ * Both picks in ONE box: the stock pick and the ETF pick as two sections under one header, the
+ * same shape as the market box below them. Two separate cards spent two headers and two gaps on
+ * what is one question — "is there anything to buy today?".
+ *
+ * Folded, the box is one line that answers it for both ("Stock: none · ETF: SCHD"). Open, each
+ * section is the full card it always was, and each still folds on its own.
+ */
+@Composable
+fun DailyPicksCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenSettings: () -> Unit) {
+    val stockVm: DailyPickViewModel = viewModel(key = "daily-pick-stock") { DailyPickViewModel("stock") }
+    val etfVm: DailyPickViewModel = viewModel(key = "daily-pick-etf") { DailyPickViewModel("etf") }
+    val stock by stockVm.state.collectAsState()
+    val etfState by etfVm.state.collectAsState()
+    if (stock.shape is DailyPickRead.Shape.NotConfigured) return
+    val store = ServiceLocator.settingsStore
+    val folded by store.dailyPicksFolded.collectAsState(initial = false)
+    val scope = rememberCoroutineScope()
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Row(
+            Modifier.fillMaxWidth()
+                .clickable(onClickLabel = if (folded) "Show today's picks" else "Hide today's picks") {
+                    scope.launch { store.setDailyPicksFolded(!folded) }
+                }
+                .heightIn(min = 44.dp)
+                .padding(start = 14.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("PICKS", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+                letterSpacing = 1.2.sp, color = neutral, modifier = Modifier.semantics { heading() })
+            PickChip("Stock", stock.shape)
+            PickChip("ETF", etfState.shape)
+            Spacer(Modifier.weight(1f))
+            Icon(if (folded) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess, contentDescription = null,
+                tint = neutral)
+        }
+        if (!folded) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(1.dp).background(neutral.copy(alpha = 0.14f)))
+            DailyPickCard(onOpenSymbol, onOpenSettings, kind = "stock", framed = false)
+            Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(1.dp).background(neutral.copy(alpha = 0.14f)))
+            DailyPickCard(onOpenSymbol, onOpenSettings, kind = "etf", framed = false)
+        }
+    }
+}
+
+/** "Stock: NVDA" in green, "Stock: none" in gold, "Stock: —" when there is no reading. */
+@Composable
+private fun PickChip(label: String, shape: DailyPickRead.Shape, modifier: Modifier = Modifier) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val (word, color) = when (shape) {
+        is DailyPickRead.Shape.Pick -> (shape.resp.pick?.symbol ?: "pick") to (if (shape.stale) neutral else GainGreen)
+        is DailyPickRead.Shape.NoPick -> "none" to (if (shape.stale) neutral else ZoneGold)
+        is DailyPickRead.Shape.RunFailed -> "failed" to Signal
+        DailyPickRead.Shape.Loading -> "…" to neutral
+        else -> "—" to neutral
+    }
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Box(Modifier.size(7.dp).background(color, RoundedCornerShape(50)))
+        Text("$label: $word", style = MaterialTheme.typography.labelMedium, color = neutral, maxLines = 1,
+            overflow = TextOverflow.Ellipsis)
+    }
 }

@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.19.0" to listOf(
+            "Sandbox: two new ETF-only arms, one AI and one no-AI, to see if the AI adds anything",
+            "Pick the arm or watchlist list from the title, freeing a row of screen",
+            "\"No pick today\" folds to one slim line; market details open inside one box",
+            "Fixed: BTC no longer wraps onto three lines",
+        ),
         "1.18.0" to listOf(
             "New: Explore ETFs, 180+ funds by type, return, worst drop and fee",
             "See the best, cheapest and calmest fund of each type at a glance",

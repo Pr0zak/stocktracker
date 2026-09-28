@@ -110,6 +110,9 @@ fun AssetRow(
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium,
                         color = accent ?: MaterialTheme.colorScheme.onSurface,
+                        // Never wraps. A squeezed row broke "BTC" into three stacked letters.
+                        maxLines = 1,
+                        softWrap = false,
                     )
                     // Amber "below its 200-week line" marker — long-term value context, not a buy flag.
                     if (belowLine) {
@@ -158,7 +161,11 @@ fun AssetRow(
                 }
             }
 
-            if (sparkline.size >= 2) {
+            // The sparkline yields to the ticker. A five-figure crypto quote carries a change pill
+            // like "-1,786.71 (-2.14%)", and with the 58dp sparkline beside it the ticker was left
+            // about 20dp — "BTC" wrapped one letter per line. The ticker is the row's identity; the
+            // sparkline is decoration, so it is the one that goes.
+            if (sparkline.size >= 2 && changeText.length <= SPARKLINE_MAX_CHANGE_CHARS) {
                 Sparkline(
                     values = sparkline,
                     up = up,
@@ -245,3 +252,7 @@ private fun Modifier.moveWash(pct: Double?): Modifier {
         drawRect(Brush.horizontalGradient(listOf(Color.Transparent, c.copy(alpha = a)), startX = size.width * 0.35f, endX = size.width))
     }
 }
+
+/** Longest change text, arrow included ("▼ -25.95 (-1.03%)" is 17), that still leaves the ticker room
+ *  beside a sparkline. "▼ -1,786.71 (-2.14%)" (20) does not. */
+internal const val SPARKLINE_MAX_CHANGE_CHARS = 18

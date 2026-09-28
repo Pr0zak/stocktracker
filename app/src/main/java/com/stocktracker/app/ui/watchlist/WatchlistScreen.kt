@@ -1,6 +1,7 @@
 package com.stocktracker.app.ui.watchlist
 
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Schedule
@@ -217,6 +218,41 @@ fun WatchlistScreen(
         if (result == SnackbarResult.ActionPerformed) vm.undoRemove() else vm.clearUndo()
     }
 
+    // Which list is on screen, and how it is ordered, live in the title bar: the title names the
+    // list with its count and opens a sheet of every list plus the Manual/Sector order. The chip
+    // row that did this cost a full row above the first ticker (the Sandbox arm picker was moved
+    // the same way on 2026-09-28).
+    val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
+    // Stocks and Crypto are dropped while grouping is on, because the sections already do that job.
+    val typeTabs = if (groupBySector) emptyList() else listOf(TAB_STOCKS, TAB_CRYPTO)
+    val tabs = listOf(TAB_ALL) + typeTabs + belowTab + groups
+    // Null while the first load is still running: an empty list then means "not read yet", and
+    // printing it as "All 0" claims an empty watchlist.
+    val countOf: (String) -> Int? = { tab ->
+        if (state.loading && state.items.isEmpty()) null else when (tab) {
+            TAB_ALL -> state.items.size
+            TAB_STOCKS -> state.items.count { it.asset.type == AssetType.STOCK }
+            TAB_CRYPTO -> state.items.count { it.asset.type == AssetType.CRYPTO }
+            TAB_BELOW -> state.items.count { it.below200wma == true }
+            else -> state.items.count { it.asset.groups.contains(tab) }
+        }
+    }
+    // A list that no longer exists (deleted, or Stocks while grouping hid it) falls back to All
+    // rather than titling the screen with a list the rows below are not from.
+    val shownTab = if (selected in tabs) selected else TAB_ALL
+    var listSheet by rememberSaveable { mutableStateOf(false) }
+    if (listSheet) {
+        ListPickerSheet(
+            tabs = tabs, selected = shownTab, countOf = countOf, groupBySector = groupBySector,
+            onSelect = { selected = it; listSheet = false },
+            onSetSector = { v ->
+                scope.launch { ServiceLocator.settingsStore.setWatchlistGroupBySector(v) }
+            },
+            onNewList = { listSheet = false; showNewListDialog = true },
+            onDismiss = { listSheet = false },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
@@ -226,7 +262,21 @@ fun WatchlistScreen(
                 // refresh button it pairs with, and no longer spends a row of the list.
                 title = {
                     Column {
-                        Text("StockTracker")
+                        Row(
+                            Modifier.clip(RoundedCornerShape(8.dp)).clickable { listSheet = true }
+                                .semantics { contentDescription = "Showing $shownTab. Change list or order" },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(shownTab, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false))
+                            countOf(shownTab)?.let {
+                                Text(it.toString(), style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(Icons.Default.ExpandMore, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                        }
                         if (state.items.isNotEmpty()) {
                             val stamps = state.items.map { it.quote?.asOfEpochMs ?: 0L }
                             FreshnessLine(
@@ -280,7 +330,7 @@ fun WatchlistScreen(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
     ) { innerPadding ->
         val filtered = state.items.filter { item ->
-            when (selected) {
+            when (shownTab) {
                 TAB_ALL -> true
                 TAB_STOCKS -> item.asset.type == AssetType.STOCK
                 TAB_CRYPTO -> item.asset.type == AssetType.CRYPTO
@@ -315,65 +365,6 @@ fun WatchlistScreen(
                         onOpenSettings = onOpenSignalsSettings,
                     )
                 }
-                item(key = "hdr:tabs") {
-                    val belowTab = if (state.items.any { it.below200wma == true }) listOf(TAB_BELOW) else emptyList()
-                    // Stocks and Crypto are dropped while grouping is on, because the sections
-                    // already do that job: everything crypto sits under its own heading and
-                    // everything else is, by definition, the Stocks tab. Keeping them would leave
-                    // two controls for one split, and the pill row is where the horizontal space
-                    // runs out first -- "Below 200w" was already scrolling off the right edge.
-                    //
-                    // They stay in the flat view, where they are the ONLY way to separate the two.
-                    val typeTabs = if (groupBySector) emptyList() else listOf(TAB_STOCKS, TAB_CRYPTO)
-                    val tabs = listOf(TAB_ALL) + typeTabs + belowTab + groups
-                    val faint = MaterialTheme.colorScheme.onSurfaceVariant
-                    val primary = MaterialTheme.colorScheme.primary
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // The view mode leads the row rather than owning a line of its own. It was a
-                        // full-width row carrying a label and five words of instruction ("Tap to
-                        // reorder manually") for one binary toggle, on a screen where four stacked
-                        // control rows stood between the title and the first ticker.
-                        ModeChip(
-                            label = if (groupBySector) "Sector" else "Manual",
-                            onClick = {
-                                scope.launch {
-                                    ServiceLocator.settingsStore.setWatchlistGroupBySector(!groupBySector)
-                                }
-                            },
-                        )
-                        tabs.forEach { tab ->
-                            // Null while the first load is still running: an empty list then means
-                            // "not read yet", and printing it as "All 0" claims an empty watchlist.
-                            val count = if (state.loading && state.items.isEmpty()) null else when (tab) {
-                                TAB_ALL -> state.items.size
-                                TAB_STOCKS -> state.items.count { it.asset.type == AssetType.STOCK }
-                                TAB_CRYPTO -> state.items.count { it.asset.type == AssetType.CRYPTO }
-                                TAB_BELOW -> state.items.count { it.below200wma == true }
-                                else -> state.items.count { it.asset.groups.contains(tab) }
-                            }
-                            val dot = when (tab) {
-                                TAB_ALL -> null
-                                TAB_STOCKS -> faint
-                                TAB_CRYPTO -> CryptoAccent
-                                TAB_BELOW -> CategoricalRamp[1]
-                                else -> primary
-                            }
-                            ListChip(
-                                label = tab,
-                                count = count,
-                                dotColor = dot,
-                                selected = selected == tab,
-                                onClick = { selected = tab },
-                            )
-                        }
-                        NewListChip(onClick = { showNewListDialog = true })
-                    }
-                }
-
                 // Market context — dips, session, regime, VIX — behind ONE line by default.
                 //
                 // These four cards ran to roughly a thousand pixels before the first holding, which
@@ -1323,57 +1314,77 @@ private fun dipMeta(tier: String): Pair<String, Color> = when (tier) {
 private fun dipPct(d: DipEntry): String =
     (d.pctOff52w ?: d.pctOffHigh)?.let { "%.0f%%".format(it) } ?: ""
 
-/** One list tab as a soft card: a colour dot (list identity), the name, and its live count. Selected
- *  gets the primary tint. Replaces the flat Material filter-chips with something that scales to many
- *  custom lists and calls out the value-signal "Below 200w" tab in its own colour.
- *
- *  PLAT-4: a raw `clickable` here left the tint as the only sign of which list was active — a
- *  screen-reader user had no way to tell. `selectable` with [Role.Tab] fixes that (TalkBack adds
- *  "selected" to the one that is), chosen over Role.RadioButton because this is a horizontally
- *  scrollable strip that swaps the whole list below it, the same shape as a TabRow, not a vertical
- *  set of options in a form (that's what the widget colour-swatch picker uses RadioButton for). */
+/** Every list with its count, the "New list" action, and the Manual/Sector order — the controls that
+ *  used to be a chip row above the tickers, opened from the title. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ListChip(label: String, count: Int?, dotColor: Color?, selected: Boolean, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val bg = if (selected) scheme.primary.copy(alpha = 0.16f) else scheme.surfaceVariant
-    val fg = if (selected) scheme.primary else scheme.onSurface
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(bg)
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        dotColor?.let { Box(Modifier.size(8.dp).background(it, RoundedCornerShape(50))) }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = fg,
-        )
-        Text(
-            count?.toString() ?: "–",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = fg.copy(alpha = 0.6f),
-        )
+private fun ListPickerSheet(
+    tabs: List<String>,
+    selected: String,
+    countOf: (String) -> Int?,
+    groupBySector: Boolean,
+    onSelect: (String) -> Unit,
+    onSetSector: (Boolean) -> Unit,
+    onNewList: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val faint = MaterialTheme.colorScheme.onSurfaceVariant
+    val primary = MaterialTheme.colorScheme.primary
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp).verticalScroll(rememberScrollState())) {
+            Text("Lists", style = MaterialTheme.typography.labelLarge, color = faint,
+                modifier = Modifier.padding(bottom = 4.dp))
+            tabs.forEach { tab ->
+                val dot = when (tab) {
+                    TAB_ALL -> null
+                    TAB_STOCKS -> faint
+                    TAB_CRYPTO -> CryptoAccent
+                    TAB_BELOW -> CategoricalRamp[1]
+                    else -> primary
+                }
+                SheetRow(
+                    selected = tab == selected, onClick = { onSelect(tab) },
+                    lead = { Box(Modifier.size(8.dp).background(dot ?: Color.Transparent, RoundedCornerShape(50))) },
+                    label = tab, trailing = countOf(tab)?.toString() ?: "–",
+                )
+            }
+            SheetRow(selected = false, onClick = onNewList, lead = { Text("＋", color = faint) },
+                label = "New list", trailing = null, muted = true)
+            Text("Order", style = MaterialTheme.typography.labelLarge, color = faint,
+                modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
+            SheetRow(selected = !groupBySector, onClick = { onSetSector(false) },
+                lead = { Icon(Icons.Default.Sort, null, tint = faint, modifier = Modifier.size(16.dp)) },
+                label = "Manual", trailing = null)
+            SheetRow(selected = groupBySector, onClick = { onSetSector(true) },
+                lead = { Icon(Icons.Default.Sort, null, tint = faint, modifier = Modifier.size(16.dp)) },
+                label = "By sector", trailing = null)
+        }
     }
 }
 
-/** The ghost "＋ New list" tab — a dashed-feel outlined card that sits at the end of the tab row. */
 @Composable
-private fun NewListChip(onClick: () -> Unit) {
+private fun SheetRow(
+    selected: Boolean, onClick: () -> Unit, lead: @Composable () -> Unit, label: String,
+    trailing: String?, muted: Boolean = false,
+) {
+    val fg = when {
+        selected -> MaterialTheme.colorScheme.primary
+        muted -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.onSurface
+    }
     Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("＋ New list", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.width(18.dp), contentAlignment = Alignment.Center) { lead() }
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = fg,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+        trailing?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = fg.copy(alpha = 0.7f)) }
+        if (selected) Icon(Icons.Default.Check, contentDescription = "selected", tint = fg, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -1422,29 +1433,6 @@ private fun SectionHeading(label: String, count: Int, expanded: Boolean, onToggl
                 .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
                 .padding(horizontal = 6.dp, vertical = 1.dp),
         )
-    }
-}
-
-/** The view-mode chip that leads the filter row: "Sector" or "Manual". */
-@Composable
-private fun ModeChip(label: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Icon(
-            Icons.Default.Sort,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(15.dp),
-        )
-        Text(label, style = MaterialTheme.typography.labelLarge,
-             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -165,7 +165,7 @@ fun AssetRow(
             // like "-1,786.71 (-2.14%)", and with the 58dp sparkline beside it the ticker was left
             // about 20dp — "BTC" wrapped one letter per line. The ticker is the row's identity; the
             // sparkline is decoration, so it is the one that goes.
-            if (sparkline.size >= 2 && changeText.length <= SPARKLINE_MAX_CHANGE_CHARS) {
+            if (sparkline.size >= 2 && priceText.length + changeText.length <= SPARKLINE_MAX_PRICE_CHANGE_CHARS) {
                 Sparkline(
                     values = sparkline,
                     up = up,
@@ -253,6 +253,8 @@ private fun Modifier.moveWash(pct: Double?): Modifier {
     }
 }
 
-/** Longest change text, arrow included ("▼ -25.95 (-1.03%)" is 17), that still leaves the ticker room
- *  beside a sparkline. "▼ -1,786.71 (-2.14%)" (20) does not. */
-internal const val SPARKLINE_MAX_CHANGE_CHARS = 18
+/** Longest price + change text that still leaves the ticker room beside a sparkline. Both lines share
+ *  the right-hand column, so the wider of the two is what squeezes the ticker; their sum tracks it.
+ *  ETH "$2,696.43" + "▼ -25.95 (-1.03%)" is 26 and fits; BTC "$83,951.00" + "▼ -721.42 (-0.93%)" is
+ *  28 and clipped the ticker, as did "▼ -1,786.71 (-2.14%)" before it. */
+internal const val SPARKLINE_MAX_PRICE_CHANGE_CHARS = 26

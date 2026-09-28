@@ -333,6 +333,7 @@ class SettingsStore(private val context: Context) {
     private val dailyPickNotifyKey = booleanPreferencesKey("daily_pick_notify_enabled")
     private val dailyPickAlertsKey = booleanPreferencesKey("daily_pick_alerts_enabled")
     private val dailyPickCollapsedKey = booleanPreferencesKey("daily_pick_card_collapsed")
+    private val etfPickCollapsedKey = booleanPreferencesKey("etf_pick_card_collapsed")
     private val lastDailyPickNotifyKey = stringPreferencesKey("last_daily_pick_notify_date")
     private val dailyPickAlertLogKey = stringSetPreferencesKey("daily_pick_alert_log")
     private val dailyPickReportCardsKey = stringSetPreferencesKey("daily_pick_report_cards")
@@ -351,6 +352,11 @@ class SettingsStore(private val context: Context) {
     val dailyPickCardCollapsed: Flow<Boolean> = context.dataStore.data.map { it[dailyPickCollapsedKey] ?: false }
     suspend fun setDailyPickCardCollapsed(collapsed: Boolean) =
         context.dataStore.edit { it[dailyPickCollapsedKey] = collapsed }
+
+    /** The ETF pick card folds on its own, so folding one card never folds the other. */
+    val etfPickCardCollapsed: Flow<Boolean> = context.dataStore.data.map { it[etfPickCollapsedKey] ?: false }
+    suspend fun setEtfPickCardCollapsed(collapsed: Boolean) =
+        context.dataStore.edit { it[etfPickCollapsedKey] = collapsed }
 
     /** ET date the morning pick notification last went out; "" = never. */
     val lastDailyPickNotifyDate: Flow<String> = context.dataStore.data.map { it[lastDailyPickNotifyKey] ?: "" }

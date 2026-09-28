@@ -51,7 +51,10 @@ data class DailyPickUiState(
  * pick it could not confirm, because a stale pick with fresh-looking price levels is exactly the screen
  * that gets copied onto a broker ticket.
  */
-class DailyPickViewModel : ViewModel() {
+class DailyPickViewModel(
+    /** "stock" for the Daily Pick, "etf" for the ETF pick beside it. Same card, same rules. */
+    val kind: String = "stock",
+) : ViewModel() {
 
     private val api = SignalsApiService()
     private val _state = MutableStateFlow(DailyPickUiState())
@@ -74,7 +77,7 @@ class DailyPickViewModel : ViewModel() {
                 return@launch
             }
             _state.update { it.copy(configured = true, loading = true) }
-            val result = runCatching { api.dailyPick(base) }
+            val result = runCatching { api.dailyPick(base, kind) }
             _state.update { s ->
                 result.fold(
                     onSuccess = { r ->
@@ -108,7 +111,7 @@ class DailyPickViewModel : ViewModel() {
             val base = url()
             if (base.isBlank()) return@launch
             _state.update { it.copy(historyLoading = true) }
-            val r = runCatching { api.dailyPickHistory(base, limit = 20) }
+            val r = runCatching { api.dailyPickHistory(base, limit = 20, kind = kind) }
             _state.update {
                 it.copy(
                     historyLoading = false,

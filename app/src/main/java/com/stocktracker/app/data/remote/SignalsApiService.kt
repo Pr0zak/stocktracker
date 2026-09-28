@@ -840,9 +840,11 @@ class SignalsApiService {
      * rather than returning null: the card has to tell "could not load" apart from "loaded, no pick
      * today", and a null would collapse the two. Null only when no URL is configured.
      */
-    suspend fun dailyPick(baseUrl: String): DailyPickResponse? {
+    suspend fun dailyPick(baseUrl: String, kind: String = "stock"): DailyPickResponse? {
         if (baseUrl.isBlank()) return null
-        return Http.json.decodeFromString<DailyPickResponse>(sGet("${baseUrl.trimEnd('/')}/daily_pick"))
+        // `kind` is only sent for the ETF card, so the stock card's request is byte-for-byte unchanged.
+        val q = if (kind == "etf") "?kind=etf" else ""
+        return Http.json.decodeFromString<DailyPickResponse>(sGet("${baseUrl.trimEnd('/')}/daily_pick$q"))
     }
 
     /** RPT-1: stored weekly/monthly reports, newest first. Token-gated (a row carries the sandbox result). Throws on failure. */
@@ -872,10 +874,11 @@ class SignalsApiService {
     }
 
     /** Past runs with their graded marks and the AI-vs-rule comparison. Throws on failure. */
-    suspend fun dailyPickHistory(baseUrl: String, limit: Int = 20): DailyPickHistory? {
+    suspend fun dailyPickHistory(baseUrl: String, limit: Int = 20, kind: String = "stock"): DailyPickHistory? {
         if (baseUrl.isBlank()) return null
+        val k = if (kind == "etf") "&kind=etf" else ""
         return Http.json.decodeFromString<DailyPickHistory>(
-            sGet("${baseUrl.trimEnd('/')}/daily_pick/history?limit=$limit"),
+            sGet("${baseUrl.trimEnd('/')}/daily_pick/history?limit=$limit$k"),
         )
     }
 

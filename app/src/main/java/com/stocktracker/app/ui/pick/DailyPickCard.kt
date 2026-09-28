@@ -71,10 +71,21 @@ import java.util.Locale
  * always says when the pick was made and how old its price is.
  */
 @Composable
-fun DailyPickCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenSettings: () -> Unit) {
-    val vm: DailyPickViewModel = viewModel()
+fun DailyPickCard(
+    onOpenSymbol: (symbol: String, name: String?) -> Unit,
+    onOpenSettings: () -> Unit,
+    /** "stock" (the Daily Pick) or "etf" (the ETF pick). */
+    kind: String = "stock",
+) {
+    val etf = kind == "etf"
+    val vm: DailyPickViewModel = viewModel(key = "daily-pick-$kind") { DailyPickViewModel(kind) }
     val state by vm.state.collectAsState()
-    val collapsed by ServiceLocator.settingsStore.dailyPickCardCollapsed.collectAsState(initial = false)
+    val store = ServiceLocator.settingsStore
+    val collapsed by (if (etf) store.etfPickCardCollapsed else store.dailyPickCardCollapsed)
+        .collectAsState(initial = false)
+    val setCollapsed: suspend (Boolean) -> Unit = { v ->
+        if (etf) store.setEtfPickCardCollapsed(v) else store.setDailyPickCardCollapsed(v)
+    }
     val scope = rememberCoroutineScope()
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
     var boughtOpen by rememberSaveable { mutableStateOf(false) }
@@ -94,9 +105,7 @@ fun DailyPickCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenS
     // ~180px of the watchlist's first screen saying "nothing today"; a day WITH a pick keeps the
     // card, because folded it still shows the ticker and its confidence ring.
     if (collapsed && shape is DailyPickRead.Shape.NoPick) {
-        SlimNoPick(shape, onExpand = {
-            scope.launch { ServiceLocator.settingsStore.setDailyPickCardCollapsed(false) }
-        })
+        SlimNoPick(shape, etf, onExpand = { scope.launch { setCollapsed(false) } })
         return
     }
 
@@ -116,8 +125,8 @@ fun DailyPickCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenS
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        HeaderRow(shape, state, collapsed, nowMs,
-            onToggle = { scope.launch { ServiceLocator.settingsStore.setDailyPickCardCollapsed(!collapsed) } },
+        HeaderRow(shape, state, collapsed, nowMs, etf,
+            onToggle = { scope.launch { setCollapsed(!collapsed) } },
             onRefresh = { vm.load() })
         if (!collapsed) {
             when (shape) {
@@ -128,11 +137,12 @@ fun DailyPickCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenS
                         onBought = { boughtOpen = true },
                         onOpenSymbol = onOpenSymbol,
                     )
-                    if (!shape.stale) RecheckSection(shape.resp, state, explain, onRecheck = { vm.recheck() }, onOpenSymbol)
+                    if (!shape.stale && !etf) RecheckSection(shape.resp, state, explain, onRecheck = { vm.recheck() }, onOpenSymbol)
                 }
                 is DailyPickRead.Shape.NoPick -> {
                     NoPickBody(shape.resp, onWhy = { sheetOpen = true; vm.loadHistory() }, onOpenSymbol)
-                    if (!shape.stale) RecheckSection(shape.resp, state, explain, onRecheck = { vm.recheck() }, onOpenSymbol)
+                    // No intraday re-check for the ETF pick yet; the server has none to offer.
+                    if (!shape.stale && !etf) RecheckSection(shape.resp, state, explain, onRecheck = { vm.recheck() }, onOpenSymbol)
                 }
                 is DailyPickRead.Shape.RunFailed -> Text(
                     "The pick could not be made: ${shape.error}", style = MaterialTheme.typography.bodyMedium, color = LossRed,
@@ -170,7 +180,7 @@ fun DailyPickCard(onOpenSymbol: (symbol: String, name: String?) -> Unit, onOpenS
 }
 
 @Composable
-private fun SlimNoPick(shape: DailyPickRead.Shape.NoPick, onExpand: () -> Unit) {
+private fun SlimNoPick(shape: DailyPickRead.Shape.NoPick, etf: Boolean, onExpand: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val at = shape.resp.ts?.let { DailyPickRead.pickedAt(it) }?.removePrefix("picked ")
     Row(
@@ -187,7 +197,7 @@ private fun SlimNoPick(shape: DailyPickRead.Shape.NoPick, onExpand: () -> Unit) 
         // earlier day, which the header text also says.
         Box(Modifier.size(8.dp).background(if (shape.stale) neutral else ZoneGold, RoundedCornerShape(50)))
         Text(
-            DailyPickRead.header(shape),
+            DailyPickRead.header(shape, etf),
             style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
             color = if (shape.stale) Signal else neutral,
             modifier = Modifier.semantics { heading() },
@@ -204,6 +214,7 @@ private fun HeaderRow(
     state: DailyPickUiState,
     collapsed: Boolean,
     nowMs: Long,
+    etf: Boolean,
     onToggle: () -> Unit,
     onRefresh: () -> Unit,
 ) {
@@ -227,7 +238,7 @@ private fun HeaderRow(
         }
         Column(Modifier.weight(1f)) {
             Text(
-                DailyPickRead.header(shape),
+                DailyPickRead.header(shape, etf),
                 style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
                 color = if (stale) Signal else neutral,
                 modifier = Modifier.semantics { heading() },

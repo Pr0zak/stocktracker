@@ -54,11 +54,14 @@ object DailyPickRead {
     }
 
     /** "TODAY'S PICK", or a header that names the older date instead of passing it off as today's. */
-    fun header(shape: Shape): String = when (shape) {
-        is Shape.Pick -> if (shape.stale) "PICK FROM ${dayLabel(shape.resp.date)}" else "TODAY'S PICK"
-        is Shape.NoPick -> if (shape.stale) "NO PICK ON ${dayLabel(shape.resp.date)}" else "NO PICK TODAY"
-        is Shape.RunFailed -> if (shape.stale) "PICK FAILED ON ${dayLabel(shape.date)}" else "TODAY'S PICK FAILED"
-        else -> "TODAY'S PICK"
+    fun header(shape: Shape, etf: Boolean = false): String {
+        val p = if (etf) "ETF PICK" else "PICK"
+        return when (shape) {
+            is Shape.Pick -> if (shape.stale) "$p FROM ${dayLabel(shape.resp.date)}" else "TODAY'S $p"
+            is Shape.NoPick -> if (shape.stale) "NO $p ON ${dayLabel(shape.resp.date)}" else "NO $p TODAY"
+            is Shape.RunFailed -> if (shape.stale) "$p FAILED ON ${dayLabel(shape.date)}" else "TODAY'S $p FAILED"
+            else -> "TODAY'S $p"
+        }
     }
 
     /** Under a stale header: when the next one is due, in the phone's own time zone. */
@@ -214,6 +217,8 @@ object DailyPickRead {
         "long_cycle" to "The 200-week average: roughly the four-year trend line. Far above it means a long advance; below it is historically rare for quality names.",
         "volume" to "How much the stock traded versus its normal day. Heavy volume on a rise means more buyers are behind it.",
         "volatility" to "How much the price moves on an average day. The bar ranks it against the market: the 90th percentile is among the jumpiest 10%.",
+        "fee" to "What the fund charges each year, taken from the money you hold in it. $10,000 in a 0.03% fund costs $3 a year.",
+        "worst_drop" to "The biggest fall from a high the fund went through in the last 3 and 5 years. It is how much it could fall again, and how much you would have to sit through.",
         "track_record" to "What happened after past setups that looked like this one, measured against the S&P over the same 20 days. n is how many past setups were found; fewer than 20 is too few to lean on.",
         "insider" to "Company insiders (executives, directors) buying their own stock with their own money, from SEC Form 4 filings.",
         "quality" to "Business-quality tags from the company's financials: return on equity, debt level, and similar.",

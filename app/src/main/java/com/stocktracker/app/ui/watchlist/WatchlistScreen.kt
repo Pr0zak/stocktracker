@@ -365,6 +365,16 @@ fun WatchlistScreen(
                         onOpenSettings = onOpenSignalsSettings,
                     )
                 }
+                // The ETF pick, beside the stock pick: a sound, low-cost fund at a better price.
+                item(key = "hdr:pick-etf") {
+                    com.stocktracker.app.ui.pick.DailyPickCard(
+                        onOpenSymbol = { sym, name ->
+                            onOpenDetail(Asset(symbol = sym, type = AssetType.STOCK, displayName = name ?: sym))
+                        },
+                        onOpenSettings = onOpenSignalsSettings,
+                        kind = "etf",
+                    )
+                }
                 // Market context — dips, session, regime, VIX — behind ONE line by default.
                 //
                 // These four cards ran to roughly a thousand pixels before the first holding, which

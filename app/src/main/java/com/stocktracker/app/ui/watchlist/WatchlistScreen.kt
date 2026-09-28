@@ -386,7 +386,14 @@ fun WatchlistScreen(
                 val hasDips = state.dipRadar !is DipRadarState.NotConfigured
                 val anyContext = hasDips || showMarketStatus || hasRegime || hasGate || (showVix && vix != null)
                 if (anyContext) {
+                    // ONE box: the summary line is its header and collapse bar, and the checklist
+                    // opens inside it below a divider. They were two cards with a gap between them,
+                    // which read as a heading floating over an unrelated card.
                     item(key = "hdr:context") {
+                      Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                      ) {
                         MarketContext(
                             expanded = contextOpen,
                             onToggle = {
@@ -406,15 +413,16 @@ fun WatchlistScreen(
                             showMarketStatus = showMarketStatus,
                             showVix = showVix,
                             hasRegime = hasRegime,
+                            framed = false,
                         )
-                    }
-                    if (contextOpen) {
-                        // Option A (2026-09-24): one card, one line per question. Each line opens
-                        // the full card it summarises, in place, so every affordance the five
-                        // stacked cards had (refresh, the checks' legs, the dip list) is still one
-                        // tap away — the card just stops being a screen and a half tall.
-                        item(key = "hdr:checklist") {
+                        if (contextOpen) {
+                            // Option A (2026-09-24): one line per question. Each line opens the full
+                            // card it summarises, in place, so every affordance the five stacked
+                            // cards had (refresh, the checks' legs, the dip list) is one tap away.
+                            Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(1.dp)
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f)))
                             MarketChecklist(
+                                framed = false,
                                 marketState = marketState,
                                 showMarketStatus = showMarketStatus,
                                 regime = reg.takeIf { hasRegime },
@@ -449,14 +457,15 @@ fun WatchlistScreen(
                                 },
                             )
                         }
+                      }
                     }
                 }
 
                 // Offer to delete the currently-selected user list (not the computed Below-200w tab).
-                if (selected !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO, TAB_BELOW)) {
+                if (shownTab !in listOf(TAB_ALL, TAB_STOCKS, TAB_CRYPTO, TAB_BELOW)) {
                     item(key = "hdr:deletelist") {
-                        TextButton(onClick = { confirmDeleteGroup = selected }) {
-                            Text("Delete “$selected” list")
+                        TextButton(onClick = { confirmDeleteGroup = shownTab }) {
+                            Text("Delete “$shownTab” list")
                         }
                     }
                 }
@@ -727,6 +736,8 @@ private fun MarketContext(
     showMarketStatus: Boolean,
     showVix: Boolean,
     hasRegime: Boolean,
+    /** False when a parent draws the card (the summary line heads the expanded checklist's box). */
+    framed: Boolean = true,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     // The verdict: where the AI's regime read and the market checks disagree, one phrase that says
@@ -761,8 +772,8 @@ private fun MarketContext(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .then(if (framed) Modifier.clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant) else Modifier)
             .clickable(onClickLabel = if (expanded) "Hide market context" else "Show market context") { onToggle() }
             .heightIn(min = 44.dp)
             .padding(start = 14.dp, end = 8.dp),
@@ -845,12 +856,15 @@ private fun MarketChecklist(
     regimeCard: @Composable () -> Unit,
     gateCard: @Composable () -> Unit,
     dipCard: @Composable () -> Unit,
+    /** False when a parent draws the card (it sits under the summary line, in one box). */
+    framed: Boolean = true,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     var open by rememberSaveable { mutableStateOf<ChecklistLine?>(null) }
     fun toggle(l: ChecklistLine) { open = if (open == l) null else l }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+        if (framed) Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+        else Modifier.fillMaxWidth(),
     ) {
         var first = true
         @Composable

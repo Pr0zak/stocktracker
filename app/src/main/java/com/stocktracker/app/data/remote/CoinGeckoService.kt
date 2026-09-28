@@ -9,6 +9,23 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import java.io.IOException
 
+/**
+ * One 24h move from CoinGecko's two fields, made to agree.
+ *
+ * /coins/markets returns `price_change_24h` and `price_change_percentage_24h` as separate numbers,
+ * and they are not always computed from the same snapshot: on 2026-09-28 the ETH row read
+ * "▼ -0.44 (+0.05%)" — a falling arrow (the arrow follows the dollar change) beside a rising
+ * percentage. The percentage is kept as the source of truth, since it is what the single-coin
+ * [CoinGeckoService.quote] path already derives its change from, and the dollar change is
+ * recomputed from it against the current price. With only the dollar change present, the
+ * percentage is derived from it instead. Neither present: (0, 0), as before.
+ */
+internal fun consistentChange(price: Double, change: Double?, pct: Double?): Pair<Double, Double> = when {
+    pct != null && pct.isFinite() && pct > -100.0 -> (price - price / (1.0 + pct / 100.0)) to pct
+    change != null && change.isFinite() && price - change > 0.0 -> change to (change / (price - change) * 100.0)
+    else -> 0.0 to 0.0
+}
+
 /** CoinGecko free API: crypto prices, market data (with 7d sparkline), history, and search. No key. */
 class CoinGeckoService {
 
@@ -46,15 +63,18 @@ class CoinGeckoService {
         val dto = Http.json.decodeFromString<List<CoinMarketDto>>(Http.getString(url))
         return dto.mapNotNull {
             val price = it.currentPrice
-            if (price == null || price <= 0.0) null else CoinMarket(
-                id = it.id,
-                symbol = it.symbol.uppercase(),
-                name = it.name,
-                price = price,
-                change = it.priceChange24h ?: 0.0,
-                changePercent = it.priceChangePercentage24h ?: 0.0,
-                sparkline = it.sparkline?.price ?: emptyList(),
-            )
+            if (price == null || price <= 0.0) null else {
+                val (change, pct) = consistentChange(price, it.priceChange24h, it.priceChangePercentage24h)
+                CoinMarket(
+                    id = it.id,
+                    symbol = it.symbol.uppercase(),
+                    name = it.name,
+                    price = price,
+                    change = change,
+                    changePercent = pct,
+                    sparkline = it.sparkline?.price ?: emptyList(),
+                )
+            }
         }
     }
 

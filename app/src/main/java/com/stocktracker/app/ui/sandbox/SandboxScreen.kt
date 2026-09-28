@@ -24,7 +24,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -140,6 +139,16 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
         ),
     ) { mutableStateListOf<String>() }
 
+    // Which book is on screen lives in the title bar, not in rows of chips above the numbers: the
+    // subtitle names the arm and opens a sheet of every arm, grouped. Two chip rows cost ~200px of
+    // the first screen on a phone before a single figure appeared.
+    var armSheet by rememberSaveable { mutableStateOf(false) }
+    val currentArm = ui.arms.firstOrNull { it.arm == ui.arm }
+    if (armSheet && ui.arms.size > 1) {
+        ArmPickerSheet(arms = ui.arms, selected = ui.arm,
+            onSelect = { armSheet = false; vm.selectArm(it) }, onDismiss = { armSheet = false })
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
@@ -147,7 +156,22 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
                 title = {
                     Column {
                         Text("Sandbox")
-                        Text("AI paper trader", style = MaterialTheme.typography.labelSmall, color = neutral)
+                        if (ui.arms.size > 1) {
+                            Row(
+                                Modifier.clickable { armSheet = true }
+                                    .semantics { contentDescription = "Showing ${currentArm?.label ?: ui.arm}. Change arm" },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(currentArm?.label?.ifBlank { null } ?: ui.arm,
+                                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false))
+                                Icon(Icons.Filled.ExpandMore, contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            }
+                        } else {
+                            Text("AI paper trader", style = MaterialTheme.typography.labelSmall, color = neutral)
+                        }
                     }
                 },
                 actions = {
@@ -224,23 +248,12 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             }
 
             item { Spacer(Modifier.height(4.dp)) }
-            // Which book you are looking at, before any number on the screen. Only shown when there
-            // is actually a choice — one arm needs no switcher.
             // Two groups of arms, compared within themselves: the originals (stocks and funds) and
-            // the ETF-only pair. They started on different days and buy different things, so one
-            // group is on screen at a time. The toggle only appears once an ETF arm exists.
+            // the ETF-only pair. They started on different days and buy different things, so the
+            // scoreboard and trend chart below show the selected arm's group only. The arm itself is
+            // picked from the title bar.
             val group = ArmGroups.groupOf(ui.arm, ui.arms)
             val groupArms = ArmGroups.armsIn(group, ui.arms)
-            if (ArmGroups.hasEtf(ui.arms)) {
-                item {
-                    GroupToggle(group) { g ->
-                        if (g != group) ArmGroups.defaultArm(g, ui.arms)?.let { vm.selectArm(it) }
-                    }
-                }
-            }
-            if (groupArms.size > 1) {
-                item { ArmSwitcher(arms = groupArms, selected = ui.arm, onSelect = { vm.selectArm(it) }) }
-            }
             item { HeaderMetrics(st, trendPctPerMonth = ui.trendPctPerMonth) }
             st.settings.goalAmount?.takeIf { it > 0 }?.let { goal ->
                 item { GoalCard(equity = st.equity, goal = goal, goalDate = st.settings.goalDate) }
@@ -1196,53 +1209,46 @@ private fun InfoCard(text: String, actionLabel: String? = null, onAction: (() ->
 
 /** Which book the screen is showing. A side arm is a paper experiment against the main account;
  *  saying so on the chip itself is cheaper than a legend nobody reads. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GroupToggle(group: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(
-            selected = group == ArmGroups.ALL, onClick = { onSelect(ArmGroups.ALL) },
-            label = { Text("Stocks + ETFs") },
-            leadingIcon = { Icon(Icons.Filled.SmartToy, contentDescription = null, modifier = Modifier.size(16.dp)) },
-        )
-        FilterChip(
-            selected = group == ArmGroups.ETF, onClick = { onSelect(ArmGroups.ETF) },
-            label = { Text("ETFs only") },
-            leadingIcon = { Icon(Icons.Filled.PieChart, contentDescription = null, modifier = Modifier.size(16.dp)) },
-        )
-    }
-}
-
-@Composable
-private fun ArmSwitcher(
+private fun ArmPickerSheet(
     arms: List<com.stocktracker.app.data.remote.SandboxArm>,
     selected: String,
     onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        arms.forEach { a ->
-            FilterChip(
-                selected = a.arm == selected,
-                onClick = { onSelect(a.arm) },
-                label = {
-                    // A status dot: green when this arm is ahead of its own S&P shadow, red when
-                    // behind, none when unmeasured. The words say it too, for a screen reader.
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    // Opened fully: half-height cut the ETF group off below the fold, the very rows it exists for.
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+            listOf(ArmGroups.ALL to "Stocks + ETFs", ArmGroups.ETF to "ETFs only").forEach { (g, title) ->
+                val inGroup = ArmGroups.armsIn(g, arms)
+                if (inGroup.isEmpty()) return@forEach
+                Text(title, style = MaterialTheme.typography.labelLarge, color = neutral,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+                inGroup.forEach { a ->
                     val v = a.vsBenchmarkPct
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.semantics(mergeDescendants = true) {
-                            v?.let { contentDescription = "${a.label.ifBlank { a.arm }}, ${if (it >= 0) "ahead of" else "behind"} the S&P" }
-                        }) {
-                        if (v != null) Box(Modifier.size(8.dp).background(if (v >= 0) GREEN else RED, RoundedCornerShape(50)))
-                        Text(a.label.ifBlank { a.arm })
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onSelect(a.arm) }.padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(if (a.engine == "rules") Icons.Filled.Calculate else Icons.Filled.SmartToy,
+                            contentDescription = null, tint = neutral, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(a.label.ifBlank { a.arm }, Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (a.arm == selected) FontWeight.SemiBold else FontWeight.Normal)
+                        // Absent is not zero: an arm with no S&P shadow yet shows a dash.
+                        Text(if (v == null) "—" else (if (v >= 0) "+" else "") + "%.2f".format(v) + "%",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = when { v == null -> neutral; v >= 0 -> GREEN; else -> RED })
                     }
-                },
-                leadingIcon = if (a.engine == "rules") {
-                    { Icon(Icons.Filled.Calculate, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                } else null,
-            )
+                }
+            }
+            Text("vs its own S&P line", style = MaterialTheme.typography.labelSmall, color = neutral,
+                modifier = Modifier.padding(top = 8.dp))
         }
     }
 }

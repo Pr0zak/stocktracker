@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -225,8 +226,20 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             item { Spacer(Modifier.height(4.dp)) }
             // Which book you are looking at, before any number on the screen. Only shown when there
             // is actually a choice — one arm needs no switcher.
-            if (ui.arms.size > 1) {
-                item { ArmSwitcher(arms = ui.arms, selected = ui.arm, onSelect = { vm.selectArm(it) }) }
+            // Two groups of arms, compared within themselves: the originals (stocks and funds) and
+            // the ETF-only pair. They started on different days and buy different things, so one
+            // group is on screen at a time. The toggle only appears once an ETF arm exists.
+            val group = ArmGroups.groupOf(ui.arm, ui.arms)
+            val groupArms = ArmGroups.armsIn(group, ui.arms)
+            if (ArmGroups.hasEtf(ui.arms)) {
+                item {
+                    GroupToggle(group) { g ->
+                        if (g != group) ArmGroups.defaultArm(g, ui.arms)?.let { vm.selectArm(it) }
+                    }
+                }
+            }
+            if (groupArms.size > 1) {
+                item { ArmSwitcher(arms = groupArms, selected = ui.arm, onSelect = { vm.selectArm(it) }) }
             }
             item { HeaderMetrics(st, trendPctPerMonth = ui.trendPctPerMonth) }
             st.settings.goalAmount?.takeIf { it > 0 }?.let { goal ->
@@ -286,9 +299,9 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             // The comparison itself, directly under the curve: every arm's excess over its OWN S&P
             // shadow. Raw equity across arms is not comparable — they can be funded with different
             // amounts on different days — so the shadow-relative number is the one that lines up.
-            if (ui.arms.size > 1) {
-                item { ArmComparison(arms = ui.arms, selected = ui.arm, onSelect = { vm.selectArm(it) }) }
-                ui.armsNav?.let { n -> item { ArmTrendCard(nav = n, arms = ui.arms, selected = ui.arm) } }
+            if (groupArms.size > 1) {
+                item { ArmComparison(arms = groupArms, selected = ui.arm, onSelect = { vm.selectArm(it) }, group = group) }
+                ui.armsNav?.let { n -> item { ArmTrendCard(nav = n, arms = ui.arms, selected = ui.arm, group = group) } }
             }
             // The auto-trade switch and settings write to whichever arm the ENDPOINTS default to,
             // which is main. Offering them while another arm is on screen would let a tap labelled
@@ -296,11 +309,13 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             if (ui.arm == "main") {
                 item { AutoTradeRow(st, onToggle = { vm.setEnabled(it) }, onRunNow = { vm.runTick() }, ticking = ui.ticking) }
             } else {
-                item { SideArmNotice(st) }
+                item { SideArmNotice(st, etf = group == ArmGroups.ETF) }
             }
             // Directly under the equity curve and the auto-trade switch: right where someone deciding
             // whether to trust this thing is already looking.
-            ui.memory?.let { mem -> item { ScorecardCard(mem) } }
+            // The scorecard grades main's analyst and main's own buys. Under the ETF arms it would
+            // read as their record, which it is not.
+            if (group == ArmGroups.ALL) ui.memory?.let { mem -> item { ScorecardCard(mem) } }
             // The world the trader is reasoning against, right above its strategy — a defensive
             // stance or a skipped energy name only makes sense next to the backdrop that caused it.
             item { com.stocktracker.app.ui.components.MacroCard(ui.macro) }
@@ -1182,6 +1197,22 @@ private fun InfoCard(text: String, actionLabel: String? = null, onAction: (() ->
 /** Which book the screen is showing. A side arm is a paper experiment against the main account;
  *  saying so on the chip itself is cheaper than a legend nobody reads. */
 @Composable
+private fun GroupToggle(group: String, onSelect: (String) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = group == ArmGroups.ALL, onClick = { onSelect(ArmGroups.ALL) },
+            label = { Text("Stocks + ETFs") },
+            leadingIcon = { Icon(Icons.Filled.SmartToy, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        )
+        FilterChip(
+            selected = group == ArmGroups.ETF, onClick = { onSelect(ArmGroups.ETF) },
+            label = { Text("ETFs only") },
+            leadingIcon = { Icon(Icons.Filled.PieChart, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        )
+    }
+}
+
+@Composable
 private fun ArmSwitcher(
     arms: List<com.stocktracker.app.data.remote.SandboxArm>,
     selected: String,
@@ -1226,6 +1257,7 @@ private fun ArmComparison(
     arms: List<com.stocktracker.app.data.remote.SandboxArm>,
     selected: String,
     onSelect: (String) -> Unit,
+    group: String = ArmGroups.ALL,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     Box(
@@ -1233,10 +1265,12 @@ private fun ArmComparison(
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Arms", style = MaterialTheme.typography.titleSmall)
+            Text(if (group == ArmGroups.ETF) "ETF arms" else "Arms", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Same market, same tick, same day — so the difference between them is the strategy. " +
-                    "Each is measured against its own S&P shadow, since raw equity isn't comparable.",
+                if (group == ArmGroups.ETF)
+                    "Funds only. Same funds, same prices. The gap between them is the AI."
+                else
+                    "Same market, same day. The gap between them is the strategy.",
                 style = MaterialTheme.typography.bodySmall, color = neutral,
             )
             // The spread is the actual result; showing it saves the reader doing the subtraction,
@@ -1346,12 +1380,15 @@ private fun ArmTrendCard(
     nav: com.stocktracker.app.data.remote.SandboxArmsNav,
     arms: List<com.stocktracker.app.data.remote.SandboxArm>,
     selected: String,
+    group: String = ArmGroups.ALL,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     // Which overlay the reader has asked to pick out. rememberSaveable so a rotation does not send
     // them back to the tangle they just untangled.
     var focusedArm by rememberSaveable { mutableStateOf<String?>(null) }
-    val base = nav.commonStartIndex
+    // This group's arms only, indexed from the first day all of THEM existed. The ETF group also
+    // draws main, as the reference line for "what the stock-picking account did over the same days".
+    val (charted, base) = ArmGroups.trend(group, nav)
     Box(
         Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)),
@@ -1360,9 +1397,7 @@ private fun ArmTrendCard(
             Text("How they're tracking", style = MaterialTheme.typography.titleSmall)
             if (base == null || nav.dates.size - base < 2) {
                 Text(
-                    "The arms don't have overlapping history yet. This chart appears once every arm " +
-                        "has at least two days in common — arms created today start contributing at " +
-                        "their first tick.",
+                    "Appears after two trading days in common. New arms start at their first trade day.",
                     style = MaterialTheme.typography.bodySmall, color = neutral,
                 )
                 return@Column
@@ -1370,7 +1405,7 @@ private fun ArmTrendCard(
             val dates = nav.dates.drop(base)
             // Index each arm to 100 at the common start. A null inside an arm's window is a day that
             // arm didn't tick; left null so the line breaks rather than inventing a flat segment.
-            val indexed = nav.arms.mapNotNull { s ->
+            val indexed = nav.arms.filter { it.arm in charted }.mapNotNull { s ->
                 val window = s.equity.drop(base)
                 val b = window.firstOrNull() ?: return@mapNotNull null
                 if (b <= 0.0) return@mapNotNull null
@@ -1509,7 +1544,7 @@ private fun ArmTrendCard(
 
 /** Shown in place of the auto-trade row on a side arm. The controls it replaces write to main. */
 @Composable
-private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState) {
+private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState, etf: Boolean = false) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         Modifier.fillMaxWidth()
@@ -1523,12 +1558,23 @@ private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState) {
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (st.engine == "rules") "Mechanical arm — no AI" else "Comparison arm",
+                    when {
+                        etf && st.engine == "rules" -> "ETFs only — no AI"
+                        etf -> "ETFs only — AI"
+                        st.engine == "rules" -> "Mechanical arm — no AI"
+                        else -> "Comparison arm"
+                    },
                     style = MaterialTheme.typography.titleSmall,
                 )
             }
             Text(
-                if (st.engine == "rules") {
+                if (etf && st.engine == "rules") {
+                    "A fixed mix by age: US stocks, non-US stocks and bonds. Each buy goes to the " +
+                        "cheapest fund for that index."
+                } else if (etf) {
+                    "Its own weekly plan, from each fund's cost, returns and worst drop. Each buy goes " +
+                        "to the cheapest fund for that index."
+                } else if (st.engine == "rules") {
                     "Fills toward the standing plan's targets, largest gap first. It takes no view " +
                         "and never sells — it exists to show what the analyst is worth on top of " +
                         "simply executing the plan."

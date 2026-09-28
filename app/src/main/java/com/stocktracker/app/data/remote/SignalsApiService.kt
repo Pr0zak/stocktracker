@@ -1488,7 +1488,18 @@ data class SandboxArmsNav(
     val dates: List<String> = emptyList(),
     @SerialName("common_start") val commonStart: String? = null,
     @SerialName("common_start_index") val commonStartIndex: Int? = null,
+    /** One start per universe ("all", "etf"). The ETF arms began weeks after the others, so each
+     *  group is indexed from the first day all of ITS arms existed. Empty from an older server. */
+    val cohorts: Map<String, SandboxArmCohort> = emptyMap(),
     val arms: List<SandboxArmSeries> = emptyList(),
+)
+
+@Serializable
+data class SandboxArmCohort(
+    /** The arms charted together. The ETF group includes main as a reference line. */
+    val arms: List<String> = emptyList(),
+    @SerialName("common_start") val commonStart: String? = null,
+    @SerialName("common_start_index") val commonStartIndex: Int? = null,
 )
 
 @Serializable
@@ -1496,6 +1507,7 @@ data class SandboxArmSeries(
     val arm: String = "",
     val label: String = "",
     val engine: String = "llm",
+    val universe: String = "all",
     val equity: List<Double?> = emptyList(),
     @SerialName("benchmark_value") val benchmarkValue: List<Double?> = emptyList(),
 )
@@ -1508,6 +1520,8 @@ data class SandboxArm(
     val arm: String = "main",
     val label: String = "",
     val engine: String = "llm",          // llm | rules
+    /** "all" = stocks and funds (the original arms); "etf" = funds only. */
+    val universe: String = "all",
     val enabled: Boolean = false,
     val cash: Double = 0.0,
     val equity: Double = 0.0,

@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.21.0" to listOf(
+            "Prices now come from your signals server first, and straight from the source only if it can't be reached",
+            "Fixed: crypto prices could go hours out of date when CoinGecko blocked your network",
+            "New: a CoinGecko key in Settings, kept on your server",
+            "Settings shows where your prices came from",
+        ),
         "1.20.1" to listOf(
             "Fixed: crypto rows could show a down arrow beside a rising percent",
         ),

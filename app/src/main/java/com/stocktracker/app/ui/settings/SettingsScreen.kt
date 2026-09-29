@@ -464,6 +464,7 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
             }
 
             SettingsSection("Data") {
+                PriceSourceLine()
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Finnhub API key (optional)", style = MaterialTheme.typography.bodyLarge)
                     OutlinedTextField(
@@ -496,9 +497,11 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                     }
                 }
                 HelperText(
-                    "✓ Stocks & crypto work with no key (Yahoo + CoinGecko). A Finnhub key just adds an " +
-                        "extra search source. Stored on-device only.",
+                    "✓ Prices come from your signals service, or straight from Yahoo + CoinGecko when " +
+                        "it can't be reached. No key needed. A Finnhub key just adds an extra search " +
+                        "source. Stored on-device only.",
                 )
+                CoinGeckoKeySetting(savedSignalsUrl)
             }
 
             SettingsSection("AI analyst") {
@@ -1422,7 +1425,7 @@ private fun Checkerboard(modifier: Modifier) {
 
 /** Muted small print for a section's explanatory note. */
 @Composable
-private fun HelperText(text: String) {
+internal fun HelperText(text: String) {
     // Long notes show their first two lines and open on a tap, so a section is not a page of prose.
     var open by remember(text) { mutableStateOf(false) }
     val long = text.length > 110
@@ -1433,5 +1436,30 @@ private fun HelperText(text: String) {
         maxLines = if (long && !open) 2 else Int.MAX_VALUE,
         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         modifier = if (long) Modifier.clickable(onClickLabel = if (open) "Show less" else "Show more") { open = !open } else Modifier,
+    )
+}
+
+/**
+ * PX-1 — which source served the last price read. One line: the service answering is the normal
+ * case; the direct path is the fallback, and saying so is how a quietly-down service gets noticed.
+ */
+@Composable
+private fun PriceSourceLine() {
+    val served by com.stocktracker.app.data.remote.PriceServer.lastServed.collectAsState()
+    val configured = com.stocktracker.app.data.remote.PriceServer.baseUrl.isNotBlank()
+    val s = served
+    val text = when {
+        s == null -> "Prices: nothing fetched yet since the app opened"
+        s.source == com.stocktracker.app.data.remote.PriceServer.Source.SERVER ->
+            "Prices: from your signals service · " + com.stocktracker.app.util.agePhrase(
+                (System.currentTimeMillis() - s.atMs).coerceAtLeast(0L), s.atMs)
+        configured -> "Prices: straight from Yahoo/CoinGecko — the signals service didn't answer"
+        else -> "Prices: straight from Yahoo/CoinGecko (no signals service set)"
+    }
+    val warn = s?.source == com.stocktracker.app.data.remote.PriceServer.Source.DIRECT && configured
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }

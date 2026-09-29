@@ -181,6 +181,18 @@ class YahooFinanceService {
      * permits only to hit the same wall.
      */
     private suspend fun fetchChart(path: String): YahooChartResponse {
+        // PX-1: the signals service first — the same Yahoo body from a cache the widgets share. A
+        // body that does not parse (or a Yahoo error object other than "no data") falls through to
+        // asking Yahoo directly, exactly as an unreachable service does.
+        PriceServer.yahoo(path)?.let { body ->
+            try {
+                return parseChart(body)
+            } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+                throw ce
+            } catch (_: Throwable) {
+            }
+        }
+        PriceServer.noteDirect()
         val primaryUrl = "https://query1.finance.yahoo.com/$path"
         Http.throwIfBreakerOpen(primaryUrl)
         return gate.withPermit {
@@ -405,9 +417,11 @@ class YahooFinanceService {
 
     /** Symbol search (stocks + ETFs) — no API key. US listings only, foreign suffixes filtered out. */
     suspend fun search(query: String): List<SearchResult> {
-        val url = "https://query1.finance.yahoo.com/v1/finance/search?q=${query.urlEncode()}&quotesCount=15&newsCount=0"
-        val body = runCatching { Http.getString(url) }
-            .getOrElse { Http.getString(url.replace("query1", "query2")) }
+        val path = "v1/finance/search?q=${query.urlEncode()}&quotesCount=15&newsCount=0"
+        val url = "https://query1.finance.yahoo.com/$path"
+        val body = PriceServer.yahoo(path)
+            ?: runCatching { Http.getString(url) }
+                .getOrElse { Http.getString(url.replace("query1", "query2")) }
         val dto = runCatching { Http.json.decodeFromString<YahooSearchResponse>(body) }.getOrNull() ?: return emptyList()
         return dto.quotes.asSequence()
             .filter { it.quoteType == "EQUITY" || it.quoteType == "ETF" }

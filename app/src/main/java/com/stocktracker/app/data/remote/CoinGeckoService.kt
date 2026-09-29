@@ -105,6 +105,8 @@ data class CoinMarket(
     val change: Double,
     val changePercent: Double,
     val sparkline: List<Double>,
+    /** When the source was read, if known (the signals service says). Null = this fetch, just now. */
+    val asOfEpochMs: Long? = null,
 )
 
 @Serializable

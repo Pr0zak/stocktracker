@@ -150,7 +150,7 @@ object WidgetRefresh {
                         if (m != null) {
                             add(WatchlistRow(
                                 symbol = asset.symbol, name = asset.displayName, price = m.price,
-                                changePercent = m.changePercent, changeAbs = m.change, asOfEpochMs = fetchStartMs,
+                                changePercent = m.changePercent, changeAbs = m.change, asOfEpochMs = m.asOfEpochMs ?: fetchStartMs,
                             ))
                         }
                     }

@@ -94,6 +94,14 @@ object ServiceLocator {
         finnhubKeyOverride = runBlocking { runCatching { settingsStore.finnhubApiKey.first() }.getOrDefault("") }
         scope.launch { settingsStore.finnhubApiKey.collect { finnhubKeyOverride = it } }
 
+        // PX-1: prices come from the signals service first. Seeded synchronously for the same reason
+        // as the Finnhub key above — a widget worker on a cold start refreshes before any collector runs.
+        com.stocktracker.app.data.remote.PriceServer.baseUrl =
+            runBlocking { runCatching { settingsStore.signalsApiUrl.first() }.getOrDefault("") }
+        scope.launch {
+            settingsStore.signalsApiUrl.collect { com.stocktracker.app.data.remote.PriceServer.baseUrl = it }
+        }
+
         repository = MarketRepository(
             finnhub = FinnhubService { effectiveFinnhubKey },
             coinGecko = CoinGeckoService(),

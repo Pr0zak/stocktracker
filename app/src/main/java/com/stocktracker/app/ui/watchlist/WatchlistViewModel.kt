@@ -559,7 +559,7 @@ class WatchlistViewModel : ViewModel() {
                                     change = it.change,
                                     changePercent = it.changePercent,
                                     currency = "USD",
-                                    asOfEpochMs = System.currentTimeMillis(),
+                                    asOfEpochMs = it.asOfEpochMs ?: System.currentTimeMillis(),
                                     // CoinGecko has no "previous close" — crypto never closes — but
                                     // price minus the 24h change IS the level the percentage is
                                     // measured from, which is what the sparkline baseline needs.

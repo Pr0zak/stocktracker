@@ -11,7 +11,11 @@ import com.stocktracker.app.data.remote.ChartSnapshot
 import com.stocktracker.app.data.remote.CoinGeckoService
 import com.stocktracker.app.data.remote.CoinMarket
 import com.stocktracker.app.data.remote.FinnhubService
+import com.stocktracker.app.data.remote.PriceServer
 import com.stocktracker.app.data.remote.YahooFinanceService
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import java.util.concurrent.ConcurrentHashMap
 import java.io.IOException
 
@@ -38,7 +42,12 @@ class MarketRepository(
      *  - a *thrown* fetch serves the last good value if we have one (stale-while-error) rather than
      *    surfacing the failure — this is what carries the UI through a one-off Yahoo/CoinGecko 429.
      */
-    private suspend fun <T> cached(key: String, ttlMs: Long, compute: suspend () -> T): T {
+    private suspend fun <T> cached(
+        key: String,
+        ttlMs: Long,
+        staleOnError: Boolean = true,
+        compute: suspend () -> T,
+    ): T {
         val now = System.currentTimeMillis()
         cache[key]?.let { e ->
             val ttl = if (e.empty) NEGATIVE_TTL else ttlMs
@@ -50,7 +59,7 @@ class MarketRepository(
             throw ce // never swallow cancellation — that would break structured concurrency
         } catch (t: Throwable) {
             val stale = cache[key]
-            if (stale != null && !stale.empty) { @Suppress("UNCHECKED_CAST") return stale.value as T }
+            if (staleOnError && stale != null && !stale.empty) { @Suppress("UNCHECKED_CAST") return stale.value as T }
             throw t
         }
         cache[key] = Entry(System.currentTimeMillis(), value, isEmptyResult(value))
@@ -84,7 +93,7 @@ class MarketRepository(
      */
     fun invalidateQuotes() {
         cache.keys.removeIf {
-            it.startsWith("q:") || it.startsWith("m:") || it.startsWith("h:") || it.startsWith("snap:")
+            it.startsWith("q:") || it.startsWith("m:") || it.startsWith("ms:") || it.startsWith("h:") || it.startsWith("snap:")
         }
     }
 
@@ -102,7 +111,20 @@ class MarketRepository(
             AssetType.STOCK -> stockSnapshot(asset).quote
                 ?: if (finnhub.hasKey) finnhub.quote(asset.symbol)
                 else throw java.io.IOException("No quote for ${asset.symbol}")
-            AssetType.CRYPTO -> coinGecko.quote(asset.coinGeckoId ?: asset.symbol.lowercase(), asset.symbol)
+            AssetType.CRYPTO -> serverCoinQuote(asset) ?: try {
+                coinGecko.quote(asset.coinGeckoId ?: asset.symbol.lowercase(), asset.symbol)
+            } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                // Keyless CoinGecko rate-limits a whole household IP for hours (see [cryptoMarkets]).
+                yahooCoinMarket(asset)?.let { m ->
+                    Quote(
+                        symbol = asset.symbol.uppercase(), price = m.price, change = m.change,
+                        changePercent = m.changePercent, prevClose = m.price - m.change,
+                        currency = "USD", asOfEpochMs = System.currentTimeMillis(),
+                    )
+                } ?: throw t
+            }
         }
     }
 
@@ -121,13 +143,98 @@ class MarketRepository(
     private suspend fun stockSnapshot(asset: Asset): ChartSnapshot =
         cached("snap:${asset.id}", QUOTE_TTL) { yahoo.chartSnapshot(asset.symbol) }
 
-    /** Batched crypto market data (price + change + 7d sparkline) in one call. */
+    /**
+     * Batched crypto market data (price + change + sparkline), keyed by CoinGecko id.
+     *
+     * CoinGecko's keyless API is the primary source, but it rate-limits by IP and a 429 can last
+     * for hours: on 2026-09-29 every call from the home network was refused, and because this map
+     * came back empty the watchlist and widgets kept re-showing the last cached crypto prices under
+     * "4 of 59 out of date". Any coin CoinGecko did not answer for is now read from Yahoo's
+     * `<SYM>-USD` chart instead — the same source every crypto chart already uses. Its move is a
+     * trailing 24 hours, like CoinGecko's, not "since midnight UTC", and its sparkline is one day
+     * rather than seven; a row that shows a current price with a shorter line is still better than
+     * an old price.
+     */
     suspend fun cryptoMarkets(assets: List<Asset>): Map<String, CoinMarket> {
-        val ids = assets.filter { it.type == AssetType.CRYPTO }.mapNotNull { it.coinGeckoId }
+        val coins = assets.filter { it.type == AssetType.CRYPTO && it.coinGeckoId != null }
+        val ids = coins.mapNotNull { it.coinGeckoId }
         if (ids.isEmpty()) return emptyMap()
-        return cached("m:${ids.sorted().joinToString(",")}", QUOTE_TTL) {
-            coinGecko.markets(ids).associateBy { it.id }
+        // PX-1: the signals service first. It holds the CoinGecko back-off and the Yahoo fallback for
+        // every device at once; only the coins it could not price are asked for directly below.
+        val fromServer = try {
+            cached("ms:${ids.sorted().joinToString(",")}", QUOTE_TTL, staleOnError = false) {
+                PriceServer.crypto(coins.map { it.coinGeckoId!! to it.symbol.uppercase() })
+                    .orEmpty()
+                    .map {
+                        CoinMarket(
+                            id = it.id, symbol = it.symbol, name = coins.firstOrNull { a -> a.coinGeckoId == it.id }?.displayName ?: it.symbol,
+                            price = it.price, change = it.change, changePercent = it.changePercent,
+                            sparkline = it.sparkline, asOfEpochMs = (it.asOf * 1000).toLong(),
+                        )
+                    }
+                    .associateBy { it.id }
+            }
+        } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+            throw ce
+        } catch (_: Throwable) {
+            emptyMap()
         }
+        if (coins.all { it.coinGeckoId in fromServer }) return fromServer
+        PriceServer.noteDirect()
+        val direct = coins.filter { it.coinGeckoId !in fromServer }
+        return fromServer + directCryptoMarkets(direct)
+    }
+
+    /** CoinGecko from the phone, then Yahoo `<SYM>-USD` for whatever CoinGecko did not answer. */
+    private suspend fun directCryptoMarkets(coins: List<Asset>): Map<String, CoinMarket> {
+        val ids = coins.mapNotNull { it.coinGeckoId }
+        val fromGecko = try {
+            // No stale-while-error here: a CoinMarket carries no timestamp, and every caller stamps
+            // it "now", so an hours-old map served after a 429 would pass for a fresh price.
+            cached("m:${ids.sorted().joinToString(",")}", QUOTE_TTL, staleOnError = false) {
+                coinGecko.markets(ids).associateBy { it.id }
+            }
+        } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+            throw ce
+        } catch (_: Throwable) {
+            emptyMap()
+        }
+        val missing = coins.filter { it.coinGeckoId !in fromGecko }
+        if (missing.isEmpty()) return fromGecko
+        val fromYahoo = coroutineScope {
+            missing.map { a -> async { runCatchingNonCancel { yahooCoinMarket(a) } } }.awaitAll()
+        }.filterNotNull().associateBy { it.id }
+        return fromGecko + fromYahoo
+    }
+
+    /** One coin's quote from the signals service, or null to ask directly. */
+    private suspend fun serverCoinQuote(asset: Asset): Quote? {
+        val id = asset.coinGeckoId ?: return null
+        val row = PriceServer.crypto(listOf(id to asset.symbol.uppercase()))?.firstOrNull { it.id == id }
+            ?: return null
+        return Quote(
+            symbol = asset.symbol.uppercase(), price = row.price, change = row.change,
+            changePercent = row.changePercent, prevClose = row.price - row.change,
+            currency = "USD", asOfEpochMs = (row.asOf * 1000).toLong(),
+        )
+    }
+
+    /** One coin's trailing-24h market row from Yahoo, or null when Yahoo has nothing current for it. */
+    private suspend fun yahooCoinMarket(asset: Asset): CoinMarket? =
+        coinMarketFromYahoo(
+            id = asset.coinGeckoId ?: asset.symbol.lowercase(),
+            symbol = asset.symbol,
+            name = asset.displayName,
+            points = history(asset, ChartRange.DAY),
+            nowMs = System.currentTimeMillis(),
+        )
+
+    private suspend fun <T> runCatchingNonCancel(block: suspend () -> T): T? = try {
+        block()
+    } catch (ce: kotlin.coroutines.cancellation.CancellationException) {
+        throw ce
+    } catch (_: Throwable) {
+        null
     }
 
     suspend fun history(
@@ -273,3 +380,35 @@ private fun ChartRange.toCoinGeckoDays(): String = when (this) {
     ChartRange.THREE_YEAR -> "1095"
     ChartRange.ALL -> "max"
 }
+
+/**
+ * A trailing-24h market row from a day of Yahoo `<SYM>-USD` bars: the last close is the price, the
+ * first bar (about 24 hours back) is the base. Null when there is too little to measure a move, or
+ * when the newest bar is over [MAX_BAR_AGE_MS] old — Yahoo returning yesterday's tape must not be
+ * shown as a fresh price, which is the exact failure this fallback exists to fix.
+ */
+internal fun coinMarketFromYahoo(
+    id: String,
+    symbol: String,
+    name: String,
+    points: List<PricePoint>,
+    nowMs: Long,
+): CoinMarket? {
+    if (points.size < 2) return null
+    val last = points.last()
+    if (nowMs - last.epochMs > MAX_BAR_AGE_MS) return null
+    val base = points.first().price
+    if (base <= 0.0 || last.price <= 0.0) return null
+    val change = last.price - base
+    return CoinMarket(
+        id = id,
+        symbol = symbol.uppercase(),
+        name = name,
+        price = last.price,
+        change = change,
+        changePercent = change / base * 100.0,
+        sparkline = points.map { it.price },
+    )
+}
+
+private const val MAX_BAR_AGE_MS = 30 * 60 * 1000L

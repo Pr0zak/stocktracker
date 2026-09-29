@@ -135,6 +135,24 @@ class SignalsApiService {
         )
     }
 
+    /**
+     * PX-1 — whether the server holds a CoinGecko key, and how CoinGecko is treating it. Reads the
+     * token-protected `/api/settings`, which reports only "set" and the last four characters; the key
+     * itself never comes back down.
+     */
+    suspend fun coinGeckoKeyStatus(baseUrl: String): CoinGeckoKeyStatus? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<CoinGeckoKeyStatus>(sGet("${baseUrl.trimEnd('/')}/api/settings"))
+    }
+
+    /** Save [key] on the server, or remove it when [key] is null. Returns the new status. */
+    suspend fun setCoinGeckoKey(baseUrl: String, key: String?): CoinGeckoKeyStatus? {
+        if (baseUrl.isBlank()) return null
+        val body = if (key == null) """{"clear_coingecko_api_key":true}"""
+        else Http.json.encodeToString(mapOf("coingecko_api_key" to key))
+        return Http.json.decodeFromString<CoinGeckoKeyStatus>(sPost("${baseUrl.trimEnd('/')}/api/settings", body))
+    }
+
     /** Short-pressure read (FINRA SI + short volume + SEC FTDs) — free, no LLM call. Stocks only. */
     suspend fun shortPressure(baseUrl: String, symbol: String): ShortPressureResponse? {
         if (baseUrl.isBlank()) return null
@@ -3175,4 +3193,12 @@ data class GateDay(
     val unmeasured: List<String>? = null,
     /** Null when the row stored no leg blob — which is not five passing legs. */
     val legs: List<GateLeg>? = null,
+)
+
+/** PX-1 — the CoinGecko part of `GET /api/settings`. Absent fields = an older server without PX-1. */
+@Serializable
+data class CoinGeckoKeyStatus(
+    @SerialName("coingecko_api_key_set") val keySet: Boolean? = null,
+    @SerialName("coingecko_api_key_hint") val hint: String = "",
+    @SerialName("coingecko_status") val status: String? = null,
 )

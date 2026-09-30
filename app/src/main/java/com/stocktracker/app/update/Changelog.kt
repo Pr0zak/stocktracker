@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.23.0" to listOf(
+            "New: an About tab that says what each company is and does, in plain words",
+            "Ticker screen: tabs, with each card as one row showing its answer",
+            "Portfolio: what stands out today, and what each holding is",
+            "Sandbox: who's beating the S&P comes first",
+        ),
         "1.22.0" to listOf(
             "New: a Today card in the Sandbox with every account's trades, folds to one line",
             "The tracking chart now shows all accounts, ETF ones included",

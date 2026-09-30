@@ -1,5 +1,16 @@
 package com.stocktracker.app.ui.portfolio
 
+import com.stocktracker.app.ui.components.AnswerGroup
+import com.stocktracker.app.ui.components.AnswerRow
+import com.stocktracker.app.ui.components.AnswerDivider
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.DonutLarge
+import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -270,279 +281,275 @@ fun PortfolioScreen(
                 )
             }
 
-            // Reconstructed value-over-time chart, with the S&P 500 overlaid (pink).
-            val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
-            val chartUp = chartPoints.size >= 2 && chartPoints.last().price >= chartPoints.first().price
-            val benchOverlay = if (state.benchmarkChart.size == state.chart.size && state.benchmarkChart.size >= 2) {
-                val bp = if (percentMode) state.benchmarkChart.asPercentChange() else state.benchmarkChart
-                listOf(ChartLineOverlay("S&P 500", BenchmarkGrey, bp.map { it.price }, dashed = true))
-            } else {
-                emptyList()
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                when {
-                    state.loadingChart -> CircularProgressIndicator()
-                    state.chart.size >= 2 -> PriceChart(
-                        points = chartPoints,
-                        up = chartUp,
-                        modifier = Modifier.fillMaxSize(),
-                        showHighLow = true,
-                        showAxis = true,
-                        overlays = benchOverlay,
-                        // Drawn only when the cost line and the curve cover the SAME holdings.
-                        // Otherwise the gap between them is missing cost data, not profit.
-                        costLine = if (percentMode) null
-                        else state.totalCost.takeIf { state.allHaveCostBasis && it > 0.0 },
-                        valueFormatter = {
-                            if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
-                            else Formatting.price(it, hideZeroCents = hideZeroCents)
-                        },
-                        timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL) },
-                        // PLAT-4. Without this the whole chart is one silent Canvas to a screen
-                        // reader — the portfolio's own history, announced as nothing at all. The
-                        // "Portfolio" name rather than a ticker, since this curve is the book.
-                        chartDescription = priceChartDescription(
-                            symbol = "Portfolio",
-                            rangeLabel = "all time",
-                            percentMode = percentMode,
-                            currentValueText = chartPoints.lastOrNull()?.price?.let {
-                                if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
-                                else Formatting.price(it, hideZeroCents = hideZeroCents)
-                            } ?: "unknown",
-                        ),
-                    )
-                    else -> Text(
-                        "Not enough history yet",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                PORTFOLIO_RANGES.forEach { range ->
-                    FilterChip(
-                        selected = state.range == range,
-                        onClick = { vm.selectRange(range) },
-                        label = { Text(range.label) },
-                    )
-                }
-                FilterChip(
-                    selected = percentMode,
-                    onClick = { percentMode = !percentMode },
-                    label = { Text(if (percentMode) "%" else "$") },
-                )
-            }
-            // Said once: when the S&P comparison is on screen, its caveat above already covers this.
-            if (state.vsSpyPct == null) Text(
-                "History reflects your current share counts across the whole period.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Text(
-                "Holdings",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            // Allocation donut — how the book is split, one colour per position, echoed in the rows.
+            // ABOUT-3 (2026-09-30): answer rows. What stands out, then one row per holding saying
+            // what it is, then the tools as visible rows instead of the overflow menu. The chart, the
+            // split and the cash box fold into rows; nothing was removed.
             val sortedHoldings = state.holdings.sortedByDescending { it.value }
             val sliceColor = sortedHoldings
                 .mapIndexed { i, h -> h.asset.symbol to DONUT_COLORS[i % DONUT_COLORS.size] }
                 .toMap()
-            if (sortedHoldings.size >= 2 && state.totalValue > 0) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // The centre says how concentrated the book is: the top five's share of it.
-                    val topShare = sortedHoldings.take(5).sumOf { it.value } / state.totalValue * 100.0
-                    Box(Modifier.size(112.dp), contentAlignment = Alignment.Center) {
-                        AllocationDonut(
-                            slices = sortedHoldings.map {
-                                (sliceColor[it.asset.symbol] ?: DONUT_COLORS[0]) to (it.value / state.totalValue).toFloat()
+            val standouts = PortfolioAnswers.standouts(sortedHoldings, state.totalValue, todayKnown)
+            if (standouts.isNotEmpty()) {
+                AnswerGroup(title = "What stands out") {
+                    standouts.forEachIndexed { i, s ->
+                        if (i > 0) AnswerDivider()
+                        val c = when (s.tone) { 1 -> GainGreen; -1 -> LossRed; else -> com.stocktracker.app.ui.theme.Signal }
+                        AnswerRow(
+                            icon = when (s.kind) {
+                                PortfolioAnswers.Kind.WEIGHT -> Icons.Filled.PieChart
+                                PortfolioAnswers.Kind.TODAY -> if (s.tone >= 0) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown
+                                PortfolioAnswers.Kind.SINCE -> Icons.Filled.EmojiEvents
                             },
-                            modifier = Modifier.size(112.dp),
+                            tint = c,
+                            title = s.title,
+                            subtitle = s.symbol + (state.kinds[s.symbol.uppercase()]?.let { " · $it" } ?: ""),
+                            trailing = { Pill(s.value, c) },
+                            onClick = { sortedHoldings.firstOrNull { it.asset.symbol == s.symbol }?.let { onOpenDetail(it.asset) } },
                         )
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(String.format(java.util.Locale.US, "%.0f%%", topShare), style = PriceSmall, fontWeight = FontWeight.Bold)
-                            Text(if (sortedHoldings.size > 5) "in top 5" else "of book",
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
                     }
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                }
+            }
+
+            AnswerGroup(title = "Holdings · ${sortedHoldings.size}") {
+                sortedHoldings.forEachIndexed { i, h ->
+                    if (i > 0) AnswerDivider()
+                    HoldingAnswerRow(
+                        h = h,
+                        weightPct = if (state.totalValue > 0) h.value / state.totalValue * 100.0 else 0.0,
+                        maxValue = sortedHoldings.first().value,
+                        kind = state.kinds[h.asset.symbol.uppercase()],
+                        color = sliceColor[h.asset.symbol] ?: DONUT_COLORS[0],
+                        hideZeroCents = hideZeroCents,
+                        onClick = { onOpenDetail(h.asset) },
+                    )
+                }
+            }
+
+            AnswerGroup {
+                AnswerRow(
+                    icon = Icons.Filled.ShowChart, tint = MaterialTheme.colorScheme.primary,
+                    title = "Value over time",
+                    subtitle = state.vsSpyPct?.let { "%+.1f pts vs the S&P".format(it) } ?: "Your holdings, priced back over time",
+                    key = "pf-chart",
+                ) {
+                    // Reconstructed value-over-time chart, with the S&P 500 overlaid (pink).
+                    val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
+                    val chartUp = chartPoints.size >= 2 && chartPoints.last().price >= chartPoints.first().price
+                    val benchOverlay = if (state.benchmarkChart.size == state.chart.size && state.benchmarkChart.size >= 2) {
+                        val bp = if (percentMode) state.benchmarkChart.asPercentChange() else state.benchmarkChart
+                        listOf(ChartLineOverlay("S&P 500", BenchmarkGrey, bp.map { it.price }, dashed = true))
+                    } else {
+                        emptyList()
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        sortedHoldings.take(5).forEach { h ->
-                            val pct = h.value / state.totalValue * 100.0
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                // A weight bar per holding, scaled to the LARGEST one, so the biggest
-                                // position reads as the longest bar at a glance.
-                                val c = sliceColor[h.asset.symbol] ?: DONUT_COLORS[0]
-                                val frac = (h.value / sortedHoldings.first().value).toFloat().coerceIn(0f, 1f)
-                                Text(h.asset.symbol, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.width(52.dp), maxLines = 1)
-                                Box(
-                                    Modifier.weight(1f).height(6.dp)
-                                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f), RoundedCornerShape(50)),
-                                ) {
-                                    Box(Modifier.fillMaxWidth(frac).height(6.dp).background(c, RoundedCornerShape(50)))
-                                }
-                                Text(
-                                    "${String.format(java.util.Locale.US, "%.0f", pct)}%",
-                                    style = NumberSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.width(34.dp),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                                )
-                            }
-                        }
-                        if (sortedHoldings.size > 5) {
-                            Text(
-                                "+${sortedHoldings.size - 5} more",
-                                style = MaterialTheme.typography.labelSmall,
+                        when {
+                            state.loadingChart -> CircularProgressIndicator()
+                            state.chart.size >= 2 -> PriceChart(
+                                points = chartPoints,
+                                up = chartUp,
+                                modifier = Modifier.fillMaxSize(),
+                                showHighLow = true,
+                                showAxis = true,
+                                overlays = benchOverlay,
+                                // Drawn only when the cost line and the curve cover the SAME holdings.
+                                // Otherwise the gap between them is missing cost data, not profit.
+                                costLine = if (percentMode) null
+                                else state.totalCost.takeIf { state.allHaveCostBasis && it > 0.0 },
+                                valueFormatter = {
+                                    if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
+                                    else Formatting.price(it, hideZeroCents = hideZeroCents)
+                                },
+                                timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL) },
+                                // PLAT-4. Without this the whole chart is one silent Canvas to a screen
+                                // reader — the portfolio's own history, announced as nothing at all. The
+                                // "Portfolio" name rather than a ticker, since this curve is the book.
+                                chartDescription = priceChartDescription(
+                                    symbol = "Portfolio",
+                                    rangeLabel = "all time",
+                                    percentMode = percentMode,
+                                    currentValueText = chartPoints.lastOrNull()?.price?.let {
+                                        if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
+                                        else Formatting.price(it, hideZeroCents = hideZeroCents)
+                                    } ?: "unknown",
+                                ),
+                            )
+                            else -> Text(
+                                "Not enough history yet",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
-                }
-            }
-            sortedHoldings.forEach { h ->
-                val pct = if (state.totalValue > 0) h.value / state.totalValue * 100.0 else 0.0
-                Row(
-                    // A holding could not open the asset it names: acting on a position meant a tab
-                    // switch, a visual hunt through the watchlist, and a long scroll. The route it
-                    // needs has existed all along.
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .clickable { onOpenDetail(h.asset) },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .size(9.dp)
-                            .background(sliceColor[h.asset.symbol] ?: DONUT_COLORS[0], RoundedCornerShape(50)),
-                    )
-                    Column(Modifier.weight(1f)) {
-                        Text(h.asset.symbol, fontWeight = FontWeight.Bold)
-                        Text(
-                            "${Formatting.shares(h.shares)} sh · ${String.format(java.util.Locale.US, "%.1f", pct)}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PORTFOLIO_RANGES.forEach { range ->
+                            FilterChip(
+                                selected = state.range == range,
+                                onClick = { vm.selectRange(range) },
+                                label = { Text(range.label) },
+                            )
+                        }
+                        FilterChip(
+                            selected = percentMode,
+                            onClick = { percentMode = !percentMode },
+                            label = { Text(if (percentMode) "%" else "$") },
                         )
-                        // MONEY-7: the app can already suggest covered calls, but only after
-                        // navigating into the ticker and opening the Options section — so a >=100
-                        // FREE-share position (see Holding.coveredCallEligible) sat there unmarked.
-                        // A share-count fact, not a quote: deliberately no premium/yield fetch per
-                        // holding here, which would be a network call per row for a number that
-                        // already lives one tap away on the detail screen.
-                        if (h.coveredCallEligible) {
-                            Box(
-                                modifier = Modifier
-                                    .padding(top = 2.dp)
-                                    .background(GainGreen.copy(alpha = 0.16f), RoundedCornerShape(50))
-                                    .padding(horizontal = 8.dp, vertical = 1.dp),
+                    }
+                    // Said once: when the S&P comparison is on screen, its caveat above already covers this.
+                    if (state.vsSpyPct == null) Text(
+                        "History reflects your current share counts across the whole period.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (sortedHoldings.size >= 2 && state.totalValue > 0) {
+                    AnswerDivider()
+                    AnswerRow(
+                        icon = Icons.Filled.DonutLarge, tint = DONUT_COLORS[0],
+                        title = "How it's split",
+                        subtitle = "Top 5 are " + String.format(java.util.Locale.US, "%.0f%%",
+                            sortedHoldings.take(5).sumOf { it.value } / state.totalValue * 100.0) + " of the book",
+                        key = "pf-split",
+                    ) {
+                        // Allocation donut — how the book is split, one colour per position, echoed in the rows.
+                        if (sortedHoldings.size >= 2 && state.totalValue > 0) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(
-                                    "Income eligible · covered call",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = GainGreen,
-                                )
+                                // The centre says how concentrated the book is: the top five's share of it.
+                                val topShare = sortedHoldings.take(5).sumOf { it.value } / state.totalValue * 100.0
+                                Box(Modifier.size(112.dp), contentAlignment = Alignment.Center) {
+                                    AllocationDonut(
+                                        slices = sortedHoldings.map {
+                                            (sliceColor[it.asset.symbol] ?: DONUT_COLORS[0]) to (it.value / state.totalValue).toFloat()
+                                        },
+                                        modifier = Modifier.size(112.dp),
+                                    )
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(String.format(java.util.Locale.US, "%.0f%%", topShare), style = PriceSmall, fontWeight = FontWeight.Bold)
+                                        Text(if (sortedHoldings.size > 5) "in top 5" else "of book",
+                                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    sortedHoldings.take(5).forEach { h ->
+                                        val pct = h.value / state.totalValue * 100.0
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            // A weight bar per holding, scaled to the LARGEST one, so the biggest
+                                            // position reads as the longest bar at a glance.
+                                            val c = sliceColor[h.asset.symbol] ?: DONUT_COLORS[0]
+                                            val frac = (h.value / sortedHoldings.first().value).toFloat().coerceIn(0f, 1f)
+                                            Text(h.asset.symbol, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.width(52.dp), maxLines = 1)
+                                            Box(
+                                                Modifier.weight(1f).height(6.dp)
+                                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f), RoundedCornerShape(50)),
+                                            ) {
+                                                Box(Modifier.fillMaxWidth(frac).height(6.dp).background(c, RoundedCornerShape(50)))
+                                            }
+                                            Text(
+                                                "${String.format(java.util.Locale.US, "%.0f", pct)}%",
+                                                style = NumberSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.width(34.dp),
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                            )
+                                        }
+                                    }
+                                    if (sortedHoldings.size > 5) {
+                                        Text(
+                                            "+${sortedHoldings.size - 5} more",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
-                    // Tabular, like the watchlist rows: three stacked figures the eye runs down,
-                    // where a proportional font puts every digit in a different place and the column
-                    // stops being a column.
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            Formatting.price(h.value, hideZeroCents = hideZeroCents),
-                            // PriceMedium, matching AssetRow: this is the row's primary figure and
-                            // the watchlist sets it at 18sp. It was 16sp bodyLarge here, which was
-                            // neither tabular nor the same size as the same thing on another screen.
-                            style = PriceMedium,
-                        )
-                        val hUp = h.dayChange >= 0
-                        Text(
-                            Formatting.change(h.dayChange, hideZeroCents, reference = h.value),
-                            style = NumberSmall,
-                            color = if (hUp) GainGreen else LossRed,
-                        )
-                        h.gainPercent?.let { gp ->
-                            val gUp = (h.gain ?: 0.0) >= 0
-                            Text(
-                                "${if (gUp) "▲" else "▼"} ${String.format(java.util.Locale.US, "%.1f", kotlin.math.abs(gp))}% total",
-                                style = NumberSmall,
-                                color = if (gUp) GainGreen else LossRed,
-                            )
+                }
+                AnswerDivider()
+                AnswerRow(
+                    icon = Icons.Filled.Savings, tint = GainGreen,
+                    title = "Invest cash", subtitle = "Add to what you own, or find something new",
+                    key = "pf-cash",
+                ) {
+                    // Put the cash to work — BELOW the positions, not above them.
+                    //
+                    // A "Cash to invest" field and two buttons used to sit between the chart and the
+                    // holdings, so a form outranked the data on a screen called Portfolio and the positions
+                    // started below the fold. The actions are still one screen away; they just no longer
+                    // stand in front of the thing you opened the tab to see.
+                    //
+                    // Two ways to deploy it: deepen what you already own (rebalance, existing holdings only),
+                    // or discover new names (the Ideas engine — watchlist + whole market).
+                    OutlinedTextField(
+                        value = state.cashText,
+                        onValueChange = vm::setCash,
+                        label = { Text("Cash to invest") },
+                        prefix = { Text("$") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        Button(
+                            onClick = { vm.openRebalance() },
+                            enabled = state.hasHoldings,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.Balance, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(8.dp))
+                            Text("Add to holdings")
+                        }
+                        OutlinedButton(onClick = onOpenIdeas, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.Lightbulb, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(8.dp))
+                            Text("Find new")
                         }
                     }
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
-            }
-
-            // Put the cash to work — BELOW the positions, not above them.
-            //
-            // A "Cash to invest" field and two buttons used to sit between the chart and the
-            // holdings, so a form outranked the data on a screen called Portfolio and the positions
-            // started below the fold. The actions are still one screen away; they just no longer
-            // stand in front of the thing you opened the tab to see.
-            //
-            // Two ways to deploy it: deepen what you already own (rebalance, existing holdings only),
-            // or discover new names (the Ideas engine — watchlist + whole market).
-            OutlinedTextField(
-                value = state.cashText,
-                onValueChange = vm::setCash,
-                label = { Text("Cash to invest") },
-                prefix = { Text("$") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                Button(
+                AnswerDivider()
+                AnswerRow(
+                    icon = Icons.Filled.AutoAwesome, tint = MaterialTheme.colorScheme.primary,
+                    title = "Review my book", subtitle = "AI read of concentration and risk · one model call",
+                    onClick = { vm.openReview() },
+                )
+                AnswerDivider()
+                AnswerRow(
+                    icon = Icons.Filled.Balance, tint = com.stocktracker.app.ui.theme.EtfAccent,
+                    title = "Rebalance plan", subtitle = "Moves to keep any one position under a cap · one model call",
                     onClick = { vm.openRebalance() },
-                    enabled = state.hasHoldings,
-                    modifier = Modifier.weight(1f),
+                )
+                AnswerDivider()
+                AnswerRow(
+                    icon = Icons.Filled.Tune, tint = com.stocktracker.app.ui.theme.Signal,
+                    title = "My calls", subtitle = "Option positions you track", key = "pf-calls",
                 ) {
-                    Icon(Icons.Filled.Balance, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("Add to holdings")
-                }
-                OutlinedButton(onClick = onOpenIdeas, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.Lightbulb, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("Find new")
+                    MyCallsSection()
                 }
             }
 
-            // Manually-tracked long-call positions (OC-3) — live P/L, DTE, ITM/OTM.
-            MyCallsSection()
 
             Box(Modifier.height(8.dp))
         }

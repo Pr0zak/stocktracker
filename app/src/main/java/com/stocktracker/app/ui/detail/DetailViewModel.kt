@@ -160,6 +160,8 @@ data class DetailUiState(
     val newsMovesLoaded: Boolean = false,  // true once a fetch has completed (drives the empty state)
     /** Quality tags (ROE/margins/D-E + Buffett/wide-moat/aristocrat flags) — free, auto-fetched for stocks. */
     val quality: Lens<QualityResponse> = Lens.idle,
+    /** ABOUT-1: the About tab's company profile. Not a LensId: it has no "not applicable" footer. */
+    val profile: Lens<com.stocktracker.app.data.remote.CompanyProfile> = Lens.idle,
     /** MB-17 — discount vs deterioration. Free (no LLM), loaded alongside quality. */
     val valueTrap: Lens<ValueTrapResponse> = Lens.idle,
     /** Halving-cycle + multi-year trend — free data, auto-fetched for crypto. */
@@ -293,6 +295,21 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
      *
      * [only] restricts the run to a single lens, which is what the retry row on a failed card calls.
      */
+    /** ABOUT-1: the About tab's retry. */
+    fun retryProfile() {
+        viewModelScope.launch {
+            val base = settings.signalsApiUrl.first()
+            if (base.isNotBlank()) loadProfile(base)
+        }
+    }
+
+    private suspend fun loadProfile(base: String) {
+        _state.update { it.copy(profile = Lens.loading) }
+        val plain = _state.value.aiEnabled
+        val r = runCatching { signalsApi.profile(base, asset.symbol, plain) }
+        _state.update { it.copy(profile = Lens.from(r) { true }) }
+    }
+
     fun loadLenses(only: LensId? = null) {
         val isStock = asset.type == AssetType.STOCK
         fun wanted(id: LensId) = only == null || only == id
@@ -334,6 +351,10 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
             // deliberate: these all hit the same backend and firing nine at once buys nothing but a
             // burst the service has to absorb.
             if (asset.type == AssetType.STOCK) {
+                // ABOUT-1: what the company is. Its own coroutine, since the About tab is the one
+                // that opens first. The plain-English line is an AI write, so it is asked for only
+                // when the AI switch is on; the facts come either way.
+                if (only == null) launch { loadProfile(base) }
                 launch {
                     if (wanted(LensId.SHORT_PRESSURE) && LensId.SHORT_PRESSURE !in na) {
                         _state.update { it.copy(shortPressure = Lens.loading) }

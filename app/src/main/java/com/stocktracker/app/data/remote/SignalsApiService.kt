@@ -396,6 +396,14 @@ class SignalsApiService {
         )
     }
 
+    /** ABOUT-1 — what the company is: sector/industry, description, key figures, and (with [plain],
+     *  which the caller passes only when the AI switch is on) a plain-English line. Throws on
+     *  failure so the lens can tell "failed" from a 404's "no profile". */
+    suspend fun profile(baseUrl: String, symbol: String, plain: Boolean): CompanyProfile {
+        val url = "${baseUrl.trimEnd('/')}/profile/${symbol.uppercase()}" + if (plain) "?plain=true" else ""
+        return Http.json.decodeFromString<CompanyProfile>(sGet(url, slow = plain))
+    }
+
     /** Quality tags (Finnhub basic-financials) — ROE/margins/D-E + Buffett/wide-moat/aristocrat flags.
      *  Stance-neutral business descriptors. Free. Null on 404. */
     suspend fun quality(baseUrl: String, symbol: String): QualityResponse? {
@@ -3255,4 +3263,36 @@ data class CoinGeckoKeyStatus(
     @SerialName("coingecko_api_key_set") val keySet: Boolean? = null,
     @SerialName("coingecko_api_key_hint") val hint: String = "",
     @SerialName("coingecko_status") val status: String? = null,
+)
+
+/** ABOUT-1 — `GET /profile/{symbol}`. Every figure is nullable: null is "Yahoo does not say", which
+ *  the About tab leaves out rather than drawing as zero. */
+@Serializable
+data class CompanyProfile(
+    val symbol: String = "",
+    val name: String? = null,
+    @SerialName("quote_type") val quoteType: String? = null,
+    val exchange: String? = null,
+    val sector: String? = null,
+    val industry: String? = null,
+    /** A fund's category ("Large Blend"); its stand-in for sector/industry. */
+    val category: String? = null,
+    /** The company's own long description. */
+    val summary: String? = null,
+    @SerialName("what_it_does") val whatItDoes: String? = null,
+    val customers: String? = null,
+    val employees: Long? = null,
+    val city: String? = null,
+    val state: String? = null,
+    val country: String? = null,
+    val website: String? = null,
+    val founded: Int? = null,
+    @SerialName("market_cap") val marketCap: Double? = null,
+    @SerialName("revenue_growth_pct") val revenueGrowthPct: Double? = null,
+    @SerialName("profit_margin_pct") val profitMarginPct: Double? = null,
+    val pe: Double? = null,
+    @SerialName("short_pct_float") val shortPctFloat: Double? = null,
+    @SerialName("target_mean") val targetMean: Double? = null,
+    @SerialName("n_analysts") val nAnalysts: Int? = null,
+    @SerialName("dividend_yield_pct") val dividendYieldPct: Double? = null,
 )

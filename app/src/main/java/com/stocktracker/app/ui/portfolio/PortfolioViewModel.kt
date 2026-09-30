@@ -147,6 +147,9 @@ data class PortfolioUiState(
     /** Free cash the user has to invest — fed to the AI review + rebalance so they distribute it.
      *  Persisted in [investableCash] (shared with the Ideas screen + detail entry plans). */
     val cashText: String = "",
+    /** ABOUT-3: a plain "what it is" label per symbol ("Oil & gas integrated", "Large blend fund").
+     *  A symbol absent from the map is unlabelled, never guessed. */
+    val kinds: Map<String, String> = emptyMap(),
 )
 
 /** Ranges offered for the portfolio value graph (daily data). */
@@ -201,10 +204,36 @@ class PortfolioViewModel : ViewModel() {
                     } else {
                         _state.update { it.copy(hasHoldings = true) }
                         loadCurrent(held)
+                        launch { loadKinds(held) }
                         loadChart(held, _state.value.range)
                     }
                 }
         }
+    }
+
+    /**
+     * ABOUT-3: what each holding is, for the row under its symbol. Stocks read their industry from the
+     * same sector lookup the watchlist groups by; a fund has no industry, so its category comes from
+     * the company profile. Best-effort: a failure leaves labels off rather than wrong.
+     */
+    private suspend fun loadKinds(held: List<Asset>) {
+        val base = settings.signalsApiUrl.first()
+        if (base.isBlank()) return
+        val kinds = mutableMapOf<String, String>()
+        held.filter { it.type == AssetType.CRYPTO }.forEach { kinds[it.symbol.uppercase()] = "Crypto" }
+        val stocks = held.filter { it.type == AssetType.STOCK }.map { it.symbol.uppercase() }
+        val sectors = runCatching { signalsApi.sectors(base, stocks) }.getOrNull().orEmpty()
+        for (sym in stocks) {
+            val ind = sectors[sym]?.industry?.takeIf { it.isNotBlank() }
+            if (ind != null) {
+                kinds[sym] = ind
+            } else if (sectors.containsKey(sym)) {
+                // Classified with no industry: a fund or a warrant. The profile's category names a fund.
+                runCatching { signalsApi.profile(base, sym, plain = false) }.getOrNull()
+                    ?.category?.takeIf { it.isNotBlank() }?.let { kinds[sym] = "$it fund" }
+            }
+        }
+        _state.update { it.copy(kinds = kinds.mapValues { (_, v) -> plainKind(v) }) }
     }
 
     /** Update the "cash to invest" field and persist the parsed amount (shared with Ideas + entry plans).
@@ -549,3 +578,7 @@ class PortfolioViewModel : ViewModel() {
         return maxDd * 100.0
     }
 }
+
+/** "Oil & Gas Integrated" → "Oil & gas integrated", the sentence case the app writes labels in. */
+internal fun plainKind(v: String): String =
+    v.lowercase(java.util.Locale.US).replaceFirstChar { it.titlecase(java.util.Locale.US) }

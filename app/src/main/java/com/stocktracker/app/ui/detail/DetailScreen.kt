@@ -1,5 +1,20 @@
 package com.stocktracker.app.ui.detail
 
+import com.stocktracker.app.ui.components.AnswerGroup
+import com.stocktracker.app.ui.components.AnswerRow
+import com.stocktracker.app.ui.components.AnswerDivider
+import androidx.compose.material.icons.filled.AddShoppingCart
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.filled.Balance
+import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.HelpOutline
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -58,6 +73,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -666,269 +682,34 @@ fun DetailScreen(
             }
 
 
-            // Everything on this screen used to be the market's opinion first and yours last: the
-            SectionHeader("YOUR MONEY")
-            // position card and the alerts sat below eleven analysis cards, four screenfuls down,
-            // and they are the two things you came to act on. They lead now. The lenses did not
-            // shrink or move out — they moved BELOW, which is the whole of this change.
-
-            HoldingsAndAlertsSection(
-                symbol = asset.symbol,
-                quote = quote,
-                hideZeroCents = hideZeroCents,
-                shares = state.shares,
-                avgCost = state.avgCost,
-                alerts = state.alerts,
-                // Pre-formatted here rather than passed as a raw number, because the caller is the
-                // only place that knows what the loaded bars ARE. "1 ATR" off a 5-minute series is
-                // not the quantity a stop distance is compared against, so the hint simply does not
-                // appear unless the chart is on daily bars.
-                atrHint = remember(state.chart) {
-                    val daily = barSpacingLabel(medianBarSpacingMs(state.chart)) == "1d"
-                    val a = if (daily) atr(state.chart, 14).lastOrNull() else null
-                    val px = state.chart.lastOrNull()?.price
-                    if (a != null && px != null && px > 0.0) {
-                        "1 ATR (14d) = ${fmtLevel(a)} · 1x below ${fmtLevel(px - a)} · 2x below ${fmtLevel(px - 2 * a)}"
-                    } else null
-                },
-                onSave = { newShares, newAvgCost, newAlerts ->
-                    // The Edit-holdings form can only express one blended total, so a real change
-                    // collapses however many dated lots exist into a single undated one. When those
-                    // lots came from recorded fills or an exercised call, their dates are what a
-                    // tax-aware rebalance and a split adjustment read — so say so before discarding
-                    // them, rather than letting a hand correction quietly erase a purchase history
-                    // the user may not know the app was keeping.
-                    val discarding = state.asset.editWouldDiscardDatedLots(newShares, newAvgCost)
-                    if (discarding) {
-                        pendingLotOverwrite = Triple(newShares, newAvgCost, newAlerts)
-                    } else {
-                        vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
-                    }
-                    if (!newAlerts.isEmpty) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-                            PackageManager.PERMISSION_GRANTED
-                        ) {
-                            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                        WidgetRefreshScheduler.refreshNow(context) // check the new thresholds promptly
-                    }
-                    Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
-                },
-            )
-
-            // FC-1: what the fund charges a year, beside the money it is charged on, and the funds
-            // that hold the same thing for less. A single stock comes back EMPTY and draws nothing.
-            val fundCost = state.fundCost
-            when {
-                fundCost.status == LensStatus.READY -> fundCost.value?.let { fc ->
-                    FundCostCard(
-                        lookup = fc,
-                        shares = state.shares,
-                        price = quote?.price,
-                        onRetry = { vm.loadLenses(only = LensId.FUND_COST) },
-                        onOpenFund = { f -> onOpenDetail(Asset(f.symbol, AssetType.STOCK, f.name ?: f.symbol)) },
-                    )
-                }
-                // A failed ask earns a retry row only on a known fund. Every stock-type symbol is
-                // asked, so on a company this would be a retry for a question nobody had.
-                fundCost.isFailed && state.isEtf -> LensRetryRow(LensId.FUND_COST) {
-                    vm.loadLenses(only = LensId.FUND_COST)
-                }
+            // ABOUT-2 (2026-09-30): the long scroll under the chart became four tabs. About says what
+            // the company is; Your money, Signals and History are the cards that were here, each as an
+            // answer row (its result on the right) that opens the same card in place. Nothing was
+            // removed, only folded. A coin has no company profile, so it opens on Your money.
+            val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+            val tabs = remember(isCrypto) {
+                buildList { if (!isCrypto) add(DetailTab.ABOUT); addAll(listOf(DetailTab.MONEY, DetailTab.SIGNALS, DetailTab.HISTORY)) }
             }
-            // FUND-2/6: what it holds, and how it overlaps what the user already owns — asked for
-            // only once the cost card has established this is a fund.
-            val fundHolds = state.fundHolds
-            when {
-                fundHolds.status == LensStatus.READY -> fundHolds.value?.let { v ->
-                    FundHoldsCard(asset.symbol, v, onOpenCompare = onOpenCompare)
-                }
-                fundHolds.isFailed -> LensRetryRow(LensId.FUND_HOLDS) { vm.loadLenses(only = LensId.FUND_HOLDS) }
-            }
-
-
-            if (state.aiEnabled) {
-                EntryPlanCard(
-                    plan = state.plan,
-                    currentPrice = quote?.price,
-                    chase = state.chase,
-                    loading = state.planLoading,
-                    error = state.planError,
-                    journalNote = state.journalNote,
-                    onPlan = { cash -> vm.requestPlan(cash) },
-                    onLogVerdict = { decision -> vm.logVerdict(decision) },
-                )
-            }
-
-            // The options cards — stocks/ETFs only (no chain for crypto), gated on the Signals URL, NOT
-            // the AI switch (all free server-side math). Calls = a bullish directional bet; the wheel
-            // pair below it = accumulate cheaply (cash-secured put) then earn income (covered call).
-            if (!isCrypto && state.signalsConfigured) {
-                // The options cards are tall and only matter if you actually trade options, so keep the
-                // whole section COLLAPSED BY DEFAULT behind a tappable "Options" header.
-                var optionsOpen by remember { mutableStateOf(false) }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-                        .clickable { optionsOpen = !optionsOpen }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Options", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            "Calls · cash-secured puts · covered calls",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Icon(
-                        if (optionsOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (optionsOpen) "Collapse options" else "Expand options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (optionsOpen) {
-                // "Play with calls" — a beginner-first long-call suggester.
-                PlayWithCallsCard(
-                    symbol = asset.symbol,
-                    options = state.options,
-                    loading = state.optionsLoading,
-                    error = state.optionsError,
-                    aiEnabled = state.aiEnabled, // gates the "Deep dive (Opus)" LLM button on the kill-switch
-                    deepLoading = state.optionsDeepLoading,
-                    deepError = state.optionsDeepError,
-                    onSuggest = { budget, style -> vm.requestOptions(budget, style) },
-                    onDeepDive = { vm.requestOptionsDeep() },
-                    deepProfile = state.optionsDeepProfile,
-                    onTrack = { draft -> callDraft = draft },
-                )
-
-                // OC-8 wheel · buy side: "Get paid to buy" cash-secured put — acquire shares cheaply.
-                CashSecuredPutCard(
-                    symbol = asset.symbol,
-                    puts = state.puts,
-                    loading = state.putsLoading,
-                    error = state.putsError,
-                    onSuggest = { cash, style -> vm.requestPuts(cash, style) },
-                    onTrack = { draft -> callDraft = draft },
-                )
-
-                // OC-8 wheel · income side: "Sell covered calls" — only once the user holds ≥100 FREE
-                // shares of THIS symbol (one contract covers 100). Raw share count comes from the
-                // holdings store; MONEY-3 subtracts shares already promised away by an OPEN short call
-                // on this symbol, so a shown-and-sold covered call can't be offered again against the
-                // same 100 shares on the next visit.
-                val heldShares = (state.shares?.toInt() ?: 0) - state.sharesCommittedToShortCalls
-                if (heldShares >= 100) {
-                    CoveredCallCard(
-                        symbol = asset.symbol,
-                        sharesHeld = heldShares,
-                        coveredCall = state.coveredCall,
-                        loading = state.coveredCallLoading,
-                        error = state.coveredCallError,
-                        onSuggest = { target -> vm.requestCoveredCall(heldShares, target) },
-                        onTrack = { draft -> callDraft = draft },
-                    )
-                }
-                } // if (optionsOpen)
-            }
-
-
-            // A header that stands over nothing is a promise the screen does not keep — and on an
-            // ETF, where insider filings and Congress trades genuinely do not apply, that is most
-            // of them. Each header renders only if something beneath it will.
-            val hasRead = (!isCrypto) || state.signal != null || state.aiEnabled
-            // A lens earns its header when it will draw a card OR a retry row — a failed lens that
-            // silently took its header down with it would be the same disappearing act this whole
-            // change exists to stop.
-            fun shows(lens: Lens<*>) = lens.status == LensStatus.READY || lens.isFailed
-            val hasFlows = shows(state.shortPressure) || shows(state.insider) || shows(state.congress)
-            val hasPatterns = shows(state.seasonality) ||
-                (state.aiEnabled && state.asset.type == AssetType.STOCK) ||
-                shows(state.cycleInfo) || shows(state.stockTrend) ||
-                shows(state.quality) || shows(state.valueTrap)
-
-            // The rollup, and then the evidence it was rolled up from.
-            if (hasRead) SectionHeader("TODAY'S READ")
-
-            // Snapshot — one-glance rollup of the lenses below (stocks only, when ≥2 are available).
-            if (!isCrypto) {
-                val snapCount = listOf(
-                    state.signal != null || state.aiVerdict != null,
-                    state.stockTrend.value != null,
-                    state.quality.value?.let { it.hasAnyFlag || it.hasMetrics } == true,
-                    state.insider.value?.let { it.buyCount12m > 0 } == true,
-                    state.shortPressure.value != null,
-                ).count { it }
-                if (snapCount >= 2) {
-                    SnapshotCard(
-                        signal = state.signal,
-                        verdict = state.aiVerdict,
-                        aiEnabled = state.aiEnabled,
-                        aiError = state.aiError,
-                        trend = state.stockTrend.value,
-                        quality = state.quality.value,
-                        insider = state.insider.value,
-                        shortPressure = state.shortPressure.value,
+            var tabName by androidx.compose.runtime.saveable.rememberSaveable(asset.symbol) { mutableStateOf(tabs.first().name) }
+            val tab = tabs.firstOrNull { it.name == tabName } ?: tabs.first()
+            // Scrollable so "Your money" keeps its width on a narrow phone rather than clipping.
+            androidx.compose.material3.ScrollableTabRow(
+                selectedTabIndex = tabs.indexOf(tab),
+                containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                edgePadding = 0.dp,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                tabs.forEach { t ->
+                    androidx.compose.material3.Tab(
+                        selected = t == tab,
+                        onClick = { tabName = t.name },
+                        selectedContentColor = MaterialTheme.colorScheme.onSurface,
+                        unselectedContentColor = neutral,
+                        text = { Text(t.label, maxLines = 1, style = MaterialTheme.typography.titleSmall) },
                     )
                 }
             }
 
-            if (state.signal != null || state.aiEnabled) {
-                SignalsCard(
-                    signal = state.signal,
-                    backtest = state.backtest,
-                    verdict = state.aiVerdict,
-                    model = state.aiModel,
-                    verdictAtMs = state.aiVerdictAtMs,
-                    loading = state.aiLoading,
-                    error = state.aiError,
-                    aiEnabled = state.aiEnabled,
-                    onAnalyze = { vm.requestAiVerdict(deep = false) },
-                    onDeepDive = { vm.requestAiVerdict(deep = true) },
-                )
-            }
-
-            // Who is positioned how — short interest, insiders, Congress.
-            if (hasFlows) SectionHeader("SIGNALS & FLOWS")
-
-            LensSlot(state.shortPressure, LensId.SHORT_PRESSURE, vm) { ShortPressureCard(it) }
-            LensSlot(state.insider, LensId.INSIDER, vm) { InsiderBuyingCard(it) }
-            LensSlot(state.congress, LensId.CONGRESS, vm) { CongressCard(it) }
-
-            // What this name has done before, and what moved it.
-            if (hasPatterns) SectionHeader("PATTERNS & HISTORY")
-
-            LensSlot(state.seasonality, LensId.SEASONALITY, vm) { SeasonalityCard(it) }
-            if (state.aiEnabled && state.asset.type == AssetType.STOCK) {
-                NewsMovesCard(
-                    block = state.newsMoves,
-                    note = state.newsMovesNote,
-                    loading = state.newsMovesLoading,
-                    error = state.newsMovesError,
-                    loaded = state.newsMovesLoaded,
-                    onExplain = { vm.requestNewsMoves() },
-                )
-            }
-            LensSlot(state.cycleInfo, LensId.CYCLE, vm) { HalvingCycleCard(it) }
-            LensSlot(state.stockTrend, LensId.TREND, vm) { StockTrendCard(it, state.touchStudy) }
-            LensSlot(state.quality, LensId.QUALITY, vm) { QualityCard(it) }
-            LensSlot(state.valueTrap, LensId.VALUE_TRAP, vm) { ValueTrapCard(it) }
-            // One footer, once, instead of "· tap for detail" repeated on nine cards and a
-            // disclaimer restated on sixteen. The per-lens caveats that say something SPECIFIC —
-            // that Congress filings lag 45 days, that a low 200-week reading is not a buy on its
-            // own — stay where they are: those are not boilerplate, they are the epistemics of
-            // that particular lens, and deleting them would be the opposite of this change.
-            // Absence, said out loud — and now read off the lenses themselves rather than from a
-            // hardcoded list that had drifted. The old list lived here and disagreed with the view
-            // model: it never mentioned seasonality or short pressure for a coin, and it had no way
-            // of knowing that an ETF files no Form 4s, because the app's AssetType has no ETF.
-            //
-            // Two separate sentences on purpose. "This does not exist for this instrument" is a
-            // permanent fact about the world; "we looked and there was nothing" is a finding about
-            // this name today, and one of them is worth re-reading next month.
             val lenses = listOf(
                 LensId.SHORT_PRESSURE to state.shortPressure,
                 LensId.INSIDER to state.insider,
@@ -946,73 +727,413 @@ fun DetailScreen(
             // row, NOT_APPLICABLE/EMPTY the footers above); IDLE got none, so a fresh install showed
             // this whole area as if it did not exist rather than as a layer waiting to be switched on.
             val idleLenses = lenses.filter { it.second.status == LensStatus.IDLE }.map { it.first.label }
-            if (idleLenses.isNotEmpty()) {
-                IdleLensNotice(idleLenses, onOpenSignalsSettings)
-            }
 
-            if (notApplicable.isNotEmpty()) {
-                Text(
-                    "Not applicable to this " + (if (isCrypto) "coin" else "instrument") + ": " +
-                        notApplicable.joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (checkedEmpty.isNotEmpty()) {
-                Text(
-                    "Checked, nothing to show: " + checkedEmpty.joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Text(
-                "Every card above is collapsible — tap it for the detail behind the summary. " +
-                    "Context, not advice.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-
-            Text(
-                "Lists",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                allGroups.forEach { g ->
-                    FilterChip(
-                        selected = state.groups.contains(g),
-                        onClick = { vm.toggleGroup(g) },
-                        label = { Text(g) },
-                    )
-                }
-                FilterChip(
-                    selected = false,
-                    onClick = { showNewListDialog = true },
-                    label = { Text("＋ New list") },
-                )
-            }
-
-            Button(
-                onClick = {
-                    val ok = WidgetPinning.requestPinTicker(context)
-                    if (!ok) {
-                        Toast.makeText(
-                            context,
-                            "Long-press your home screen to add a StockTracker widget",
-                            Toast.LENGTH_LONG,
-                        ).show()
+            when (tab) {
+                DetailTab.ABOUT -> {
+                    AboutTab(state.profile, onRetry = { vm.retryProfile() })
+                    val fundCost = state.fundCost
+                    when {
+                        fundCost.status == LensStatus.READY -> fundCost.value?.let { fc ->
+                            FundCostCard(
+                                lookup = fc,
+                                shares = state.shares,
+                                price = quote?.price,
+                                onRetry = { vm.loadLenses(only = LensId.FUND_COST) },
+                                onOpenFund = { f -> onOpenDetail(Asset(f.symbol, AssetType.STOCK, f.name ?: f.symbol)) },
+                            )
+                        }
+                        // A failed ask earns a retry row only on a known fund. Every stock-type symbol is
+                        // asked, so on a company this would be a retry for a question nobody had.
+                        fundCost.isFailed && state.isEtf -> LensRetryRow(LensId.FUND_COST) {
+                            vm.loadLenses(only = LensId.FUND_COST)
+                        }
                     }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-            ) { Text("Add Widget to Home Screen") }
+                    // FUND-2/6: what it holds, and how it overlaps what the user already owns — asked for
+                    // only once the cost card has established this is a fund.
+                    val fundHolds = state.fundHolds
+                    when {
+                        fundHolds.status == LensStatus.READY -> fundHolds.value?.let { v ->
+                            FundHoldsCard(asset.symbol, v, onOpenCompare = onOpenCompare)
+                        }
+                        fundHolds.isFailed -> LensRetryRow(LensId.FUND_HOLDS) { vm.loadLenses(only = LensId.FUND_HOLDS) }
+                    }
+                }
+
+                DetailTab.MONEY -> {
+                    HoldingsAndAlertsSection(
+                        symbol = asset.symbol,
+                        quote = quote,
+                        hideZeroCents = hideZeroCents,
+                        shares = state.shares,
+                        avgCost = state.avgCost,
+                        alerts = state.alerts,
+                        // Pre-formatted here rather than passed as a raw number, because the caller is the
+                        // only place that knows what the loaded bars ARE. "1 ATR" off a 5-minute series is
+                        // not the quantity a stop distance is compared against, so the hint simply does not
+                        // appear unless the chart is on daily bars.
+                        atrHint = remember(state.chart) {
+                            val daily = barSpacingLabel(medianBarSpacingMs(state.chart)) == "1d"
+                            val a = if (daily) atr(state.chart, 14).lastOrNull() else null
+                            val px = state.chart.lastOrNull()?.price
+                            if (a != null && px != null && px > 0.0) {
+                                "1 ATR (14d) = ${fmtLevel(a)} · 1x below ${fmtLevel(px - a)} · 2x below ${fmtLevel(px - 2 * a)}"
+                            } else null
+                        },
+                        onSave = { newShares, newAvgCost, newAlerts ->
+                            // The Edit-holdings form can only express one blended total, so a real change
+                            // collapses however many dated lots exist into a single undated one. When those
+                            // lots came from recorded fills or an exercised call, their dates are what a
+                            // tax-aware rebalance and a split adjustment read — so say so before discarding
+                            // them, rather than letting a hand correction quietly erase a purchase history
+                            // the user may not know the app was keeping.
+                            val discarding = state.asset.editWouldDiscardDatedLots(newShares, newAvgCost)
+                            if (discarding) {
+                                pendingLotOverwrite = Triple(newShares, newAvgCost, newAlerts)
+                            } else {
+                                vm.saveHoldingsAndAlerts(newShares, newAvgCost, newAlerts)
+                            }
+                            if (!newAlerts.isEmpty) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                                    PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                                WidgetRefreshScheduler.refreshNow(context) // check the new thresholds promptly
+                            }
+                            Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                    AnswerGroup {
+                        if (state.aiEnabled) {
+                            AnswerRow(
+                                icon = Icons.Filled.AddShoppingCart, tint = MaterialTheme.colorScheme.primary,
+                                title = "Plan a buy", subtitle = "A staged entry for cash you set",
+                                key = "plan:${asset.symbol}",
+                            ) {
+                                EntryPlanCard(
+                                    plan = state.plan,
+                                    currentPrice = quote?.price,
+                                    chase = state.chase,
+                                    loading = state.planLoading,
+                                    error = state.planError,
+                                    journalNote = state.journalNote,
+                                    onPlan = { cash -> vm.requestPlan(cash) },
+                                    onLogVerdict = { decision -> vm.logVerdict(decision) },
+                                )
+                            }
+                            AnswerDivider()
+                        }
+                        if (!isCrypto && state.signalsConfigured) {
+                            AnswerRow(
+                                icon = Icons.Filled.Tune, tint = com.stocktracker.app.ui.theme.EtfAccent,
+                                title = "Options", subtitle = "Calls · cash-secured puts · covered calls",
+                                key = "options:${asset.symbol}",
+                            ) {
+                            // "Play with calls" — a beginner-first long-call suggester.
+                            PlayWithCallsCard(
+                                symbol = asset.symbol,
+                                options = state.options,
+                                loading = state.optionsLoading,
+                                error = state.optionsError,
+                                aiEnabled = state.aiEnabled, // gates the "Deep dive (Opus)" LLM button on the kill-switch
+                                deepLoading = state.optionsDeepLoading,
+                                deepError = state.optionsDeepError,
+                                onSuggest = { budget, style -> vm.requestOptions(budget, style) },
+                                onDeepDive = { vm.requestOptionsDeep() },
+                                deepProfile = state.optionsDeepProfile,
+                                onTrack = { draft -> callDraft = draft },
+                            )
+
+                            // OC-8 wheel · buy side: "Get paid to buy" cash-secured put — acquire shares cheaply.
+                            CashSecuredPutCard(
+                                symbol = asset.symbol,
+                                puts = state.puts,
+                                loading = state.putsLoading,
+                                error = state.putsError,
+                                onSuggest = { cash, style -> vm.requestPuts(cash, style) },
+                                onTrack = { draft -> callDraft = draft },
+                            )
+
+                            // OC-8 wheel · income side: "Sell covered calls" — only once the user holds ≥100 FREE
+                            // shares of THIS symbol (one contract covers 100). Raw share count comes from the
+                            // holdings store; MONEY-3 subtracts shares already promised away by an OPEN short call
+                            // on this symbol, so a shown-and-sold covered call can't be offered again against the
+                            // same 100 shares on the next visit.
+                            val heldShares = (state.shares?.toInt() ?: 0) - state.sharesCommittedToShortCalls
+                            if (heldShares >= 100) {
+                                CoveredCallCard(
+                                    symbol = asset.symbol,
+                                    sharesHeld = heldShares,
+                                    coveredCall = state.coveredCall,
+                                    loading = state.coveredCallLoading,
+                                    error = state.coveredCallError,
+                                    onSuggest = { target -> vm.requestCoveredCall(heldShares, target) },
+                                    onTrack = { draft -> callDraft = draft },
+                                )
+                            }
+                            }
+                            AnswerDivider()
+                        }
+                        AnswerRow(
+                            icon = Icons.AutoMirrored.Filled.List, tint = com.stocktracker.app.ui.theme.ChartSeries[0],
+                            title = "Lists & widget",
+                            subtitle = state.groups.takeIf { it.isNotEmpty() }?.joinToString(" · ")?.let { "In: $it" }
+                                ?: "Add to a list · home-screen widget",
+                            key = "lists:${asset.symbol}",
+                        ) {
+                        Text(
+                            "Lists",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            allGroups.forEach { g ->
+                                FilterChip(
+                                    selected = state.groups.contains(g),
+                                    onClick = { vm.toggleGroup(g) },
+                                    label = { Text(g) },
+                                )
+                            }
+                            FilterChip(
+                                selected = false,
+                                onClick = { showNewListDialog = true },
+                                label = { Text("＋ New list") },
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                val ok = WidgetPinning.requestPinTicker(context)
+                                if (!ok) {
+                                    Toast.makeText(
+                                        context,
+                                        "Long-press your home screen to add a StockTracker widget",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                        ) { Text("Add Widget to Home Screen") }
+                        }
+                    }
+                }
+
+                DetailTab.SIGNALS -> {
+                    if (idleLenses.isNotEmpty()) IdleLensNotice(idleLenses, onOpenSignalsSettings)
+                    val factors = snapshotFactors(
+                        state.signal, state.aiVerdict, state.aiEnabled, state.aiError, state.stockTrend.value,
+                        state.quality.value, state.insider.value, state.shortPressure.value, neutral,
+                    )
+                    SignalsLead(factors)
+                    AnswerGroup {
+                        var first = true
+                        @Composable fun sep() { if (!first) AnswerDivider(); first = false }
+                        fun f(name: String) = factors.firstOrNull { it.name == name }
+                        if (state.signal != null || state.aiEnabled) {
+                            sep()
+                            val m = f("Momentum")
+                            AnswerRow(
+                                icon = Icons.AutoMirrored.Filled.TrendingUp, tint = m?.color ?: neutral,
+                                title = "Momentum", subtitle = m?.sub ?: "Rules and AI read of the trend",
+                                key = "sig:${asset.symbol}",
+                                trailing = { m?.let { Pill(it.read, it.color) } },
+                            ) {
+                                SignalsCard(
+                                    signal = state.signal,
+                                    backtest = state.backtest,
+                                    verdict = state.aiVerdict,
+                                    model = state.aiModel,
+                                    verdictAtMs = state.aiVerdictAtMs,
+                                    loading = state.aiLoading,
+                                    error = state.aiError,
+                                    aiEnabled = state.aiEnabled,
+                                    onAnalyze = { vm.requestAiVerdict(deep = false) },
+                                    onDeepDive = { vm.requestAiVerdict(deep = true) },
+                                    embedded = true,
+                                )
+                            }
+                        }
+                        state.stockTrend.value?.let { tr ->
+                            sep()
+                            val v = f("Value")
+                            AnswerRow(
+                                icon = Icons.Filled.Balance, tint = v?.color ?: neutral,
+                                title = "Price vs value", subtitle = v?.sub, key = "val:${asset.symbol}",
+                                trailing = { v?.let { Pill(plainValueWord(it.read), it.color) } },
+                            ) { StockTrendCard(tr, state.touchStudy, embedded = true) }
+                        }
+                        state.quality.value?.let { q ->
+                            sep()
+                            val qf = f("Quality")
+                            AnswerRow(
+                                icon = Icons.Filled.Diamond, tint = qf?.color ?: neutral,
+                                title = "Business quality", subtitle = qf?.sub, key = "qual:${asset.symbol}",
+                                trailing = { qf?.let { Pill(it.read, it.color) } },
+                            ) { QualityCard(q, embedded = true) }
+                        }
+                        state.insider.value?.let { ins ->
+                            sep()
+                            val sm = f("Smart money")
+                            AnswerRow(
+                                icon = Icons.Filled.Groups, tint = com.stocktracker.app.ui.theme.GainGreen,
+                                title = "Insiders buying", subtitle = sm?.sub, key = "ins:${asset.symbol}",
+                                trailing = { sm?.let { Pill(it.read, it.color) } },
+                            ) { InsiderBuyingCard(ins, embedded = true) }
+                        }
+                        state.shortPressure.value?.let { sp ->
+                            sep()
+                            val sh = f("Short pressure")
+                            AnswerRow(
+                                icon = Icons.AutoMirrored.Filled.TrendingDown, tint = sh?.color ?: neutral,
+                                title = "Bets against it", subtitle = sh?.sub, key = "short:${asset.symbol}",
+                                trailing = { sh?.let { Pill(it.read, it.color) } },
+                            ) { ShortPressureCard(sp, embedded = true) }
+                        }
+                        state.congress.value?.let { c ->
+                            sep()
+                            AnswerRow(
+                                icon = Icons.Filled.AccountBalance, tint = Signal,
+                                title = "Congress trades", subtitle = "Disclosed trades by members of Congress",
+                                key = "cong:${asset.symbol}",
+                                trailing = { Pill("${c.tradeCount} trade${if (c.tradeCount != 1) "s" else ""}", Signal) },
+                            ) { CongressCard(c, embedded = true) }
+                        }
+                        if (first) {
+                            Text("No signals to show yet.", style = MaterialTheme.typography.bodyMedium, color = neutral,
+                                 modifier = Modifier.padding(vertical = 12.dp))
+                        }
+                    }
+                    listOf(
+                        LensId.SHORT_PRESSURE to state.shortPressure, LensId.INSIDER to state.insider,
+                        LensId.CONGRESS to state.congress, LensId.QUALITY to state.quality, LensId.TREND to state.stockTrend,
+                    ).filter { it.second.isFailed }.forEach { (id, _) -> LensRetryRow(id) { vm.loadLenses(only = id) } }
+                    Text("Context, not advice.", style = MaterialTheme.typography.bodySmall, color = neutral)
+                }
+
+                DetailTab.HISTORY -> {
+                    AnswerGroup {
+                        var first = true
+                        @Composable fun sep() { if (!first) AnswerDivider(); first = false }
+                        state.seasonality.value?.let { sb ->
+                            sb.currentMonth?.let { cur ->
+                                sep()
+                                val up = (cur.avgPct ?: 0.0) >= 0
+                                AnswerRow(
+                                    icon = Icons.Filled.CalendarMonth, tint = if (up) com.stocktracker.app.ui.theme.GainGreen else com.stocktracker.app.ui.theme.LossRed,
+                                    title = monthName(cur.name),
+                                    subtitle = "Up ${cur.hitRate ?: 0}% of the last ${cur.n} years",
+                                    key = "season:${asset.symbol}",
+                                    trailing = { Pill(fmtSignedPct(cur.avgPct), if (up) com.stocktracker.app.ui.theme.GainGreen else com.stocktracker.app.ui.theme.LossRed) },
+                                ) { SeasonalityCard(sb, embedded = true) }
+                            }
+                        }
+                        state.stockTrend.value?.let { tr ->
+                            sep()
+                            AnswerRow(
+                                icon = Icons.Filled.ShowChart, tint = if (tr.belowLine == true) Signal else neutral,
+                                title = "200-week line", subtitle = trendPlain(tr), key = "trend:${asset.symbol}",
+                                trailing = { tr.priceVs200wSmaPct?.let { Pill("%+.1f%%".format(it), if (tr.belowLine == true) Signal else neutral) } },
+                            ) { StockTrendCard(tr, state.touchStudy, embedded = true) }
+                        }
+                        state.quality.value?.let { q ->
+                            sep()
+                            AnswerRow(
+                                icon = Icons.Filled.Diamond, tint = com.stocktracker.app.ui.theme.CategoricalRamp[1],
+                                title = "Quality",
+                                subtitle = listOfNotNull(
+                                    q.roe?.let { "ROE ${it.roundToInt()}%" },
+                                    q.grossMargin?.let { "gross ${it.roundToInt()}%" },
+                                    q.debtToEquity?.let { "D/E ${"%.2f".format(it)}" },
+                                ).joinToString(" · ").ifBlank { null },
+                                key = "hqual:${asset.symbol}",
+                            ) { QualityCard(q, embedded = true) }
+                        }
+                        if (state.aiEnabled && state.asset.type == AssetType.STOCK) {
+                            sep()
+                            val hasNews = state.newsMoves != null || state.newsMovesNote != null || state.newsMovesError != null
+                            if (hasNews) {
+                                AnswerRow(
+                                    icon = Icons.Filled.AutoAwesome, tint = MaterialTheme.colorScheme.primary,
+                                    title = "Why it moved", subtitle = "Big moves matched to the news",
+                                    key = "news:${asset.symbol}",
+                                ) {
+                                    NewsMovesCard(
+                                        block = state.newsMoves,
+                                        note = state.newsMovesNote,
+                                        loading = state.newsMovesLoading,
+                                        error = state.newsMovesError,
+                                        loaded = state.newsMovesLoaded,
+                                        onExplain = { vm.requestNewsMoves() },
+                                        embedded = true,
+                                    )
+                                }
+                            } else {
+                                AnswerRow(
+                                    icon = Icons.Filled.AutoAwesome, tint = MaterialTheme.colorScheme.primary,
+                                    title = "Why it moved", subtitle = "Match big moves to the news",
+                                    trailing = {
+                                        if (state.newsMovesLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                        else Text("Explain", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    },
+                                    onClick = { if (!state.newsMovesLoading) vm.requestNewsMoves() },
+                                )
+                            }
+                        }
+                        state.cycleInfo.value?.let { ci ->
+                            sep()
+                            AnswerRow(
+                                icon = Icons.Filled.Autorenew, tint = com.stocktracker.app.ui.theme.ChartSeries[1],
+                                title = if (ci.halvingCycle != null) "Halving cycle" else "Long-term trend",
+                                subtitle = ci.halvingCycle?.cyclePct?.let { "%.0f%% through the 4-year cycle".format(it) },
+                                key = "cycle:${asset.symbol}",
+                            ) { HalvingCycleCard(ci, embedded = true) }
+                        }
+                        state.valueTrap.value?.let { v ->
+                            sep()
+                            AnswerRow(
+                                icon = Icons.Filled.HelpOutline, tint = Signal,
+                                title = "Cheap, or broken?",
+                                subtitle = when {
+                                    !v.assessable -> "Not enough data to judge"
+                                    v.verdict == "deteriorating" -> "Leaning deteriorating"
+                                    v.verdict == "discount" -> "Leaning genuine discount"
+                                    else -> "Evidence is mixed"
+                                },
+                                key = "trap:${asset.symbol}",
+                            ) { ValueTrapCard(v, embedded = true) }
+                        }
+                        if (first) {
+                            Text("No history to show yet.", style = MaterialTheme.typography.bodyMedium, color = neutral,
+                                 modifier = Modifier.padding(vertical = 12.dp))
+                        }
+                    }
+                    listOf(
+                        LensId.SEASONALITY to state.seasonality, LensId.CYCLE to state.cycleInfo,
+                        LensId.VALUE_TRAP to state.valueTrap,
+                    ).filter { it.second.isFailed }.forEach { (id, _) -> LensRetryRow(id) { vm.loadLenses(only = id) } }
+                    if (notApplicable.isNotEmpty()) {
+                        Text(
+                            "Not applicable to this " + (if (isCrypto) "coin" else "instrument") + ": " +
+                                notApplicable.joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (checkedEmpty.isNotEmpty()) {
+                        Text(
+                            "Checked, nothing to show: " + checkedEmpty.joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -1447,143 +1568,27 @@ private fun aiBucket(signal: String): Int = when {
 
 /** One row of the Snapshot rollup: a lens, its plain read, a detail sub-line, a sentiment bucket
  *  (+1 bullish / 0 neutral / -1 bearish) and the colour that read paints in. */
-private data class SnapFactor(
-    val name: String,
-    val read: String,
-    val sub: String,
-    val bucket: Int,
-    val color: androidx.compose.ui.graphics.Color,
-)
-
 /**
- * "Snapshot" — the top-of-detail rollup of every lens below (momentum, value, quality, smart money,
- * short pressure) into one glance. The headline word calls out whether the reads AGREE or CONFLICT —
- * "Mixed" whenever at least one lens is bullish and another bearish (NKE's classic case: bearish
- * momentum but cheap + insiders buying) — rather than averaging a real disagreement into one number.
- * Each factor is a coloured one-liner; tap to expand the sub-detail. Context, not advice; the detailed
- * cards remain below for the drill-down.
+ * ABOUT-2: the Snapshot's five readings (momentum, value, quality, insiders, short pressure), lifted
+ * out of [SnapshotCard] so the Signals tab's answer rows read the very same words and colours.
  */
-/**
- * A quiet rule with a word on it.
- *
- * The detail screen is one flat column of about twenty-eight cards that all share the same
- * chrome — same surface, same pill, same chevron — so nothing told you where one concern ended
- * and the next began. Four headers is not a redesign; it is punctuation.
- */
-/**
- * One lens's place on the screen — the card, or an honest account of why there isn't one.
- *
- * READY draws the card. FAILED draws a retry row, because "we could not look" is the only one of
- * these states a tap can change. Everything else draws nothing HERE and is named in a footer
- * instead: a per-card "nothing to show" line for eight quiet lenses would be most of the screen.
- */
-@Composable
-private fun <T> LensSlot(
-    lens: Lens<T>,
-    id: LensId,
-    vm: DetailViewModel,
-    content: @Composable (T) -> Unit,
-) {
-    when {
-        lens.status == LensStatus.READY -> lens.value?.let { content(it) }
-        lens.isFailed -> LensRetryRow(id) { vm.loadLenses(only = id) }
-        else -> Unit
-    }
-}
-
-/** A lens that could not be fetched, saying so, with the one control that can help. */
-@Composable
-private fun LensRetryRow(id: LensId, onRetry: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(id.label, style = MaterialTheme.typography.labelLarge)
-            Text(
-                "Couldn't load this one. Nothing else on the screen is affected.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        TextButton(onClick = onRetry) { Text("Retry") }
-    }
-}
-
-/**
- * Lens.IDLE, rendered — this is the fix for PLAT-3's third item.
- *
- * Every other lens status draws something: READY the card, FAILED [LensRetryRow], NOT_APPLICABLE and
- * EMPTY the footers above. IDLE drew nothing, anywhere, ever — so a fresh install with no signals
- * backend showed a Detail screen with no SIGNALS & FLOWS section, no PATTERNS & HISTORY section, and
- * nothing to suggest either had ever existed. The feature read as absent rather than as a quiet layer
- * waiting to be switched on. This says what it is and sends the reader straight to the one setting
- * that turns it on.
- */
-@Composable
-private fun IdleLensNotice(labels: List<String>, onOpenSignalsSettings: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text("AI analyst layer", style = MaterialTheme.typography.labelLarge)
-            Text(
-                labels.joinToString(" · ") +
-                    " read from a self-hosted signals backend, and none of it has been asked for yet.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        TextButton(onClick = onOpenSignalsSettings) { Text("Set up signals") }
-    }
-}
-
-@Composable
-private fun SectionHeader(title: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.4.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        HorizontalDivider(modifier = Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun SnapshotCard(
+internal fun snapshotFactors(
     signal: SignalResult?,
     verdict: AiVerdict?,
     aiEnabled: Boolean,
-    // Distinguishes "never asked" from "asked and it failed" - the collapsed rollup reported both
-    // as "AI not run", so a failed call looked like one the user simply hadn't made.
-    aiError: String? = null,
+    aiError: String?,
     trend: TrendResponse?,
     quality: QualityResponse?,
     insider: InsiderResponse?,
     shortPressure: ShortPressureResponse?,
-) {
+    neutral: Color,
+): List<SnapFactor> {
     val buy = GainGreen
     val sell = LossRed
     val amber = Signal
     val value = Signal
     val moat = CategoricalRamp[1]
-    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-
-    val factors = buildList {
+    return buildList {
         // Momentum — the rule engine + (if run) the Claude read, same consensus logic as Signals.
         val rb = signal?.let { ruleBucket(it.label) }
         val ab = verdict?.let { aiBucket(it.signal) }
@@ -1684,75 +1689,103 @@ private fun SnapshotCard(
         }
     }
 
-    if (factors.size < 2) return
+}
 
-    val hasBull = factors.any { it.bucket > 0 }
-    val hasBear = factors.any { it.bucket < 0 }
-    val (headline, headColor) = when {
-        hasBull && hasBear -> "MIXED" to amber
-        hasBull -> "BULLISH" to buy
-        hasBear -> "BEARISH" to sell
-        else -> "NEUTRAL" to neutral
+internal data class SnapFactor(
+    val name: String,
+    val read: String,
+    val sub: String,
+    val bucket: Int,
+    val color: androidx.compose.ui.graphics.Color,
+)
+
+/**
+ * "Snapshot" — the top-of-detail rollup of every lens below (momentum, value, quality, smart money,
+ * short pressure) into one glance. The headline word calls out whether the reads AGREE or CONFLICT —
+ * "Mixed" whenever at least one lens is bullish and another bearish (NKE's classic case: bearish
+ * momentum but cheap + insiders buying) — rather than averaging a real disagreement into one number.
+ * Each factor is a coloured one-liner; tap to expand the sub-detail. Context, not advice; the detailed
+ * cards remain below for the drill-down.
+ */
+/**
+ * A quiet rule with a word on it.
+ *
+ * The detail screen is one flat column of about twenty-eight cards that all share the same
+ * chrome — same surface, same pill, same chevron — so nothing told you where one concern ended
+ * and the next began. Four headers is not a redesign; it is punctuation.
+ */
+/**
+ * One lens's place on the screen — the card, or an honest account of why there isn't one.
+ *
+ * READY draws the card. FAILED draws a retry row, because "we could not look" is the only one of
+ * these states a tap can change. Everything else draws nothing HERE and is named in a footer
+ * instead: a per-card "nothing to show" line for eight quiet lenses would be most of the screen.
+ */
+@Composable
+private fun <T> LensSlot(
+    lens: Lens<T>,
+    id: LensId,
+    vm: DetailViewModel,
+    content: @Composable (T) -> Unit,
+) {
+    when {
+        lens.status == LensStatus.READY -> lens.value?.let { content(it) }
+        lens.isFailed -> LensRetryRow(id) { vm.loadLenses(only = id) }
+        else -> Unit
     }
+}
 
-    var open by remember { mutableStateOf(false) }
-
-    Column(
+/** A lens that could not be fetched, saying so, with the one control that can help. */
+@Composable
+private fun LensRetryRow(id: LensId, onRetry: () -> Unit) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))
-            .clickable { open = !open }
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp),
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Snapshot", style = MaterialTheme.typography.labelLarge, color = neutral)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(
-                    modifier = Modifier
-                        .background(headColor.copy(alpha = 0.16f), RoundedCornerShape(50))
-                        .padding(horizontal = 10.dp, vertical = 3.dp),
-                ) {
-                    Text(headline, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = headColor)
-                }
-                Icon(
-                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = if (open) "Collapse snapshot" else "Expand snapshot",
-                    tint = neutral,
-                )
-            }
-        }
-
-        factors.forEach { f ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Box(Modifier.size(9.dp).background(f.color, RoundedCornerShape(50)))
-                Text(f.name, modifier = Modifier.width(100.dp), style = MaterialTheme.typography.labelMedium, color = neutral)
-                Text(f.read, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = f.color)
-            }
-            if (open && f.sub.isNotBlank()) {
-                Text(
-                    f.sub,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = neutral,
-                    modifier = Modifier.padding(start = 19.dp),
-                )
-            }
-        }
-
-        if (open) {
+        Column(Modifier.weight(1f)) {
+            Text(id.label, style = MaterialTheme.typography.labelLarge)
             Text(
-                "Rolls up the cards below · context, not advice",
+                "Couldn't load this one. Nothing else on the screen is affected.",
                 style = MaterialTheme.typography.labelSmall,
-                color = neutral,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        TextButton(onClick = onRetry) { Text("Retry") }
+    }
+}
+
+/**
+ * Lens.IDLE, rendered — this is the fix for PLAT-3's third item.
+ *
+ * Every other lens status draws something: READY the card, FAILED [LensRetryRow], NOT_APPLICABLE and
+ * EMPTY the footers above. IDLE drew nothing, anywhere, ever — so a fresh install with no signals
+ * backend showed a Detail screen with no SIGNALS & FLOWS section, no PATTERNS & HISTORY section, and
+ * nothing to suggest either had ever existed. The feature read as absent rather than as a quiet layer
+ * waiting to be switched on. This says what it is and sends the reader straight to the one setting
+ * that turns it on.
+ */
+@Composable
+private fun IdleLensNotice(labels: List<String>, onOpenSignalsSettings: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("AI analyst layer", style = MaterialTheme.typography.labelLarge)
+            Text(
+                labels.joinToString(" · ") +
+                    " read from a self-hosted signals backend, and none of it has been asked for yet.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onOpenSignalsSettings) { Text("Set up signals") }
     }
 }
 
@@ -1774,6 +1807,7 @@ private fun SignalsCard(
     aiEnabled: Boolean,
     onAnalyze: () -> Unit,
     onDeepDive: () -> Unit,
+    embedded: Boolean = false,
 ) {
     val buy = GainGreen
     val sell = LossRed
@@ -1790,7 +1824,7 @@ private fun SignalsCard(
         else -> neutral
     }
 
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(embedded) }
     var why by remember { mutableStateOf(false) }
 
     val rb = signal?.let { ruleBucket(it.label) }
@@ -1839,13 +1873,18 @@ private fun SignalsCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { open = !open }
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .clickable { open = !open }
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // Header: consensus pill + chevron.
-        Row(
+        if (!embedded) Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -2061,22 +2100,27 @@ private fun SignalsCard(
  * size — four halvings is anecdote, not statistics. Collapsed by default.
  */
 @Composable
-private fun HalvingCycleCard(ci: CycleResponse) {
+private fun HalvingCycleCard(ci: CycleResponse, embedded: Boolean = false) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val purple = ChartSeries[1]
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(embedded) }
     val hc = ci.halvingCycle
     val lt = ci.longTermTrend
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { open = !open }
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .clickable { open = !open }
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
+        if (!embedded) Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -2199,12 +2243,12 @@ private fun HalvingCycleCard(ci: CycleResponse) {
  * CONTEXT, deliberately not folded into the momentum signal. Free data, auto-loaded, collapsed.
  */
 @Composable
-private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
+private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?, embedded: Boolean = false) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val below = tr.belowLine == true
     // Amber = below the line (a heads-up, not a buy); neutral otherwise — keeps the stance neutral.
     val accent = if (below) Signal else neutral
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(embedded) }
 
     val zoneLabel = tr.zone?.replace('_', ' ')?.replaceFirstChar { it.uppercase() }
     val dirLabel = when (tr.direction) {
@@ -2218,12 +2262,17 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { open = !open }
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .clickable { open = !open }
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
+        if (!embedded) Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -2364,20 +2413,25 @@ private fun StockTrendCard(tr: TrendResponse, touch: TouchStudyResponse?) {
  * informed-money mirror of the short-pressure card. Only shown when there were actual buys. Free data.
  */
 @Composable
-private fun InsiderBuyingCard(ins: InsiderResponse) {
+private fun InsiderBuyingCard(ins: InsiderResponse, embedded: Boolean = false) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val green = GainGreen
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(embedded) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { open = !open }
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .clickable { open = !open }
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
+        if (!embedded) Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -2448,20 +2502,25 @@ private fun InsiderBuyingCard(ins: InsiderResponse) {
  * color, never a signal. Only rendered when at least one trade was disclosed.
  */
 @Composable
-private fun CongressCard(c: CongressBlock) {
+private fun CongressCard(c: CongressBlock, embedded: Boolean = false) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val amber = Signal
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(embedded) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { open = !open }
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .clickable { open = !open }
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
+        if (!embedded) Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -2552,22 +2611,28 @@ private fun NewsMovesCard(
     error: String?,
     loaded: Boolean,
     onExplain: () -> Unit,
+    embedded: Boolean = false,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val green = GainGreen
     val red = Signal
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(embedded) }
     val hasContent = block != null || note != null || error != null
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { if (hasContent) open = !open else onExplain() }
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .clickable { if (hasContent) open = !open else onExplain() }
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
+        if (!embedded) Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -2643,22 +2708,27 @@ private fun NewsMovesCard(
  * sample-limited context (a handful of years per month), never a timing signal on its own.
  */
 @Composable
-private fun SeasonalityCard(s: SeasonalityBlock) {
+private fun SeasonalityCard(s: SeasonalityBlock, embedded: Boolean = false) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val green = GainGreen
     val red = LossRed
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(embedded) }
     val cur = s.currentMonth
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { open = !open }
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .clickable { open = !open }
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
+        if (!embedded) Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -2766,10 +2836,10 @@ private fun fmtLevel(v: Double): String =
  * debt-to-equity, and Buffett-quality / wide-moat / dividend-aristocrat flags. Stance-NEUTRAL context.
  */
 @Composable
-private fun QualityCard(q: QualityResponse) {
+private fun QualityCard(q: QualityResponse, embedded: Boolean = false) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val blue = CategoricalRamp[1]
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(embedded) }
     val headline = when {
         q.buffettQuality -> "Buffett quality"
         q.wideMoat -> "Wide moat"
@@ -2780,12 +2850,17 @@ private fun QualityCard(q: QualityResponse) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { open = !open }
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .clickable { open = !open }
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
+        if (!embedded) Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -2937,7 +3012,7 @@ private fun fmtYmd(d: String): String = if (d.length == 8) "${d.substring(4, 6)}
  * dates. Free data — auto-loaded, collapsed by default.
  */
 @Composable
-private fun ShortPressureCard(sp: ShortPressureResponse) {
+private fun ShortPressureCard(sp: ShortPressureResponse, embedded: Boolean = false) {
     val buy = GainGreen
     val sell = LossRed
     val amber = Signal
@@ -2947,17 +3022,22 @@ private fun ShortPressureCard(sp: ShortPressureResponse) {
         "fuel" -> "FUEL" to amber
         else -> "QUIET" to neutral
     }
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(embedded) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .clickable { open = !open }
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .clickable { open = !open }
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
+        if (!embedded) Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -3547,7 +3627,15 @@ private fun HoldingsAndAlertsSection(
         if (activeAlerts == 0 && levels.none { it.level != null } && alerts.conditions.isEmpty()) {
             Text("No alerts set for $symbol.", style = MaterialTheme.typography.bodyMedium, color = neutral)
         }
-        if (unsetLevels.isNotEmpty() || offConds.isNotEmpty()) {
+        // ABOUT-2: the add buttons were ten chips shown at all times, the tallest thing on the tab.
+        // They fold behind one "+ Add alert"; what is already set stays in view above.
+        var adding by remember { mutableStateOf(false) }
+        if (!adding && (unsetLevels.isNotEmpty() || offConds.isNotEmpty())) {
+            TextButton(onClick = { adding = true }, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                Text("+ Add alert", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+        if (adding && (unsetLevels.isNotEmpty() || offConds.isNotEmpty())) {
             Text("Add an alert", style = MaterialTheme.typography.labelMedium, color = neutral)
             @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
             androidx.compose.foundation.layout.FlowRow(
@@ -3573,7 +3661,7 @@ private fun HoldingsAndAlertsSection(
                 }
             }
         }
-        Text(
+        if (adding) Text(
             "Checked about every 15 minutes against the daily close. An alert that can't be " +
                 "checked says so instead of staying quiet.",
             style = MaterialTheme.typography.labelSmall,
@@ -4636,7 +4724,7 @@ private fun StatCell(
  * absent input silently omitted reads as an input that came back clean.
  */
 @Composable
-private fun ValueTrapCard(v: ValueTrapResponse) {
+private fun ValueTrapCard(v: ValueTrapResponse, embedded: Boolean = false) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val red = LossRed
     val green = GainGreen
@@ -4650,12 +4738,17 @@ private fun ValueTrapCard(v: ValueTrapResponse) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .padding(14.dp),
+            // ABOUT-2: embedded under an answer row, the row is the header and the chrome.
+            .then(
+                if (embedded) Modifier
+                else Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+                    .padding(14.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         run {
-            Text("Cheap — or broken?", style = MaterialTheme.typography.titleSmall)
+            if (!embedded) Text("Cheap — or broken?", style = MaterialTheme.typography.titleSmall)
             Text(
                 when {
                     !v.assessable -> "Not enough data to judge"

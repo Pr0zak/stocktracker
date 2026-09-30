@@ -1,5 +1,7 @@
 package com.stocktracker.app.ui.sandbox
 
+import androidx.compose.material.icons.filled.DonutLarge
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -259,7 +261,6 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             // scoreboard and trend chart below show the selected arm's group only. The arm itself is
             // picked from the title bar.
             val group = ArmGroups.groupOf(ui.arm, ui.arms)
-            val groupArms = ArmGroups.armsIn(group, ui.arms)
             item {
                 TodayCard(
                     today = ui.today,
@@ -268,6 +269,18 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
                     onToggle = { todayScope.launch { settingsStore.setSandboxTodayCollapsed(!todayCollapsed) } },
                     onOpenArm = { vm.selectArm(it) },
                 )
+            }
+            // SBX-3: the comparison leads — every account as a bar around the S&P line, the chart of
+            // how they got here folded beneath it. The open account's own figures follow.
+            if (ui.arms.size > 1) {
+                item {
+                    Leaderboard(
+                        arms = ui.arms,
+                        selected = ui.arm,
+                        onSelect = { vm.selectArm(it) },
+                        overTime = ui.armsNav?.let { n -> { ArmTrendCard(nav = n, selected = ui.arm) } },
+                    )
+                }
             }
             item { HeaderMetrics(st, trendPctPerMonth = ui.trendPctPerMonth) }
             st.settings.goalAmount?.takeIf { it > 0 }?.let { goal ->
@@ -327,13 +340,6 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             // The comparison itself, directly under the curve: every arm's excess over its OWN S&P
             // shadow. Raw equity across arms is not comparable — they can be funded with different
             // amounts on different days — so the shadow-relative number is the one that lines up.
-            if (groupArms.size > 1) {
-                item { ArmComparison(arms = groupArms, selected = ui.arm, onSelect = { vm.selectArm(it) }, group = group) }
-            }
-            // Every account on one chart, whichever group is open (TODAY-1 follow-up).
-            if (ui.arms.size > 1) {
-                ui.armsNav?.let { n -> item { ArmTrendCard(nav = n, selected = ui.arm) } }
-            }
             // The auto-trade switch and settings write to whichever arm the ENDPOINTS default to,
             // which is main. Offering them while another arm is on screen would let a tap labelled
             // "Mechanical" change the real account, so a side arm is read-only here and says so.
@@ -351,68 +357,86 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             // stance or a skipped energy name only makes sense next to the backdrop that caused it.
             item { com.stocktracker.app.ui.components.MacroCard(ui.macro) }
             st.strategyNote?.let { item { StrategyCard(it) } }
-            if (st.positions.isNotEmpty()) {
-                item { SectionLabel("Holdings") }
-                // Allocation donut + legend, same as the Portfolio tab — one colour per position,
-                // echoed on the rows below so a slice maps to a name at a glance. Cash is included as
-                // its own slice since an idle-cash sandbox is a meaningful state.
-                item {
-                    val sorted = st.positions.sortedByDescending { it.value }
-                    val colorOf = sorted.mapIndexed { i, p -> p.symbol to DONUT_COLORS[i % DONUT_COLORS.size] }.toMap()
-                    val cashColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-                    if (st.equity > 0) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+            // SBX-3: holdings and the trade log fold into answer rows — together they were most of the
+            // tab's length. Each row says its answer before it is opened.
+            item {
+                val sortedPos = st.positions.sortedByDescending { it.value }
+                com.stocktracker.app.ui.components.AnswerGroup {
+                    if (st.positions.isNotEmpty()) {
+                        com.stocktracker.app.ui.components.AnswerRow(
+                            icon = Icons.Filled.DonutLarge,
+                            tint = com.stocktracker.app.ui.theme.EtfAccent,
+                            title = "Holdings",
+                            subtitle = sortedPos.take(3).joinToString(" · ") { p ->
+                                p.symbol.removeSuffix("-USD") + " " +
+                                    String.format(java.util.Locale.US, "%.0f%%", if (st.equity > 0) p.value / st.equity * 100 else 0.0)
+                            },
+                            key = "sbx-holdings:${ui.arm}",
+                            trailing = { com.stocktracker.app.ui.components.Pill("${st.positions.size}", neutral) },
                         ) {
-                            AllocationDonut(
-                                slices = sorted.map {
-                                    (colorOf[it.symbol] ?: DONUT_COLORS[0]) to (it.value / st.equity).toFloat()
-                                } + (cashColor to (st.cash / st.equity).toFloat().coerceAtLeast(0f)),
-                                modifier = Modifier.size(96.dp),
-                            )
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                sorted.take(5).forEach { p ->
-                                    LegendRow(
-                                        colorOf[p.symbol] ?: DONUT_COLORS[0],
-                                        p.symbol.removeSuffix("-USD"),
-                                        p.value / st.equity * 100,
-                                        onClick = { detailSymbol = p.symbol },
-                                    )
+                                val sorted = st.positions.sortedByDescending { it.value }
+                                val colorOf = sorted.mapIndexed { i, p -> p.symbol to DONUT_COLORS[i % DONUT_COLORS.size] }.toMap()
+                                val cashColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                if (st.equity > 0) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        AllocationDonut(
+                                            slices = sorted.map {
+                                                (colorOf[it.symbol] ?: DONUT_COLORS[0]) to (it.value / st.equity).toFloat()
+                                            } + (cashColor to (st.cash / st.equity).toFloat().coerceAtLeast(0f)),
+                                            modifier = Modifier.size(96.dp),
+                                        )
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                                        ) {
+                                            sorted.take(5).forEach { p ->
+                                                LegendRow(
+                                                    colorOf[p.symbol] ?: DONUT_COLORS[0],
+                                                    p.symbol.removeSuffix("-USD"),
+                                                    p.value / st.equity * 100,
+                                                    onClick = { detailSymbol = p.symbol },
+                                                )
+                                            }
+                                            if (sorted.size > 5) {
+                                                Text("+${sorted.size - 5} more", style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            if (st.cash > 0) LegendRow(cashColor, "Cash", st.cash / st.equity * 100)
+                                        }
+                                    }
                                 }
-                                if (sorted.size > 5) {
-                                    Text("+${sorted.size - 5} more", style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                if (st.cash > 0) LegendRow(cashColor, "Cash", st.cash / st.equity * 100)
+                            HelperText("Tap a holding to see what it paid and every trade behind it.")
+                            st.positions.forEach { p -> PositionRow(p, st.equity, onClick = { detailSymbol = p.symbol }) }
+                        }
+                        com.stocktracker.app.ui.components.AnswerDivider()
+                    }
+                    com.stocktracker.app.ui.components.AnswerRow(
+                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                        tint = com.stocktracker.app.ui.theme.ChartSeries[0],
+                        title = "Trade log",
+                        subtitle = ui.trades.firstOrNull { it.status == "filled" && (it.side == "buy" || it.side == "sell") }
+                            ?.let { "Last trade ${it.date}" } ?: "No trades yet",
+                        key = "sbx-log:${ui.arm}",
+                    ) {
+                        if (ui.trades.isEmpty()) {
+                            Text("No trades yet.", style = MaterialTheme.typography.bodySmall, color = neutral)
+                        } else {
+                            HelperText("Tap an entry for the full reasoning and numbers.")
+                            ui.trades.take(60).forEach { t ->
+                                val key = tradeKey(t)
+                                TradeRow(
+                                    t = t,
+                                    expanded = expandedTrades.contains(key),
+                                    onToggle = { if (!expandedTrades.remove(key)) expandedTrades.add(key) },
+                                    onOpenSymbol = { detailSymbol = t.symbol },
+                                )
                             }
                         }
                     }
-                }
-                item { HelperText("Tap a holding to see what it paid and every trade behind it.") }
-                items(st.positions) { p ->
-                    PositionRow(p, st.equity, onClick = { detailSymbol = p.symbol })
-                }
-            }
-            item { SectionLabel("Trade log") }
-            if (ui.trades.isEmpty()) {
-                item { Text("No trades yet.", style = MaterialTheme.typography.bodySmall, color = neutral) }
-            } else {
-                item { HelperText("Tap an entry for the full reasoning and numbers.") }
-                items(ui.trades.take(60)) { t ->
-                    val key = tradeKey(t)
-                    TradeRow(
-                        t = t,
-                        expanded = expandedTrades.contains(key),
-                        onToggle = {
-                            if (!expandedTrades.remove(key)) expandedTrades.add(key)
-                        },
-                        onOpenSymbol = { detailSymbol = t.symbol },
-                    )
                 }
             }
             // Settings edits main; on a side arm this would be a control that changes a different
@@ -495,7 +519,7 @@ private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
             Pill("Cash " + (st.cashPct?.let { "${it.toInt()}%" } ?: "—"), neutral)
             Pill("Realized " + signedUsd(st.realizedPlTotal), neutral)
         }
-        st.lastTickDate?.let { Text("Last traded $it", style = MaterialTheme.typography.labelSmall, color = neutral) }
+        st.lastTickDate?.let { Text("Last ran $it", style = MaterialTheme.typography.labelSmall, color = neutral) }
     }
 }
 
@@ -1267,89 +1291,6 @@ private fun ArmPickerSheet(
             }
             Text("vs its own S&P line", style = MaterialTheme.typography.labelSmall, color = neutral,
                 modifier = Modifier.padding(top = 8.dp))
-        }
-    }
-}
-
-/** Every arm side by side on the only figure that is comparable between them.
- *
- *  Deliberately NOT raw equity or total return: arms can be funded with different amounts on
- *  different days, so those differ for reasons that have nothing to do with the strategy. Each arm
- *  carries its own "same money in the S&P" shadow, and the excess over that shadow is what lines up. */
-@Composable
-private fun ArmComparison(
-    arms: List<com.stocktracker.app.data.remote.SandboxArm>,
-    selected: String,
-    onSelect: (String) -> Unit,
-    group: String = ArmGroups.ALL,
-) {
-    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)),
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (group == ArmGroups.ETF) "ETF arms" else "Arms", style = MaterialTheme.typography.titleSmall)
-            Text(
-                if (group == ArmGroups.ETF)
-                    "Funds only. Same funds, same prices. The gap between them is the AI."
-                else
-                    "Same market, same day. The gap between them is the strategy.",
-                style = MaterialTheme.typography.bodySmall, color = neutral,
-            )
-            // The spread is the actual result; showing it saves the reader doing the subtraction,
-            // and it is only meaningful once at least two arms have a shadow to measure against.
-            val measured = arms.mapNotNull { it.vsBenchmarkPct }
-            arms.forEach { a ->
-                val vs = a.vsBenchmarkPct
-                Row(
-                    Modifier.fillMaxWidth().clickable { onSelect(a.arm) },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            a.label.ifBlank { a.arm },
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (a.arm == selected) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                        Text(
-                            buildString {
-                                append(if (a.engine == "rules") "mechanical" else "analyst")
-                                a.cashPct?.let { append(" · ${"%.0f".format(it)}% cash") }
-                                append(" · ${a.positions} holding${if (a.positions == 1) "" else "s"}")
-                                if (!a.enabled) append(" · paused")
-                            },
-                            style = MaterialTheme.typography.labelSmall, color = neutral,
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            "$" + Formatting.compact(a.equity),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            // Absent is not zero — an arm with no benchmark shadow yet has no
-                            // comparable number, and a confident "0.00%" would be a fabrication.
-                            if (vs == null) "—"
-                            else (if (vs >= 0) "+" else "") + "%.2f".format(vs) + "% vs S&P",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = when {
-                                vs == null -> neutral
-                                vs >= 0 -> GREEN
-                                else -> RED
-                            },
-                        )
-                    }
-                }
-            }
-            if (measured.size >= 2) {
-                val spread = measured.max() - measured.min()
-                Text(
-                    "Spread: %.2f points between best and worst.".format(spread) +
-                        " Too few days to mean anything yet — this needs weeks, not ticks.",
-                    style = MaterialTheme.typography.labelSmall, color = neutral,
-                )
-            }
         }
     }
 }

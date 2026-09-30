@@ -38,4 +38,35 @@ internal object ArmGroups {
         return if (group == ALL) nav.arms.filter { it.universe != ETF }.map { it.arm }.toSet() to nav.commonStartIndex
         else emptySet<String>() to null
     }
+
+    /**
+     * Every arm as percentage points ahead of (or behind) its OWN "same money in the S&P" shadow,
+     * one value per date, for charting all of them together.
+     *
+     * Raw equity cannot share a chart: the ETF arms began on 2026-09-28, weeks after the rest, and
+     * every arm's equity steps up on deposit days. Rebasing to 100 on a common start fixed that only
+     * by splitting the arms into two charts. Excess over the arm's own shadow is deposit-neutral (the
+     * shadow gets the same money on the same day) and start-neutral (it is 0 on the day an arm is
+     * funded), so all arms line up on one axis, and each line's last value is the "vs S&P" figure the
+     * scoreboard prints.
+     *
+     * Rows are the same length as [SandboxArmsNav.dates]; null where the arm had no value or no
+     * benchmark that day.
+     */
+    fun vsShadow(nav: SandboxArmsNav): List<Pair<com.stocktracker.app.data.remote.SandboxArmSeries, List<Double?>>> =
+        nav.arms.map { s ->
+            s to nav.dates.indices.map { i ->
+                val e = s.equity.getOrNull(i)
+                val b = s.benchmarkValue.getOrNull(i)
+                if (e == null || b == null || b <= 0.0) null else (e / b - 1.0) * 100.0
+            }
+        }.filter { (_, v) -> v.count { it != null } >= 1 }
+
+    /** The series that sets the chart's x axis: the one with the most days, `main` on a tie, since
+     *  PriceChart draws overlays against the main line's points. */
+    fun axisArm(rows: List<Pair<com.stocktracker.app.data.remote.SandboxArmSeries, List<Double?>>>): String? =
+        rows.maxWithOrNull(compareBy<Pair<com.stocktracker.app.data.remote.SandboxArmSeries, List<Double?>>> { r ->
+            r.second.count { it != null }
+        }.thenBy { if (it.first.arm == "main") 1 else 0 })?.first?.arm
 }
+

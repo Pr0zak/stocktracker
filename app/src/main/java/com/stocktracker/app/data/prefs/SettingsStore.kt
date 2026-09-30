@@ -27,6 +27,7 @@ class SettingsStore(private val context: Context) {
     private val refreshKey = intPreferencesKey("default_refresh_minutes")
     private val finnhubKeyKey = stringPreferencesKey("finnhub_api_key")
     private val hideZeroCentsKey = booleanPreferencesKey("hide_zero_cents")
+    private val sandboxTodayCollapsedKey = booleanPreferencesKey("sandbox_today_collapsed")
     private val widgetBgArgbKey = longPreferencesKey("widget_bg_argb")
     private val widgetBgTransparencyKey = intPreferencesKey("widget_bg_transparency")
     private val groupBySectorKey = booleanPreferencesKey("watchlist_group_by_sector")
@@ -201,6 +202,8 @@ class SettingsStore(private val context: Context) {
 
     /** When true, whole-dollar prices are shown without a trailing ".00". */
     val hideZeroCents: Flow<Boolean> = context.dataStore.data.map { it[hideZeroCentsKey] ?: false }
+    /** TODAY-1: the Sandbox "Today" card folded to one line. Remembered, so it stays how it was left. */
+    val sandboxTodayCollapsed: Flow<Boolean> = context.dataStore.data.map { it[sandboxTodayCollapsedKey] ?: false }
 
     /**
      * Sort the watchlist into sector verticals with favourites pinned on top.
@@ -280,6 +283,8 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { it[widgetBgTransparencyKey] = pct.coerceIn(0, 100) }
     suspend fun setFinnhubApiKey(key: String) = context.dataStore.edit { it[finnhubKeyKey] = key.trim() }
     suspend fun setHideZeroCents(enabled: Boolean) = context.dataStore.edit { it[hideZeroCentsKey] = enabled }
+    suspend fun setSandboxTodayCollapsed(collapsed: Boolean) =
+        context.dataStore.edit { it[sandboxTodayCollapsedKey] = collapsed }
 
     suspend fun setWatchlistGroupBySector(enabled: Boolean) =
         context.dataStore.edit { it[groupBySectorKey] = enabled }

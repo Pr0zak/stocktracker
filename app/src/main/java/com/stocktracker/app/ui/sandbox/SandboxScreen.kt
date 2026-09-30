@@ -58,6 +58,8 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -115,6 +117,10 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
     // Re-pull whenever this screen is shown: the server-side timer may have traded while the app sat
     // open, and returning from settings should reflect anything changed there.
     LaunchedEffect(Unit) { vm.refresh() }
+    // TODAY-1: the all-arms card's fold, remembered across launches.
+    val settingsStore = com.stocktracker.app.di.ServiceLocator.settingsStore
+    val todayCollapsed by settingsStore.sandboxTodayCollapsed.collectAsState(initial = false)
+    val todayScope = rememberCoroutineScope()
 
     // Every action set `message` ("Ran - 2 trade(s) executed", "Tick failed - couldn't reach the
     // service", "Sandbox reset") and NOTHING rendered it: the only reference was a LaunchedEffect
@@ -254,6 +260,15 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             // picked from the title bar.
             val group = ArmGroups.groupOf(ui.arm, ui.arms)
             val groupArms = ArmGroups.armsIn(group, ui.arms)
+            item {
+                TodayCard(
+                    today = ui.today,
+                    failed = ui.todayFailed,
+                    collapsed = todayCollapsed,
+                    onToggle = { todayScope.launch { settingsStore.setSandboxTodayCollapsed(!todayCollapsed) } },
+                    onOpenArm = { vm.selectArm(it) },
+                )
+            }
             item { HeaderMetrics(st, trendPctPerMonth = ui.trendPctPerMonth) }
             st.settings.goalAmount?.takeIf { it > 0 }?.let { goal ->
                 item { GoalCard(equity = st.equity, goal = goal, goalDate = st.settings.goalDate) }
@@ -314,7 +329,10 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             // amounts on different days — so the shadow-relative number is the one that lines up.
             if (groupArms.size > 1) {
                 item { ArmComparison(arms = groupArms, selected = ui.arm, onSelect = { vm.selectArm(it) }, group = group) }
-                ui.armsNav?.let { n -> item { ArmTrendCard(nav = n, arms = ui.arms, selected = ui.arm, group = group) } }
+            }
+            // Every account on one chart, whichever group is open (TODAY-1 follow-up).
+            if (ui.arms.size > 1) {
+                ui.armsNav?.let { n -> item { ArmTrendCard(nav = n, selected = ui.arm) } }
             }
             // The auto-trade switch and settings write to whichever arm the ENDPOINTS default to,
             // which is main. Offering them while another arm is on screen would let a tap labelled
@@ -1364,12 +1382,14 @@ private fun armStyle(arm: String, allArms: List<String>): ArmStyle {
     return ArmStyle(ArmSeries[i % ArmSeries.size], dashed = i >= ArmSeries.size)
 }
 
-/** "2026-08-13" → epoch millis at UTC midnight. The NAV axis is ET trading DATES, not instants, so
+/** "2026-08-13" → epoch millis at noon UTC on that date. The NAV axis is ET trading DATES, not instants, so
  *  the wall-clock time within the day is meaningless — anchoring to a fixed offset keeps the chart's
  *  x-spacing exactly one day per point regardless of the device's timezone or DST. Falls back to 0
  *  on an unparseable date rather than throwing inside a composable. */
 private fun dateToEpochMillis(d: String): Long =
-    runCatching { java.time.LocalDate.parse(d).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }
+    // Noon UTC, not midnight: the axis labels format in the phone's zone, and UTC midnight is the
+    // previous evening anywhere in the Americas, so every date read one day early (Jul 26 for Jul 27).
+    runCatching { java.time.LocalDate.parse(d).atTime(12, 0).toInstant(ZoneOffset.UTC).toEpochMilli() }
         .getOrDefault(0L)
 
 /** Every arm's trajectory on one axis, indexed to 100 at the first day they all existed.
@@ -1384,164 +1404,131 @@ private fun dateToEpochMillis(d: String): Long =
 @Composable
 private fun ArmTrendCard(
     nav: com.stocktracker.app.data.remote.SandboxArmsNav,
-    arms: List<com.stocktracker.app.data.remote.SandboxArm>,
     selected: String,
-    group: String = ArmGroups.ALL,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    // Which overlay the reader has asked to pick out. rememberSaveable so a rotation does not send
-    // them back to the tangle they just untangled.
-    var focusedArm by rememberSaveable { mutableStateOf<String?>(null) }
-    // This group's arms only, indexed from the first day all of THEM existed. The ETF group also
-    // draws main, as the reference line for "what the stock-picking account did over the same days".
-    val (charted, base) = ArmGroups.trend(group, nav)
+    // Every arm, both groups, on one axis: each line is that arm's lead over its own S&P shadow (see
+    // ArmGroups.vsShadow). The arm open on this screen is picked out by default; tapping a name in
+    // the key picks out another.
+    val rows = ArmGroups.vsShadow(nav)
+    val axis = ArmGroups.axisArm(rows)
+    var focusedArm by rememberSaveable(selected) { mutableStateOf<String?>(selected.takeIf { it != axis }) }
     Box(
         Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("How they're tracking", style = MaterialTheme.typography.titleSmall)
-            if (base == null || nav.dates.size - base < 2) {
+            val primary = rows.firstOrNull { it.first.arm == axis }
+            // PriceChart draws overlays against the main line's point indices, so every series is cut
+            // to the days the axis arm has a value. Nothing is shifted: index k is the same date in all.
+            val keep = primary?.second?.indices?.filter { primary.second[it] != null }.orEmpty()
+            if (primary == null || rows.size < 2 || keep.size < 2) {
                 Text(
-                    "Appears after two trading days in common. New arms start at their first trade day.",
+                    "Appears after two trading days with more than one account.",
                     style = MaterialTheme.typography.bodySmall, color = neutral,
                 )
                 return@Column
             }
-            val dates = nav.dates.drop(base)
-            // Index each arm to 100 at the common start. A null inside an arm's window is a day that
-            // arm didn't tick; left null so the line breaks rather than inventing a flat segment.
-            val indexed = nav.arms.filter { it.arm in charted }.mapNotNull { s ->
-                val window = s.equity.drop(base)
-                val b = window.firstOrNull() ?: return@mapNotNull null
-                if (b <= 0.0) return@mapNotNull null
-                Triple(s, window.map { v -> v?.let { it / b * 100.0 } }, b)
-            }
-            if (indexed.size < 2) {
-                Text("Not enough arms with data to compare yet.",
-                     style = MaterialTheme.typography.bodySmall, color = neutral)
-                return@Column
-            }
-            // The selected arm is the solid line; the rest are overlays. PriceChart needs a concrete
-            // main series, and making it the one you're already looking at keeps the two consistent.
-            val primary = indexed.firstOrNull { it.first.arm == selected } ?: indexed.first()
-            val points = dates.indices.mapNotNull { i ->
-                primary.second[i]?.let { v ->
-                    PricePoint(dateToEpochMillis(dates[i]), v)
-                }
-            }
-            val armNames = indexed.map { it.first.arm }
-            val overlays = indexed.filter { it !== primary }.map { (s, vals, _) ->
+            val points = keep.map { i -> PricePoint(dateToEpochMillis(nav.dates[i]), primary.second[i]!!) }
+            val armNames = rows.map { it.first.arm }
+            val overlays = rows.filter { it !== primary }.map { (s, vals) ->
                 val st = armStyle(s.arm, armNames)
-                // Focus, because seven lines on one plot is past what any palette can carry.
-                //
-                // The measured limit is six colours (see ArmSeries), and the seventh arm onward
-                // reuses them dashed — which tells them apart but does not make a tangle of seven
-                // curves readable. The honest finish is not a better hue: it is letting the reader
-                // ask "which one is that?" and get an answer. Tapping a name in the key below dims
-                // everything else to a ghost, so the line you asked about is the only bright one.
-                // The dimmed lines stay drawn rather than disappearing: they are the context that
-                // makes the highlighted one mean anything.
+                // Focus, because nine lines on one plot is past what any palette can carry. The dimmed
+                // lines stay drawn: they are the context that makes the picked-out one mean anything.
                 val dim = focusedArm != null && focusedArm != s.arm
                 ChartLineOverlay(
-                    s.label.ifBlank { s.arm },
+                    // Blank: the chart's own one-row key clipped past the third name. The key below
+                    // names every line and has room to.
+                    "",
                     if (dim) st.color.copy(alpha = 0.18f) else st.color,
-                    vals,
+                    keep.map { vals[it] },
                     dashed = st.dashed,
                 )
             }
-            // The main series takes its colour from its own direction, so the legend has to read the
-            // same number — it used to hardcode GREEN for the selected arm, which meant that on any
-            // arm ending below where it started the chart drew a red line and the key beside it
-            // showed a green square. A legend is the one thing on a chart that must not lie.
-            val primaryUp = points.size >= 2 && points.last().price >= points.first().price
-            if (points.size >= 2) {
-                PriceChart(
-                    points = points,
-                    up = primaryUp,
-                    showAxis = true,
-                    overlays = overlays,
-                    modifier = Modifier.fillMaxWidth().height(240.dp),
-                    valueFormatter = { "%.1f".format(it) },
-                    timeFormatter = {
-                        com.stocktracker.app.util.formatChartTimestamp(
-                            it, com.stocktracker.app.data.model.ChartRange.ALL)
-                    },
-                )
-            }
-            // Legend: the solid line is named too, since the chart itself only labels overlays.
-            // Every row is also the control that picks its line out of the tangle.
+            val primaryUp = points.last().price >= points.first().price
+            PriceChart(
+                points = points,
+                up = primaryUp,
+                showAxis = true,
+                overlays = overlays,
+                modifier = Modifier.fillMaxWidth().height(240.dp),
+                valueFormatter = { (if (it > 0) "+" else "") + "%.1f".format(it) },
+                timeFormatter = {
+                    com.stocktracker.app.util.formatChartTimestamp(
+                        it, com.stocktracker.app.data.model.ChartRange.ALL)
+                },
+            )
+            val axisStart = nav.dates.getOrNull(keep.first())
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                indexed.forEach { (s, vals, _) ->
-                    val last = vals.lastOrNull { it != null }
-                    val isPrimary = s === primary.first
-                    val focused = focusedArm == s.arm
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            // The primary is already the one bright solid line; dimming the others
-                            // to point at it would say nothing new, so it is not a focus target.
-                            .then(
-                                if (isPrimary) Modifier
-                                else Modifier.clickable {
-                                    focusedArm = if (focused) null else s.arm
+                // Best first, so the key reads as a ranking.
+                rows.sortedByDescending { (_, v) -> v.lastOrNull { it != null } ?: Double.NEGATIVE_INFINITY }
+                    .forEach { (s, vals) ->
+                        val last = vals.lastOrNull { it != null }
+                        val isPrimary = s.arm == axis
+                        val focused = focusedArm == s.arm
+                        val firstDay = vals.indexOfFirst { it != null }.takeIf { it >= 0 }?.let { nav.dates[it] }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (isPrimary) Modifier
+                                    else Modifier.clickable { focusedArm = if (focused) null else s.arm },
+                                )
+                                .heightIn(min = 44.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val st = armStyle(s.arm, armNames)
+                            val swatch = if (isPrimary) (if (primaryUp) GREEN else RED) else st.color
+                            Canvas(Modifier.size(width = 14.dp, height = 9.dp)) {
+                                val y = size.height / 2f
+                                drawLine(
+                                    swatch,
+                                    start = Offset(0f, y), end = Offset(size.width, y),
+                                    strokeWidth = 3.dp.toPx(),
+                                    pathEffect = if (!isPrimary && st.dashed) {
+                                        PathEffect.dashPathEffect(floatArrayOf(4f, 3f))
+                                    } else null,
+                                )
+                            }
+                            Spacer(Modifier.width(7.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    s.label.ifBlank { s.arm } + if (s.arm == selected) " · open" else "",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (focused || s.arm == selected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                                // A line that starts later than the axis says so: its figure covers
+                                // fewer days than the others'.
+                                if (firstDay != null && axisStart != null && firstDay > axisStart) {
+                                    Text(
+                                        "from " + java.time.LocalDate.parse(firstDay)
+                                            .format(java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.US)),
+                                        style = MaterialTheme.typography.labelSmall, color = neutral,
+                                    )
+                                }
+                            }
+                            Text(
+                                last?.let { (if (it >= 0) "+" else "") + "%.2f".format(it) + "%" } ?: "—",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = when {
+                                    last == null -> neutral
+                                    last >= 0 -> GREEN
+                                    else -> RED
                                 },
                             )
-                            .heightIn(min = 48.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // The swatch carries the dash as well as the hue, for the same reason the
-                        // chart's own legend does: a key that shows a solid square for a dashed
-                        // line is a key that is wrong about the only thing it exists to say.
-                        val st = armStyle(s.arm, armNames)
-                        val swatch = if (isPrimary) (if (primaryUp) GREEN else RED) else st.color
-                        Canvas(Modifier.size(width = 14.dp, height = 9.dp)) {
-                            val y = size.height / 2f
-                            drawLine(
-                                swatch,
-                                start = Offset(0f, y), end = Offset(size.width, y),
-                                strokeWidth = 3.dp.toPx(),
-                                pathEffect = if (!isPrimary && st.dashed) {
-                                    PathEffect.dashPathEffect(floatArrayOf(4f, 3f))
-                                } else null,
-                            )
                         }
-                        Spacer(Modifier.width(7.dp))
-                        Text(
-                            s.label.ifBlank { s.arm } + when {
-                                isPrimary -> " (shown)"
-                                focused -> " (highlighted)"
-                                else -> ""
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isPrimary || focused) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            last?.let { (if (it >= 100) "+" else "") + "%.2f".format(it - 100) + "%" } ?: "—",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = when {
-                                last == null -> neutral
-                                last >= 100 -> GREEN
-                                else -> RED
-                            },
-                        )
                     }
-                }
             }
             Text(
-                if (focusedArm == null) {
-                    "Tap a name to pick its line out of the chart."
-                } else {
-                    "Showing one line brightly. Tap it again to bring the rest back."
-                },
+                "Each line is an account against the same money put in the S&P, at each day's run. " +
+                    "Above 0 means ahead. The list above uses live prices, so it can differ a little. " +
+                    "Tap a name to pick its line out.",
                 style = MaterialTheme.typography.labelSmall, color = neutral,
             )
             Text(
-                "Indexed to 100 on ${nav.commonStart} — the first day all arms existed. " +
-                    "${dates.size} day${if (dates.size == 1) "" else "s"} of overlap: far too short " +
-                    "to separate skill from luck, and with ${indexed.size} arms the best-looking one " +
-                    "is most likely the luckiest.",
+                "A few weeks is far too short to separate skill from luck, and with ${rows.size} " +
+                    "accounts the best-looking one is most likely the luckiest.",
                 style = MaterialTheme.typography.labelSmall, color = neutral,
             )
         }

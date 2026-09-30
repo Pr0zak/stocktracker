@@ -480,6 +480,15 @@ class SignalsApiService {
     }
 
     /** Every arm's equity curve on one shared date axis, for charting them against each other. */
+    /** TODAY-1 — every arm's most recent run: fills, skips, and who held or did not run. Null on a
+     *  blank URL or any failure, which the card renders as "couldn't load", never as "no trades". */
+    suspend fun sandboxToday(baseUrl: String): SandboxToday? {
+        if (baseUrl.isBlank()) return null
+        return runCatching {
+            Http.json.decodeFromString<SandboxToday>(sGet("${baseUrl.trimEnd('/')}/sandbox/today"))
+        }.getOrNull()
+    }
+
     suspend fun sandboxArmsNav(baseUrl: String, days: Int = 180): SandboxArmsNav? {
         if (baseUrl.isBlank()) return null
         return runCatching {
@@ -1513,6 +1522,51 @@ data class SandboxArmsNav(
      *  group is indexed from the first day all of ITS arms existed. Empty from an older server. */
     val cohorts: Map<String, SandboxArmCohort> = emptyMap(),
     val arms: List<SandboxArmSeries> = emptyList(),
+)
+
+/** TODAY-1 — `GET /sandbox/today`. [date] null = no arm has ever run, which is not "no trades". */
+@Serializable
+data class SandboxToday(
+    val date: String? = null,
+    /** Epoch seconds of the run, or null when the server could not say. */
+    @SerialName("ran_at") val ranAt: Double? = null,
+    val arms: List<SandboxTodayArm> = emptyList(),
+    val totals: SandboxTodayTotals = SandboxTodayTotals(),
+)
+
+@Serializable
+data class SandboxTodayArm(
+    val arm: String = "",
+    val label: String = "",
+    val engine: String = "llm",
+    val universe: String = "all",
+    /** False = this arm's last run was on an earlier day (switched off, or its run failed). */
+    val ran: Boolean = false,
+    @SerialName("last_tick_date") val lastTickDate: String? = null,
+    val enabled: Boolean = true,
+    val filled: List<SandboxTodayOrder> = emptyList(),
+    val skipped: List<SandboxTodayOrder> = emptyList(),
+    val posture: String = "",
+)
+
+@Serializable
+data class SandboxTodayOrder(
+    val symbol: String = "",
+    val side: String = "buy",
+    val shares: Double? = null,
+    val price: Double? = null,
+    val gross: Double? = null,
+    /** Skipped orders only: a short plain reason ("daily trade limit"). */
+    val reason: String? = null,
+)
+
+@Serializable
+data class SandboxTodayTotals(
+    val buys: Int = 0,
+    val sells: Int = 0,
+    val skipped: Int = 0,
+    val bought: Double = 0.0,
+    val sold: Double = 0.0,
 )
 
 @Serializable

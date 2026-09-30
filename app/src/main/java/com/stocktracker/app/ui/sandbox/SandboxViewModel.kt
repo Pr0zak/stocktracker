@@ -35,6 +35,10 @@ data class SandboxUiState(
     val arms: List<com.stocktracker.app.data.remote.SandboxArm> = emptyList(),
     /** Which arm the rest of this screen is showing. Always a real arm id; "main" is the account. */
     val arm: String = "main",
+    /** TODAY-1: every arm's latest run. Null until loaded; kept (and [todayFailed] set) when a
+     *  refresh fails, so the card can say its figures are the last ones it got. */
+    val today: com.stocktracker.app.data.remote.SandboxToday? = null,
+    val todayFailed: Boolean = false,
     /** All arms' curves on one date axis, for the over-time comparison. Null until loaded. */
     val armsNav: com.stocktracker.app.data.remote.SandboxArmsNav? = null,
     // The AI's own scorecard (GET /memory/stats) — null until enough decisions have been graded.
@@ -103,6 +107,7 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
             // Only worth a round trip when there is something to compare against.
             val aNav = if ((arms?.size ?: 0) > 1) api.sandboxArmsNav(base, days = 180) else null
             val changes = api.sandboxChanges(base, limit = 40, arm = arm)
+            val today = api.sandboxToday(base)
             val mem = api.memoryStats(base)
             val mac = api.macroCatalysts(base)
             if (gen != refreshGeneration) return@launch   // superseded by a newer refresh
@@ -113,6 +118,8 @@ class SandboxViewModel(private val app: android.app.Application) : androidx.life
                     arms = arms ?: it.arms,
                     arm = arm,
                     armsNav = aNav ?: it.armsNav,
+                    today = today ?: it.today,
+                    todayFailed = today == null,
                     state = st ?: it.state,
                     // A null list means the CALL failed — keep what we had rather than rendering an
                     // empty curve and "No trades yet." beside a confident (stale) equity figure.

@@ -281,6 +281,86 @@ fun PortfolioScreen(
                 )
             }
 
+            // The value chart sits right under the total, always shown (asked for on 2026-09-30).
+            // Reconstructed value-over-time chart, with the S&P 500 overlaid (pink).
+            val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
+            val chartUp = chartPoints.size >= 2 && chartPoints.last().price >= chartPoints.first().price
+            val benchOverlay = if (state.benchmarkChart.size == state.chart.size && state.benchmarkChart.size >= 2) {
+                val bp = if (percentMode) state.benchmarkChart.asPercentChange() else state.benchmarkChart
+                listOf(ChartLineOverlay("S&P 500", BenchmarkGrey, bp.map { it.price }, dashed = true))
+            } else {
+                emptyList()
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    state.loadingChart -> CircularProgressIndicator()
+                    state.chart.size >= 2 -> PriceChart(
+                        points = chartPoints,
+                        up = chartUp,
+                        modifier = Modifier.fillMaxSize(),
+                        showHighLow = true,
+                        showAxis = true,
+                        overlays = benchOverlay,
+                        // Drawn only when the cost line and the curve cover the SAME holdings.
+                        // Otherwise the gap between them is missing cost data, not profit.
+                        costLine = if (percentMode) null
+                        else state.totalCost.takeIf { state.allHaveCostBasis && it > 0.0 },
+                        valueFormatter = {
+                            if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
+                            else Formatting.price(it, hideZeroCents = hideZeroCents)
+                        },
+                        timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL) },
+                        // PLAT-4. Without this the whole chart is one silent Canvas to a screen
+                        // reader — the portfolio's own history, announced as nothing at all. The
+                        // "Portfolio" name rather than a ticker, since this curve is the book.
+                        chartDescription = priceChartDescription(
+                            symbol = "Portfolio",
+                            rangeLabel = "all time",
+                            percentMode = percentMode,
+                            currentValueText = chartPoints.lastOrNull()?.price?.let {
+                                if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
+                                else Formatting.price(it, hideZeroCents = hideZeroCents)
+                            } ?: "unknown",
+                        ),
+                    )
+                    else -> Text(
+                        "Not enough history yet",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PORTFOLIO_RANGES.forEach { range ->
+                    FilterChip(
+                        selected = state.range == range,
+                        onClick = { vm.selectRange(range) },
+                        label = { Text(range.label) },
+                    )
+                }
+                FilterChip(
+                    selected = percentMode,
+                    onClick = { percentMode = !percentMode },
+                    label = { Text(if (percentMode) "%" else "$") },
+                )
+            }
+            // Said once: when the S&P comparison is on screen, its caveat above already covers this.
+            if (state.vsSpyPct == null) Text(
+                "History reflects your current share counts across the whole period.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             // ABOUT-3 (2026-09-30): answer rows. What stands out, then one row per holding saying
             // what it is, then the tools as visible rows instead of the overflow menu. The chart, the
             // split and the cash box fold into rows; nothing was removed.
@@ -326,93 +406,7 @@ fun PortfolioScreen(
             }
 
             AnswerGroup {
-                AnswerRow(
-                    icon = Icons.Filled.ShowChart, tint = MaterialTheme.colorScheme.primary,
-                    title = "Value over time",
-                    subtitle = state.vsSpyPct?.let { "%+.1f pts vs the S&P".format(it) } ?: "Your holdings, priced back over time",
-                    key = "pf-chart",
-                ) {
-                    // Reconstructed value-over-time chart, with the S&P 500 overlaid (pink).
-                    val chartPoints = if (percentMode) state.chart.asPercentChange() else state.chart
-                    val chartUp = chartPoints.size >= 2 && chartPoints.last().price >= chartPoints.first().price
-                    val benchOverlay = if (state.benchmarkChart.size == state.chart.size && state.benchmarkChart.size >= 2) {
-                        val bp = if (percentMode) state.benchmarkChart.asPercentChange() else state.benchmarkChart
-                        listOf(ChartLineOverlay("S&P 500", BenchmarkGrey, bp.map { it.price }, dashed = true))
-                    } else {
-                        emptyList()
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(220.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        when {
-                            state.loadingChart -> CircularProgressIndicator()
-                            state.chart.size >= 2 -> PriceChart(
-                                points = chartPoints,
-                                up = chartUp,
-                                modifier = Modifier.fillMaxSize(),
-                                showHighLow = true,
-                                showAxis = true,
-                                overlays = benchOverlay,
-                                // Drawn only when the cost line and the curve cover the SAME holdings.
-                                // Otherwise the gap between them is missing cost data, not profit.
-                                costLine = if (percentMode) null
-                                else state.totalCost.takeIf { state.allHaveCostBasis && it > 0.0 },
-                                valueFormatter = {
-                                    if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
-                                    else Formatting.price(it, hideZeroCents = hideZeroCents)
-                                },
-                                timeFormatter = { com.stocktracker.app.util.formatChartTimestamp(it, com.stocktracker.app.data.model.ChartRange.ALL) },
-                                // PLAT-4. Without this the whole chart is one silent Canvas to a screen
-                                // reader — the portfolio's own history, announced as nothing at all. The
-                                // "Portfolio" name rather than a ticker, since this curve is the book.
-                                chartDescription = priceChartDescription(
-                                    symbol = "Portfolio",
-                                    rangeLabel = "all time",
-                                    percentMode = percentMode,
-                                    currentValueText = chartPoints.lastOrNull()?.price?.let {
-                                        if (percentMode) com.stocktracker.app.util.formatPercentChange(it)
-                                        else Formatting.price(it, hideZeroCents = hideZeroCents)
-                                    } ?: "unknown",
-                                ),
-                            )
-                            else -> Text(
-                                "Not enough history yet",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        PORTFOLIO_RANGES.forEach { range ->
-                            FilterChip(
-                                selected = state.range == range,
-                                onClick = { vm.selectRange(range) },
-                                label = { Text(range.label) },
-                            )
-                        }
-                        FilterChip(
-                            selected = percentMode,
-                            onClick = { percentMode = !percentMode },
-                            label = { Text(if (percentMode) "%" else "$") },
-                        )
-                    }
-                    // Said once: when the S&P comparison is on screen, its caveat above already covers this.
-                    if (state.vsSpyPct == null) Text(
-                        "History reflects your current share counts across the whole period.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
                 if (sortedHoldings.size >= 2 && state.totalValue > 0) {
-                    AnswerDivider()
                     AnswerRow(
                         icon = Icons.Filled.DonutLarge, tint = DONUT_COLORS[0],
                         title = "How it's split",
@@ -485,7 +479,7 @@ fun PortfolioScreen(
                         }
                     }
                 }
-                AnswerDivider()
+                if (sortedHoldings.size >= 2 && state.totalValue > 0) AnswerDivider()
                 AnswerRow(
                     icon = Icons.Filled.Savings, tint = GainGreen,
                     title = "Invest cash", subtitle = "Add to what you own, or find something new",

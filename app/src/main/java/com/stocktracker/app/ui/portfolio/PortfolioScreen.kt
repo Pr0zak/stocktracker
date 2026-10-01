@@ -128,7 +128,9 @@ fun PortfolioScreen(
             onOpenSignalsSettings = onOpenSignalsSettings,
         )
     }
+    val pageScroll = rememberScrollState()
     Scaffold(
+        floatingActionButton = { com.stocktracker.app.ui.components.ScrollToTopButton(pageScroll) },
         topBar = {
             TopAppBar(
                 title = { Text("Portfolio") },
@@ -173,7 +175,7 @@ fun PortfolioScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(pageScroll)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

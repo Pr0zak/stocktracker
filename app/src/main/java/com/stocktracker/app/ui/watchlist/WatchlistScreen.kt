@@ -323,8 +323,14 @@ fun WatchlistScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAdd) {
-                Icon(Icons.Default.Add, contentDescription = "Add ticker")
+            androidx.compose.foundation.layout.Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                com.stocktracker.app.ui.components.ScrollToTopButton(lazyListState)
+                FloatingActionButton(onClick = onAdd) {
+                    Icon(Icons.Default.Add, contentDescription = "Add ticker")
+                }
             }
         },
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),

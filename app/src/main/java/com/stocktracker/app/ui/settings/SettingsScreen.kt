@@ -237,14 +237,16 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
 
     val updater = rememberUpdateController()
 
+    val pageScroll = rememberScrollState()
     Scaffold(
         topBar = { TopAppBar(title = { Text("Settings") }) },
+        floatingActionButton = { com.stocktracker.app.ui.components.ScrollToTopButton(pageScroll) },
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(pageScroll)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),

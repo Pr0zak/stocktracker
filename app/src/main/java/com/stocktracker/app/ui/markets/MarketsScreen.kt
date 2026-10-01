@@ -122,14 +122,16 @@ fun MarketsScreen(
         else runCatching { SignalsApiService().marketBreadth(base) }
     }
 
+    val pageScroll = rememberScrollState()
     Scaffold(
         topBar = { TopAppBar(title = { Text("Markets") }) },
+        floatingActionButton = { com.stocktracker.app.ui.components.ScrollToTopButton(pageScroll) },
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(pageScroll)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

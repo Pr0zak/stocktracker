@@ -157,8 +157,10 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             onSelect = { armSheet = false; vm.selectArm(it) }, onDismiss = { armSheet = false })
     }
 
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHost) },
+        floatingActionButton = { com.stocktracker.app.ui.components.ScrollToTopButton(listState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -201,6 +203,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
         // Hoisted: an empty lazy item still consumes its 14dp of spacedBy (see backendOffline docs).
         val backendOffline = com.stocktracker.app.ui.components.backendOffline()
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {

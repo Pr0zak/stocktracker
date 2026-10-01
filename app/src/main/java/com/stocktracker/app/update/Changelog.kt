@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.24.0" to listOf(
+            "New: a back-to-top button on every tab once you scroll down",
+        ),
         "1.23.1" to listOf(
             "Portfolio: the value chart always shows, right under the total",
         ),

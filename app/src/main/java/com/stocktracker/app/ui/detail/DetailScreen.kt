@@ -685,13 +685,22 @@ fun DetailScreen(
             // ABOUT-2 (2026-09-30): the long scroll under the chart became four tabs. About says what
             // the company is; Your money, Signals and History are the cards that were here, each as an
             // answer row (its result on the right) that opens the same card in place. Nothing was
-            // removed, only folded. A coin has no company profile, so it opens on Your money.
+            // removed, only folded. A coin has no company profile, so it opens on Your money, as does
+            // anything you hold shares of.
             val neutral = MaterialTheme.colorScheme.onSurfaceVariant
             val tabs = remember(isCrypto) {
                 buildList { if (!isCrypto) add(DetailTab.ABOUT); addAll(listOf(DetailTab.MONEY, DetailTab.SIGNALS, DetailTab.HISTORY)) }
             }
-            var tabName by androidx.compose.runtime.saveable.rememberSaveable(asset.symbol) { mutableStateOf(tabs.first().name) }
-            val tab = tabs.firstOrNull { it.name == tabName } ?: tabs.first()
+            // Null until a tab is chosen. A holding opens on Your money: what you own is the first
+            // thing you want to see about a stock you own. The share count arrives from the store a
+            // moment after the first frame (the asset passed in carries it when opened from the
+            // list), so the default is pinned once it is known rather than read once at the start,
+            // and pinned rather than live so clearing a holding on that tab does not yank it away.
+            var tabName by androidx.compose.runtime.saveable.rememberSaveable(asset.symbol) { mutableStateOf<String?>(null) }
+            val owns = ((state.shares ?: asset.shares) ?: 0.0) > 0.0
+            LaunchedEffect(owns) { if (owns && tabName == null) tabName = DetailTab.MONEY.name }
+            val tab = tabs.firstOrNull { it.name == tabName }
+                ?: if (owns) DetailTab.MONEY else tabs.first()
             // Scrollable so "Your money" keeps its width on a narrow phone rather than clipping.
             androidx.compose.material3.ScrollableTabRow(
                 selectedTabIndex = tabs.indexOf(tab),

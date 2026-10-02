@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.25.1" to listOf(
+            "A stock you own now opens on Your money",
+        ),
         "1.25.0" to listOf(
             "Heat map, My signals: grouped by dip size, deeper dips brighter, buy and sell calls marked, and every name listed below",
             "Heat map, Market: each sector shows its move, tap one to zoom in, your stocks are outlined, and the day's biggest movers are listed below",

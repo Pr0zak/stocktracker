@@ -16,9 +16,13 @@ import kotlin.math.abs
  *
  * PLAT-4.
  */
-fun heatmapTileDescription(t: HeatmapTile): String {
+fun heatmapTileDescription(t: HeatmapTile, mine: Boolean = false): String {
     val move = when (t.scale) {
-        "signal" -> t.pctOff52wHigh?.let { "${it.toInt()}% off its 52-week high" } ?: "flagged by signals"
+        // abs: the server sends the drawdown negative, and "-64% off" reads as a double negative.
+        "signal" -> (t.pctOff52wHigh?.let { "${abs(it).toInt()}% off its 52-week high" } ?: "flagged by signals") +
+            // The tier and call are spoken only when the scan supplied them; the map shows both.
+            (t.dip?.let { ", ${t.tier().label.lowercase()}" } ?: "") +
+            (t.call()?.let { ", system says ${it.lowercase()}" } ?: "")
         else -> {
             val v = t.value
             val word = when {
@@ -29,5 +33,5 @@ fun heatmapTileDescription(t: HeatmapTile): String {
             "$word ${"%.1f".format(abs(v))}%"
         }
     }
-    return "${t.symbol}, $move"
+    return "${t.symbol}, $move" + if (mine) ", on your list" else ""
 }

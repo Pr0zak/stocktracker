@@ -8,7 +8,31 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import com.stocktracker.app.ui.components.ChangePill
+import com.stocktracker.app.ui.theme.BenchmarkGrey
+import com.stocktracker.app.ui.theme.OutlineDark
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.stocktracker.app.ui.components.Pill
+import com.stocktracker.app.ui.theme.SurfaceContainerDark
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -82,7 +106,7 @@ private fun ramp(base: Color, t: Float): Color {
 }
 
 private fun colourFor(t: HeatmapTile): Color = when (t.scale) {
-    "signal" -> if (t.value <= 0.0) FLAT else ramp(SIGNAL, 0.30f + (t.value.toFloat() / 4f) * 0.50f)
+    "signal" -> t.tier().fill
     else -> colourForMove(t.value)
 }
 
@@ -116,8 +140,14 @@ private fun colourForMove(p: Double): Color = run {
  * tiles you most want to read were the least readable ones. Picking the ink from the tile's own
  * luminance puts every tile on this map at 4.56:1 or better.
  */
-private fun inkFor(fill: Color): Color =
-    if (fill.luminance() > 0.32f) SurfaceDark else Color.White
+private fun inkFor(fill: Color): Color {
+    // Whichever ink contrasts more, measured, rather than a fixed luminance cut-off: the old 0.32
+    // cut gave mid-amber tiles white ink at 3.9:1 where the dark ink manages 4.8:1.
+    val l = fill.luminance()
+    val onWhite = 1.05f / (l + 0.05f)
+    val onDark = (l + 0.05f) / (SurfaceDark.luminance() + 0.05f)
+    return if (onDark > onWhite) SurfaceDark else Color.White
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,8 +172,22 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
             )
         },
     ) { pad ->
+        val signals = ui.mode == "signals"
+        // Market-map view state. Zoom is one sector filling the map; "only mine" dims the rest.
+        var zoom by rememberSaveable { mutableStateOf<String?>(null) }
+        var onlyMine by rememberSaveable { mutableStateOf(false) }
+        // A zoom names a sector of the CURRENT tiles; after a mode switch or a refresh that drops
+        // it, fall back to all sectors rather than drawing an empty map.
+        val zoomed = zoom.takeIf { z -> !signals && ui.tiles.any { sectorOf(it) == z } }
+        BackHandler(enabled = zoomed != null) { zoom = null }
+        val marketTiles = if (zoomed != null) ui.tiles.filter { sectorOf(it) == zoomed } else ui.tiles
+        val mineOnMap = ui.tiles.count { it.symbol.uppercase() in ui.mine }
         Column(
-            modifier = Modifier.fillMaxSize().padding(pad).padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxSize().padding(pad)
+                // Both modes carry a list under the map, so the screen scrolls and the map gets a
+                // fixed height.
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -163,6 +207,37 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = SIGNAL)
             }
 
+            if (!signals && ui.tiles.isNotEmpty()) {
+                if (zoomed != null) {
+                    ZoomCrumb(zoomed, ui.tiles.filter { sectorOf(it) == zoomed }) { zoom = null }
+                }
+                // Only offered when some of your names are on the map; "Yours (0)" would be a
+                // switch that does nothing.
+                if (mineOnMap > 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            Modifier.size(12.dp).clip(RoundedCornerShape(2.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .border(2.dp, MINE_OUTLINE, RoundedCornerShape(2.dp)),
+                        )
+                        Text(
+                            "Yours ($mineOnMap)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        FilterChip(
+                            selected = onlyMine,
+                            onClick = { onlyMine = !onlyMine },
+                            label = { Text("Only mine") },
+                        )
+                    }
+                }
+            }
+
             when {
                 ui.loading && ui.tiles.isEmpty() -> Box(
                     Modifier.fillMaxWidth().aspectRatio(1f), Alignment.Center,
@@ -175,26 +250,59 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
                 )
 
                 // Grouped when the tiles carry a classification — which is the market map's whole
-                // point. Signals mode has no sector on its tiles and stays flat, and so does market
-                // mode if the sector lookup failed: an ungrouped map is far better than none.
-                // The map takes the height the screen has rather than a fixed aspect ratio, which
-                // left a quarter of the screen empty below it on a tall phone while its small tiles
-                // were too cramped to carry a ticker.
-                ui.tiles.any { !it.sector.isNullOrBlank() } ->
-                    SectorTreemap(ui.tiles, onOpenDetail, Modifier.weight(1f))
+                // point. Market mode stays flat if the sector lookup failed: an ungrouped map is far
+                // better than none.
+                // A fixed height rather than an aspect ratio: a square map left small tiles too
+                // cramped to carry a ticker. The lists below the map take the rest of the scroll.
+                // Signals mode groups by dip tier, the way the market map groups by sector, so the
+                // deepest dips sit together instead of one sheet of near-identical tiles.
+                signals -> GroupedTreemap(
+                    ui.tiles,
+                    groupOf = { it.tier().name },
+                    caption = { key, members ->
+                        listOf(AnnotatedString("${DipTier.valueOf(key).label.uppercase()} · ${members.size}"))
+                    },
+                    onOpen = onOpenDetail,
+                    modifier = Modifier.height(SIGNAL_MAP_HEIGHT),
+                    canvas = SurfaceContainerDark,
+                    gapped = true,
+                )
 
-                else -> TreemapCanvas(ui.tiles, onOpenDetail, Modifier.weight(1f))
+                // One sector, zoomed: its own tiles fill the map, so the small names get a label.
+                zoomed != null -> TreemapCanvas(
+                    marketTiles, onOpenDetail, Modifier.height(MARKET_MAP_HEIGHT),
+                    mine = ui.mine, onlyMine = onlyMine,
+                )
+
+                ui.tiles.any { !it.sector.isNullOrBlank() } ->
+                    GroupedTreemap(
+                        ui.tiles,
+                        groupOf = ::sectorOf,
+                        caption = { key, members -> sectorCaption(key, members) },
+                        onOpen = onOpenDetail,
+                        modifier = Modifier.height(MARKET_MAP_HEIGHT),
+                        onHeader = { zoom = it },
+                        mine = ui.mine,
+                        onlyMine = onlyMine,
+                    )
+
+                else -> TreemapCanvas(
+                    ui.tiles, onOpenDetail, Modifier.height(MARKET_MAP_HEIGHT),
+                    mine = ui.mine, onlyMine = onlyMine,
+                )
             }
             if (ui.mode == "market" && ui.tiles.isNotEmpty()) MoveKey()
+            if (signals && ui.tiles.isNotEmpty()) TierKey(ui.tiles)
 
             // What the areas and colours MEAN. A heat map without this is decoration.
             Text(
                 if (ui.mode == "market") {
                     "Size = company value · colour = today's move · tap a tile to open it" +
+                        (if (zoomed == null) " · tap a sector to zoom in" else "") +
                         (ui.advancing?.let { " · $it up / ${ui.declining} down" } ?: "")
                 } else {
-                    "Area = how far below its 52-week high · colour = this system's dip tier, " +
-                        "not price"
+                    "Area = how far below its 52-week high · brighter = deeper dip · " +
+                        "BUY / SELL tag or top stripe = this system's call, not price"
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -242,6 +350,14 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (signals && ui.tiles.isNotEmpty()) {
+                DipLadder(ui.tiles, onOpenDetail)
+                Spacer(Modifier.height(16.dp))
+            }
+            if (!signals && marketTiles.isNotEmpty()) {
+                MarketLists(marketTiles, ui.mine, onOpenDetail)
+                Spacer(Modifier.height(16.dp))
+            }
         }
     }
 }
@@ -277,12 +393,32 @@ private fun shortSector(name: String): String = when (name) {
  * Unclassified names collect in an "Other" block instead of disappearing.
  */
 @Composable
-private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit, modifier: Modifier = Modifier) {
-    val groups = tiles.groupBy { it.sector?.takeIf { s -> s.isNotBlank() } ?: "Other" }
+private fun GroupedTreemap(
+    tiles: List<HeatmapTile>,
+    groupOf: (HeatmapTile) -> String,
+    /**
+     * Caption candidates, fullest first. The first that fits the block is drawn, so a narrow block
+     * drops its move figure instead of ellipsizing it into "+2…", a number with digits missing.
+     */
+    caption: (key: String, members: List<HeatmapTile>) -> List<AnnotatedString>,
+    onOpen: (Asset) -> Unit,
+    modifier: Modifier = Modifier,
+    canvas: Color = MaterialTheme.colorScheme.surfaceVariant,
+    gapped: Boolean = false,
+    /** Tapping a block's caption; null leaves captions inert. */
+    onHeader: ((String) -> Unit)? = null,
+    mine: Set<String> = emptySet(),
+    onlyMine: Boolean = false,
+) {
+    val groups = tiles.groupBy(groupOf)
+    val measurer = rememberTextMeasurer()
+    val captionStyle = TextStyle(
+        fontSize = MIN_LABEL_SP.sp, lineHeight = 13.sp, letterSpacing = 0.4.sp, fontWeight = FontWeight.Bold,
+    )
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp)),
+            .background(canvas, RoundedCornerShape(6.dp)),
     ) {
         val density = LocalDensity.current
         // The fit gate measures dp; Text sizes in SP, which grows with the user's font-size
@@ -319,8 +455,12 @@ private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit, mod
             // so it has to use a theme colour — Color.White here was invisible in light mode, which
             // is exactly how it shipped to the screenshot before this was caught.
             if (labelled) {
+                val room = (block.w - 6f).coerceAtLeast(1f)
+                val options = caption(block.key, members)
+                val text = options.firstOrNull { measurer.measure(it, captionStyle).size.width <= room }
+                    ?: options.last()
                 Text(
-                    shortSector(block.key).uppercase(),
+                    text,
                     fontSize = MIN_LABEL_SP.sp,
                     lineHeight = 13.sp,
                     letterSpacing = 0.4.sp,
@@ -333,7 +473,11 @@ private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit, mod
                             with(density) { (block.x + 3f).toDp() },
                             with(density) { (block.y + 2f).toDp() },
                         )
-                        .width(with(density) { (block.w - 6f).coerceAtLeast(1f).toDp() }),
+                        .width(with(density) { (block.w - 6f).coerceAtLeast(1f).toDp() })
+                        .then(
+                            if (onHeader != null) Modifier.clickable { onHeader(block.key) }
+                            else Modifier,
+                        ),
                 )
             }
 
@@ -352,6 +496,9 @@ private fun SectorTreemap(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit, mod
                     hPx = rect.h,
                     fs = fs,
                     onOpen = onOpen,
+                    gapped = gapped,
+                    outlined = t.symbol.uppercase() in mine,
+                    dimmed = onlyMine && t.symbol.uppercase() !in mine,
                 )
             }
         }
@@ -380,17 +527,28 @@ private fun HeatmapTile.direction(): String = when {
 private fun TileBox(
     t: HeatmapTile, xPx: Float, yPx: Float, wPx: Float, hPx: Float, fs: Float,
     onOpen: (Asset) -> Unit,
+    gapped: Boolean = false,
+    /** One of your names: a white ring, so it can be found among eighty. */
+    outlined: Boolean = false,
+    /** "Only mine" is on and this is not yours: faded, still tappable and still spoken. */
+    dimmed: Boolean = false,
 ) {
     val density = LocalDensity.current
-    val wDp = with(density) { wPx.toDp() }
-    val hDp = with(density) { hPx.toDp() }
-    val shortDp = with(density) { minOf(wPx, hPx).toDp() }
-    val areaDp = wDp.value * hDp.value
+    // A gapped tile gives up a pixel on every side, so neighbours of the same tier stay separate
+    // instead of fusing into one block of colour.
+    val inset = if (gapped) with(density) { 1.dp.toPx() } else 0f
+    val wDp = with(density) { (wPx - 2 * inset).coerceAtLeast(1f).toDp() }
+    val hDp = with(density) { (hPx - 2 * inset).coerceAtLeast(1f).toDp() }
+    val shortDp = minOf(wDp, hDp)
     Box(
         modifier = Modifier
-            .offset(with(density) { xPx.toDp() }, with(density) { yPx.toDp() })
+            .offset(with(density) { (xPx + inset).toDp() }, with(density) { (yPx + inset).toDp() })
             .size(wDp, hDp)
+            .then(if (gapped) Modifier.clip(RoundedCornerShape(4.dp)) else Modifier)
+            // Before the fill: alpha only fades what is drawn after it in the chain.
+            .then(if (dimmed) Modifier.alpha(0.3f) else Modifier)
             .background(colourFor(t))
+            .then(if (outlined) Modifier.border(2.dp, MINE_OUTLINE) else Modifier)
             .clickable(enabled = !t.symbol.endsWith("-USD")) {
                 onOpen(Asset(t.symbol, AssetType.STOCK, t.name.ifBlank { t.symbol }, null))
             }
@@ -398,7 +556,7 @@ private fun TileBox(
             // enough to draw either as text — see heatmapTileDescription's KDoc. clearAndSetSemantics
             // rather than a plain contentDescription so a large tile's own child Text (ticker,
             // percent label) doesn't also get merged in and read twice.
-            .clearAndSetSemantics { contentDescription = heatmapTileDescription(t) },
+            .clearAndSetSemantics { contentDescription = heatmapTileDescription(t, mine = outlined) },
         contentAlignment = Alignment.Center,
     ) {
         // A ticker that does not fit is not drawn, and "fit" has to be arithmetic rather than a
@@ -431,9 +589,20 @@ private fun TileBox(
             fits(t.symbol, MIN_LABEL_SP) && tall(MIN_LABEL_SP) -> MIN_LABEL_SP
             else -> null
         }
+        // The system's call, on tiles with room for it ABOVE the label: the label is pushed down
+        // by the tag's height, so the two never overlap. Smaller tiles leave the call to the list
+        // under the map and to the spoken description.
+        val call = if (t.scale == "signal") t.call() else null
+        val showsPct = sym != null && pct.isNotEmpty() && fits(pct, pctSp) &&
+            hDp.value >= (sym + pctSp) * fs * 1.85f
+        // The same height the label gates above demand, so the pushed-down label is never clipped.
+        val labelH = sym?.let { if (showsPct) (it + pctSp) * fs * 1.85f else it * fs * 1.55f } ?: 0f
+        val tagged = call != null && sym != null && wDp.value >= 52f * fs && hDp.value >= labelH + CALL_TAG_ROOM * fs
         if (sym != null) {
-            val showsPct = pct.isNotEmpty() && fits(pct, pctSp) && hDp.value >= (sym + pctSp) * fs * 1.85f
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = if (tagged) Modifier.padding(top = (CALL_TAG_ROOM * fs).dp) else Modifier,
+            ) {
                 TileSymbol(
                     t.symbol,
                     dir.takeIf { !showsPct && it.isNotEmpty() && fits("$it  ${t.symbol}", sym) },
@@ -450,18 +619,208 @@ private fun TileBox(
                 }
             }
         }
+        if (tagged && call != null) {
+            CallTag(call, Modifier.align(Alignment.TopEnd).padding(3.dp))
+        } else if (call != null) {
+            // No room for the word: a stripe along the top edge still marks the call, so a tile
+            // too short for the tag does not read as a hold. The list below names it.
+            Box(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().height(4.dp)
+                    .background(callColour(call)),
+            )
+        }
+    }
+}
+
+/** Vertical room a call tag takes at the top of a tile: 13sp line plus its 3dp margin, rounded up. */
+private const val CALL_TAG_ROOM = 18f
+
+/**
+ * BUY or SELL in the semantic green and coral. A buy/sell call is a verdict about direction, the
+ * same reason the options go/no-go borrows them (TrafficGreen); the tier stays amber.
+ */
+private fun callColour(call: String): Color = if (call == "BUY") GAIN else LOSS
+
+@Composable
+private fun CallTag(call: String, modifier: Modifier = Modifier) {
+    Text(
+        call,
+        fontSize = MIN_LABEL_SP.sp,
+        lineHeight = 13.sp,
+        fontWeight = FontWeight.Bold,
+        color = SurfaceDark,
+        maxLines = 1,
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(callColour(call))
+            .padding(horizontal = 4.dp),
+    )
+}
+
+/** Height of the signals map; the list below it takes the rest of the scroll. */
+private val SIGNAL_MAP_HEIGHT = 440.dp
+
+/** What each amber step means, for the tiers on screen, drawn with the tiles' own fills. */
+@Composable
+private fun TierKey(tiles: List<HeatmapTile>) {
+    val present = tiles.map { it.tier() }.toSet()
+    val tiers = DipTier.entries.filter { it in present }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics {
+                contentDescription = "Colour key: brighter amber is a deeper dip, card grey is near its high"
+            },
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        for (tier in tiers) {
+            Box(
+                modifier = Modifier.weight(1f).height(20.dp).background(tier.fill),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    tier.keyLabel,
+                    fontSize = MIN_LABEL_SP.sp,
+                    color = inkFor(tier.fill),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Every name on the map as a readable row: grouped by tier, deepest first, sorted by how far each
+ * is below its 52-week high, with the system's call as a pill. The treemap shows the shape; small
+ * tiles there cannot carry a ticker, so this is where every name can be read and tapped.
+ */
+@Composable
+private fun DipLadder(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit) {
+    var showNear by rememberSaveable { mutableStateOf(false) }
+    fun off(t: HeatmapTile) = t.pctOff52wHigh?.let { abs(it) }
+    val maxOff = tiles.mapNotNull { off(it) }.maxOrNull()?.takeIf { it > 0.0 } ?: 1.0
+    val byTier = tiles.groupBy { it.tier() }
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        for (tier in DipTier.entries) {
+            val rows = byTier[tier].orEmpty().sortedByDescending { off(it) ?: -1.0 }
+            if (rows.isEmpty()) continue
+            Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 10.dp, bottom = 2.dp)) {
+                Text(
+                    tier.label.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${rows.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // Names near their high are the least interesting rows here, and often the most
+            // numerous: folded until asked for.
+            if (tier == DipTier.NONE && !showNear) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { showNear = true }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        rows.joinToString(", ") { it.symbol },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "Show ▾",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+                continue
+            }
+            for (t in rows) LadderRow(t, tier, off(t), maxOff, onOpen)
+        }
     }
 }
 
 @Composable
-private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit, modifier: Modifier = Modifier) {
+private fun LadderRow(t: HeatmapTile, tier: DipTier, off: Double?, maxOff: Double, onOpen: (Asset) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 36.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(enabled = !t.symbol.endsWith("-USD")) {
+                onOpen(Asset(t.symbol, AssetType.STOCK, t.name.ifBlank { t.symbol }, null))
+            }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            t.symbol,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier.width(84.dp),
+        )
+        Box(
+            Modifier
+                .weight(1f)
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer),
+        ) {
+            // No figure, no bar: an empty track, never a zero-length bar that claims "no dip".
+            if (off != null) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth((off / maxOff).toFloat().coerceIn(0.02f, 1f))
+                        .background(tier.bar),
+                )
+            }
+        }
+        Text(
+            off?.let { "−${it.roundToInt()}%" } ?: "—",
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            modifier = Modifier.width(44.dp),
+        )
+        Box(Modifier.width(52.dp), contentAlignment = Alignment.CenterEnd) {
+            t.call()?.let { Pill(it, callColour(it)) }
+        }
+    }
+}
+
+@Composable
+private fun TreemapCanvas(
+    tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit, modifier: Modifier = Modifier,
+    mine: Set<String> = emptySet(), onlyMine: Boolean = false,
+) {
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp)),
     ) {
         val density = LocalDensity.current
-        // Font-scaled gates, not shrunk text — see SectorTreemap.
+        // Font-scaled gates, not shrunk text — see GroupedTreemap.
         val fs = density.fontScale.coerceAtLeast(0.5f)
         val wPx = with(density) { maxWidth.toPx() }
         val hPx = with(density) { maxHeight.toPx() }
@@ -471,7 +830,11 @@ private fun TreemapCanvas(tiles: List<HeatmapTile>, onOpen: (Asset) -> Unit, mod
         // used to be a second copy of the labelling rules that had drifted from the first.
         for (rect in laid) {
             val t = bySym[rect.key] ?: continue
-            TileBox(t = t, xPx = rect.x, yPx = rect.y, wPx = rect.w, hPx = rect.h, fs = fs, onOpen = onOpen)
+            TileBox(
+                t = t, xPx = rect.x, yPx = rect.y, wPx = rect.w, hPx = rect.h, fs = fs, onOpen = onOpen,
+                outlined = t.symbol.uppercase() in mine,
+                dimmed = onlyMine && t.symbol.uppercase() !in mine,
+            )
         }
     }
 }
@@ -510,7 +873,8 @@ private fun MoveKey() {
 }
 
 private fun HeatmapTile.label(): String = when (scale) {
-    "signal" -> pctOff52wHigh?.let { "${it.toInt()}%" } ?: ""
+    // The server sends the drawdown negative; written with a real minus, like the price labels.
+    "signal" -> pctOff52wHigh?.let { "−${abs(it).roundToInt()}%" } ?: ""
     // A real minus sign, matching the colour key and the rest of the app.
     else -> (if (value > 0) "+" else if (value < 0) "−" else "") + String.format(java.util.Locale.US, "%.1f", kotlin.math.abs(value)) + "%"
 }
@@ -543,5 +907,200 @@ private fun TileSymbol(symbol: String, dir: String?, sp: Float, ink: Color) {
             color = ink,
             maxLines = 1,
         )
+    }
+}
+
+/** Height of the market map; the lists below it take the rest of the scroll. */
+private val MARKET_MAP_HEIGHT = 480.dp
+
+/** The ring on your own names. White, because every hue on this map already means something. */
+private val MINE_OUTLINE = Color.White
+
+private fun sectorOf(t: HeatmapTile): String = t.sector?.takeIf { it.isNotBlank() } ?: "Other"
+
+/**
+ * A block's move, weighted by company value the way the block's area is, so the number agrees with
+ * what the eye sees: a sector whose biggest name fell reads down even if most small names rose.
+ * Null when the block has no usable size, never a 0% that was not measured.
+ */
+internal fun sectorMove(members: List<HeatmapTile>): Double? {
+    val w = members.sumOf { it.size }
+    if (w <= 0.0 || !w.isFinite()) return null
+    return members.sumOf { it.value * it.size } / w
+}
+
+private fun signedPct(v: Double): String =
+    (if (v > 0.05) "+" else if (v < -0.05) "−" else "") +
+        String.format(java.util.Locale.US, "%.1f", abs(v)) + "%"
+
+private fun moveInk(v: Double): Color = when {
+    v > 0.05 -> GAIN
+    v < -0.05 -> LOSS
+    else -> BenchmarkGrey
+}
+
+/** "TECHNOLOGY +1.5% ›": the name, its weighted move in green or coral, and a tap affordance. */
+private fun sectorCaption(key: String, members: List<HeatmapTile>): List<AnnotatedString> {
+    val name = shortSector(key).uppercase()
+    val move = sectorMove(members)
+    fun build(withMove: Boolean, chevron: Boolean) = buildAnnotatedString {
+        append(name)
+        if (withMove && move != null) {
+            append("  ")
+            withStyle(SpanStyle(color = moveInk(move), fontFamily = FontFamily.Monospace)) { append(signedPct(move)) }
+        }
+        if (chevron) append("  ›")
+    }
+    // Fullest first; the name alone is the floor, and it may still ellipsize as names always have.
+    return listOf(build(true, true), build(true, false), build(false, true), build(false, false))
+}
+
+/** Shown while zoomed: the way back, which sector this is, and its move. */
+@Composable
+private fun ZoomCrumb(sector: String, members: List<HeatmapTile>, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onBack)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "‹ All sectors  /  ",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            sector,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        sectorMove(members)?.let { m ->
+            Text(
+                signedPct(m),
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace,
+                color = moveInk(m),
+            )
+        }
+    }
+}
+
+/**
+ * The names behind the map, readable: yours first, then the day's biggest moves. About a quarter of
+ * the market map's tiles are too small to carry a ticker, and the day's biggest faller is often one
+ * of them.
+ */
+@Composable
+private fun MarketLists(tiles: List<HeatmapTile>, mine: Set<String>, onOpen: (Asset) -> Unit) {
+    var showAllMine by rememberSaveable { mutableStateOf(false) }
+    val yours = tiles.filter { it.symbol.uppercase() in mine }.sortedByDescending { it.value }
+    val risers = tiles.filter { it.value > 0.05 }.sortedByDescending { it.value }.take(MOVERS)
+    val fallers = tiles.filter { it.value < -0.05 }.sortedBy { it.value }.take(MOVERS)
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        if (yours.isNotEmpty()) {
+            ListHeader("Your names today", yours.size)
+            val shown = if (showAllMine) yours else yours.take(YOURS_PREVIEW)
+            for (t in shown) MarketRow(t, yoursTag = false, onOpen)
+            if (yours.size > YOURS_PREVIEW) {
+                Text(
+                    if (showAllMine) "Show fewer ▴" else "Show all ${yours.size} ▾",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showAllMine = !showAllMine }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                )
+            }
+        }
+        // A day with nothing up says so, rather than leaving a header over nothing.
+        ListHeader("Biggest risers", risers.size)
+        if (risers.isEmpty()) EmptyListLine("Nothing on the map is up.")
+        for (t in risers) MarketRow(t, yoursTag = t.symbol.uppercase() in mine, onOpen)
+        ListHeader("Biggest fallers", fallers.size)
+        if (fallers.isEmpty()) EmptyListLine("Nothing on the map is down.")
+        for (t in fallers) MarketRow(t, yoursTag = t.symbol.uppercase() in mine, onOpen)
+    }
+}
+
+private const val YOURS_PREVIEW = 6
+private const val MOVERS = 3
+
+@Composable
+private fun ListHeader(label: String, count: Int) {
+    Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 10.dp, bottom = 2.dp)) {
+        Text(
+            label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "$count",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun EmptyListLine(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 2.dp),
+    )
+}
+
+@Composable
+private fun MarketRow(t: HeatmapTile, yoursTag: Boolean, onOpen: (Asset) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 40.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(enabled = !t.symbol.endsWith("-USD")) {
+                onOpen(Asset(t.symbol, AssetType.STOCK, t.name.ifBlank { t.symbol }, null))
+            }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            t.symbol,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier.width(64.dp),
+        )
+        Text(
+            shortSector(sectorOf(t)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (yoursTag) {
+            Text(
+                "YOURS",
+                fontSize = MIN_LABEL_SP.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .border(1.dp, OutlineDark, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp),
+            )
+        }
+        ChangePill(t.value)
     }
 }

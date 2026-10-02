@@ -27,6 +27,8 @@ data class HeatmapUiState(
     /** Epoch seconds the data was produced. Signals mode is a nightly scan and is always hours old. */
     val asOf: Double? = null,
     val session: String? = null,
+    /** Your watchlist and holdings, upper-cased, so the market map can ring them. */
+    val mine: Set<String> = emptySet(),
 )
 
 class HeatmapViewModel : ViewModel() {
@@ -36,7 +38,14 @@ class HeatmapViewModel : ViewModel() {
     private val _state = MutableStateFlow(HeatmapUiState())
     val state = _state.asStateFlow()
 
-    init { load(refresh = false) }
+    init {
+        load(refresh = false)
+        viewModelScope.launch {
+            ServiceLocator.watchlistStore.watchlist.collect { list ->
+                _state.update { st -> st.copy(mine = list.map { it.symbol.uppercase() }.toSet()) }
+            }
+        }
+    }
 
     /** Set when a mode switch arrives mid-flight, so the completing load re-issues for the new mode. */
     private var pendingMode: String? = null

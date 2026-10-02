@@ -37,4 +37,17 @@ class HeatmapAccessibilityTest {
         val t = HeatmapTile(symbol = "GME", scale = "signal", pctOff52wHigh = null)
         assertEquals("GME, flagged by signals", heatmapTileDescription(t))
     }
+
+    @Test fun `signal tiles speak the drawdown positive, plus tier and call when the scan has them`() {
+        val t = HeatmapTile(
+            symbol = "DOGE-USD", scale = "signal", value = 5.0, pctOff52wHigh = -64.16,
+            dip = "mega_dip", signal = "buy",
+        )
+        assertEquals("DOGE-USD, 64% off its 52-week high, big dip, system says buy", heatmapTileDescription(t))
+    }
+
+    @Test fun `a hold says nothing about a call`() {
+        val t = HeatmapTile(symbol = "SPY", scale = "signal", pctOff52wHigh = -2.0, signal = "hold")
+        assertEquals("SPY, 2% off its 52-week high", heatmapTileDescription(t))
+    }
 }

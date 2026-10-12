@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.26.0" to listOf(
+            "New: a notice when the stock or bond market is closed or closes early, and a heads-up the evening before stocks close",
+        ),
         "1.25.1" to listOf(
             "A stock you own now opens on Your money",
         ),

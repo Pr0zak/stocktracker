@@ -142,6 +142,7 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
     val aiOn by settings.aiAnalystEnabled.collectAsState(initial = true)
     val taxableAccount by settings.taxableAccount.collectAsState(initial = true)
     val marketSummary by settings.marketSummaryEnabled.collectAsState(initial = true)
+    val marketHoursNotify by settings.marketHoursNotifyEnabled.collectAsState(initial = true)
     val marketSummaryAfterHours by settings.marketSummaryAfterHours.collectAsState(initial = true)
     val marketSummaryMarketWide by settings.marketSummaryMarketWide.collectAsState(initial = false)
     val aiDailyBrief by settings.aiDailyBriefEnabled.collectAsState(initial = false)
@@ -315,6 +316,13 @@ fun SettingsScreen(onOpenMethodology: () -> Unit = {}, onOpenWidgets: () -> Unit
                 // killing it (battery optimisation is the usual cause), and your alerts are not
                 // being checked no matter how they are configured.
                 BackgroundRunStatus()
+
+                SwitchRow(
+                    "Market closed & early closes",
+                    "When the stock or bond market is closed or closes early for a holiday, plus a heads-up " +
+                        "the evening before stocks close",
+                    marketHoursNotify,
+                ) { scope.launch { settings.setMarketHoursNotifyEnabled(it) } }
 
                 SwitchRow(
                     "Market close & after-hours summary",

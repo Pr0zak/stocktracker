@@ -36,6 +36,7 @@ object AlertNotifier {
     private const val PICK_CHANNEL_ID = "daily_pick"
     private const val REPORT_CHANNEL_ID = "reports"
     private const val FUND_CHANNEL_ID = "fund_fees"
+    private const val HOURS_CHANNEL_ID = "market_hours"
 
     /** Groups every scan-family post (see [notifyScan]) so they collapse together in the shade instead
      *  of listing separately from a channel a user may not have even opened Settings to name yet. */
@@ -131,6 +132,15 @@ object AlertNotifier {
         )
     }
 
+    /** Market closures and early closes, for stocks and bonds (see [MarketHoursNotifier]). */
+    fun ensureHoursChannel(context: Context) {
+        ensureChannel(
+            context, HOURS_CHANNEL_ID, "Market closed & early closes",
+            "Days the stock or bond market is closed or closes early, and a heads-up the evening before a stock market closure",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+    }
+
     private fun ensureChannel(
         context: Context,
         id: String,
@@ -175,6 +185,10 @@ object AlertNotifier {
     /** FUND-6: a held fund's fee changed. Its own channel, so it can be muted on its own. */
     fun notifyFundFee(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
         post(context, FUND_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
+
+    /** A market closure or early close. Its own channel, so it can be muted on its own. */
+    fun notifyMarketHours(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, HOURS_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
 
     /** Post a sandbox paper-trade notification (its own default-importance channel). */
     fun notifySandbox(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
@@ -221,6 +235,7 @@ object AlertNotifier {
             PICK_CHANNEL_ID -> ensurePickChannel(context)
             REPORT_CHANNEL_ID -> ensureReportChannel(context)
             FUND_CHANNEL_ID -> ensureFundChannel(context)
+            HOURS_CHANNEL_ID -> ensureHoursChannel(context)
             SCAN_CHANNEL_ID -> ensureScanChannel(context)
             else -> ensureChannel(context)
         }

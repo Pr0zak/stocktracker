@@ -384,6 +384,27 @@ class SettingsStore(private val context: Context) {
     suspend fun setDailyPickReportCards(entries: Set<String>) =
         context.dataStore.edit { it[dailyPickReportCardsKey] = entries }
 
+    // --- Market closed & early-close notices ---
+
+    private val marketHoursNotifyKey = booleanPreferencesKey("market_hours_notify_enabled")
+    private val lastMarketHoursTodayKey = stringPreferencesKey("last_market_hours_today")
+    private val lastMarketHoursAheadKey = stringPreferencesKey("last_market_hours_ahead")
+
+    /** Notify when the stock or bond market is closed or closes early (default on). */
+    val marketHoursNotifyEnabled: Flow<Boolean> = context.dataStore.data.map { it[marketHoursNotifyKey] ?: true }
+    suspend fun setMarketHoursNotifyEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[marketHoursNotifyKey] = enabled }
+
+    /** ET date (yyyy-MM-dd) the morning-of notice last covered; "" = never. */
+    val lastMarketHoursTodayDate: Flow<String> = context.dataStore.data.map { it[lastMarketHoursTodayKey] ?: "" }
+    suspend fun setLastMarketHoursTodayDate(date: String) =
+        context.dataStore.edit { it[lastMarketHoursTodayKey] = date }
+
+    /** ET date (yyyy-MM-dd) of the closure the evening-before heads-up last covered; "" = never. */
+    val lastMarketHoursAheadDate: Flow<String> = context.dataStore.data.map { it[lastMarketHoursAheadKey] ?: "" }
+    suspend fun setLastMarketHoursAheadDate(date: String) =
+        context.dataStore.edit { it[lastMarketHoursAheadKey] = date }
+
     // --- Funds (FUND-6) ---
 
     private val fundFeeNotifyKey = booleanPreferencesKey("fund_fee_notify_enabled")

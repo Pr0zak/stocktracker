@@ -56,6 +56,7 @@ class WidgetRefreshWorker(
         step("alerts") { com.stocktracker.app.notify.AlertChecker.check(applicationContext) }
         step("signalScan") { com.stocktracker.app.notify.SignalScanNotifier.check(applicationContext) }
         step("callExit") { com.stocktracker.app.notify.CallExitNotifier.check(applicationContext) }
+        step("marketHours") { com.stocktracker.app.notify.MarketHoursNotifier.check(applicationContext) }
         step("marketSummary") { com.stocktracker.app.notify.MarketSummaryNotifier.check(applicationContext) }
         step("dailyBrief") { com.stocktracker.app.notify.AiDailyBriefNotifier.check(applicationContext) }
         step("dailyPick") { com.stocktracker.app.notify.DailyPickNotifier.check(applicationContext) }

@@ -10,7 +10,9 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -142,6 +144,7 @@ fun StockTrackerRoot(
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = { com.stocktracker.app.ui.components.MarketDayBanner() },
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar {
@@ -166,7 +169,11 @@ fun StockTrackerRoot(
         NavHost(
             navController = nav,
             startDestination = TopDest.Watchlist.route,
-            modifier = Modifier.padding(innerPadding),
+            // Only the top is marked consumed: the banner already took the status-bar inset. The
+            // bottom is left as it was, so screens keep their own navigation-bar handling.
+            modifier = Modifier
+                .padding(innerPadding)
+                .consumeWindowInsets(PaddingValues(top = innerPadding.calculateTopPadding())),
         ) {
             composable(TopDest.Watchlist.route) {
                 WatchlistScreen(

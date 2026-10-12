@@ -126,6 +126,38 @@ object MarketHoursText {
         return title to lines.joinToString(" ")
     }
 
+    /**
+     * The one-line in-app banner for [now] (in ET), or null when there is nothing to say. Today's
+     * closure or early close wins; otherwise, after the 4:00 PM ET close or over a weekend, the next
+     * weekday's stock closure or early close.
+     */
+    fun banner(now: ZonedDateTime, zone: ZoneId): String? {
+        val nowEt = now.withZoneSameInstant(ET)
+        val today = nowEt.toLocalDate()
+        MarketCalendar.day(today)?.takeIf { it.unusual }?.let { d ->
+            val why = d.reason?.let { " · $it" }.orEmpty()
+            return when (d.stocks) {
+                Hours.CLOSED -> "Stock market closed today$why"
+                Hours.EARLY_CLOSE -> "Stocks close early today at ${clock(today, MarketCalendar.STOCK_EARLY_CLOSE, zone)}$why"
+                Hours.OPEN -> if (d.bonds == Hours.CLOSED) {
+                    "Bond market closed$why · stocks open"
+                } else {
+                    "Bonds close at ${clock(today, MarketCalendar.BOND_EARLY_CLOSE, zone)} · stocks open"
+                }
+            }
+        }
+        val afterClose = MarketCalendar.day(today) == null || nowEt.toLocalTime() >= LocalTime.of(16, 0)
+        if (!afterClose) return null
+        val next = MarketCalendar.day(MarketCalendar.nextWeekday(today)) ?: return null
+        if (next.stocks == Hours.OPEN) return null
+        val whenWord = if (next.date == today.plusDays(1)) "Tomorrow" else dayName(next.date)
+        val why = next.reason?.let { " · $it" }.orEmpty()
+        return when (next.stocks) {
+            Hours.CLOSED -> "$whenWord: stock market closed$why"
+            else -> "$whenWord: stocks close early at ${clock(next.date, MarketCalendar.STOCK_EARLY_CLOSE, zone)}$why"
+        }
+    }
+
     private fun reopens(closed: LocalDate, zone: ZoneId): String {
         val back = MarketCalendar.nextStockSession(closed)
         val early = MarketCalendar.day(back)?.stocks == Hours.EARLY_CLOSE

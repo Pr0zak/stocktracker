@@ -45,4 +45,40 @@ class MarketHoursTextTest {
         val (title, _) = MarketHoursText.ahead(day(2026, 11, 27), LocalDate.of(2026, 11, 26), central)
         assertEquals("Tomorrow: stocks close early at 12:00 PM — the day after Thanksgiving", title)
     }
+
+    private fun at(y: Int, m: Int, d: Int, h: Int) =
+        java.time.ZonedDateTime.of(y, m, d, h, 0, 0, 0, ZoneId.of("America/New_York"))
+
+    @Test fun `banner on columbus day`() {
+        assertEquals(
+            "Bond market closed · Columbus Day · stocks open",
+            MarketHoursText.banner(at(2026, 10, 12, 9), central),
+        )
+    }
+
+    @Test fun `banner the evening before thanksgiving, not that morning`() {
+        org.junit.Assert.assertNull(MarketHoursText.banner(at(2026, 11, 25, 10), central))
+        assertEquals(
+            "Tomorrow: stock market closed · Thanksgiving",
+            MarketHoursText.banner(at(2026, 11, 25, 17), central),
+        )
+    }
+
+    @Test fun `banner over the weekend before a monday closure`() {
+        assertEquals(
+            "Monday: stock market closed · Martin Luther King Jr. Day",
+            MarketHoursText.banner(at(2027, 1, 16, 12), central),
+        )
+    }
+
+    @Test fun `banner on an early close shows the local time`() {
+        assertEquals(
+            "Stocks close early today at 12:00 PM · the day after Thanksgiving",
+            MarketHoursText.banner(at(2026, 11, 27, 8), central),
+        )
+    }
+
+    @Test fun `no banner on an ordinary day`() {
+        org.junit.Assert.assertNull(MarketHoursText.banner(at(2026, 10, 13, 18), central))
+    }
 }

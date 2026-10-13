@@ -415,14 +415,22 @@ fun PriceChart(
                     if (v > dataMax) dataMax = v
                 }
             }
-            val min = minOf(dataMin, costLine ?: dataMin, sma200wLine ?: dataMin)
-            val max = maxOf(dataMax, costLine ?: dataMax, sma200wLine ?: dataMax)
+            // The scale hugs the visible data, with a thin margin so the extremes and their chips
+            // do not sit on the plot edge. The cost and 200-week lines no longer stretch it: a cost
+            // basis 20% below a quiet 1D session squashed the whole day into the top sliver of the
+            // plot. A reference level outside the window is pinned to the edge it lies beyond,
+            // with an arrow, instead — see edgeChipY below.
+            val dataSpan = (dataMax - dataMin).takeIf { it > 0.0 } ?: (abs(dataMax) * 0.01).takeIf { it > 0.0 } ?: 1.0
+            val margin = dataSpan * 0.04
+            // Never pad a positive series through zero: that would refuse the log scale for nothing.
+            val min = if (dataMin > 0.0 && dataMin - margin <= 0.0) dataMin else dataMin - margin
+            val max = dataMax + margin
             val range = (max - min).takeIf { it > 0.0 } ?: 1.0
             val stepX = size.width / (visN - 1)
             fun xg(i: Int) = (i - startIdx) * stepX
 
             // The positivity test is on the COMPOSED bounds, not on the price series. `min` above
-            // already folds in the cost line, the 200-week line and every overlay — and Bollinger's
+            // already folds in every overlay and the margin — and Bollinger's
             // lower band (mid - 2*sd) goes at or below zero on a volatile sub-$5 ticker, while the
             // AI-analyst levels are arbitrary numbers from a backend. Testing the prices alone would
             // pass and then take ln of a negative.
@@ -469,6 +477,11 @@ fun PriceChart(
             fun y(v: Double) =
                 if (logOk && v > 0.0) (1f - ((ln(v) - lnMin) / lnSpan).toFloat()) * plotBottom
                 else (1f - ((v - min) / range).toFloat()) * plotBottom
+            // -1 below the visible scale, +1 above it, 0 on it. An off-scale reference level is
+            // drawn as an edge chip with an arrow — never as a line clamped to the edge, which
+            // would read as "the cost is right here".
+            fun offScale(v: Double) = if (v < min) -1 else if (v > max) 1 else 0
+            fun offScaleArrow(off: Int) = when (off) { -1 -> "▼ "; 1 -> "▲ "; else -> "" }
 
             // Volume bars along the bottom of the plot.
             if (showVolume) {
@@ -734,8 +747,9 @@ fun PriceChart(
 
             // Cost-basis reference line — dashed line at the user's average cost / total invested.
             if (costLine != null) {
-                val cy = y(costLine)
-                drawLine(
+                val costOff = offScale(costLine)
+                val cy = if (costOff == 0) y(costLine) else if (costOff < 0) plotBottom else 0f
+                if (costOff == 0) drawLine(
                     color = muted.copy(alpha = 0.7f),
                     start = Offset(0f, cy),
                     end = Offset(size.width, cy),
@@ -743,7 +757,7 @@ fun PriceChart(
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),
                 )
                 val costLabel = textMeasurer.measure(
-                    "Cost " + valueFormatter(costLine),
+                    offScaleArrow(costOff) + "Cost " + valueFormatter(costLine),
                     TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = muted),
                 )
                 val tw = costLabel.size.width.toFloat()
@@ -773,9 +787,10 @@ fun PriceChart(
 
             // 200-week line — amber dashed reference so you can see price cross it on long ranges.
             if (sma200wLine != null) {
-                val ly200 = y(sma200wLine)
+                val off200 = offScale(sma200wLine)
+                val ly200 = if (off200 == 0) y(sma200wLine) else if (off200 < 0) plotBottom else 0f
                 val amber = Signal
-                drawLine(
+                if (off200 == 0) drawLine(
                     color = amber.copy(alpha = 0.85f),
                     start = Offset(0f, ly200),
                     end = Offset(size.width, ly200),
@@ -783,7 +798,7 @@ fun PriceChart(
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 5f)),
                 )
                 val lbl = textMeasurer.measure(
-                    "200-wk " + valueFormatter(sma200wLine),
+                    offScaleArrow(off200) + "200-wk " + valueFormatter(sma200wLine),
                     TextStyle(fontSize = CHART_TEXT_FLOOR, fontWeight = FontWeight.SemiBold, color = amber),
                 )
                 val tw2 = lbl.size.width.toFloat()

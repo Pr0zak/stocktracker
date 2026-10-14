@@ -33,7 +33,7 @@ import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
 import com.stocktracker.app.widget.WidgetPinning
 
-private enum class WidgetKind { TICKER, WATCHLIST, PORTFOLIO }
+private enum class WidgetKind { TICKER, PAIR, WATCHLIST, PORTFOLIO }
 
 private data class GalleryEntry(
     val title: String,
@@ -55,6 +55,9 @@ fun WidgetGalleryScreen() {
         },
         GalleryEntry("Ticker + chart", "Resize a ticker to 2×2 for a sparkline.", WidgetKind.TICKER) {
             TickerMock("ETH", "$3,180.00", "▲ +1.53%", GainGreen)
+        },
+        GalleryEntry("Ticker pair", "Two tickers side by side in a 4×1 strip.", WidgetKind.PAIR) {
+            PairMock()
         },
         GalleryEntry("Watchlist", "All your tracked tickers in one 4×2 tile.", WidgetKind.WATCHLIST) {
             WatchlistMock()
@@ -90,6 +93,7 @@ fun WidgetGalleryScreen() {
                 GalleryCard(entry) {
                     val ok = when (entry.kind) {
                         WidgetKind.TICKER -> WidgetPinning.requestPinTicker(context)
+                        WidgetKind.PAIR -> WidgetPinning.requestPinPair(context)
                         WidgetKind.WATCHLIST -> WidgetPinning.requestPinWatchlist(context)
                         WidgetKind.PORTFOLIO -> WidgetPinning.requestPinPortfolio(context)
                     }
@@ -159,6 +163,14 @@ private fun TickerMock(symbol: String, price: String, change: String, changeColo
                 Text(change, color = changeColor, style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+}
+
+@Composable
+private fun PairMock() {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        MockRow("AAPL", "▲ +1.20%", GainGreen)
+        MockRow("BTC", "▼ -0.78%", LossRed)
     }
 }
 

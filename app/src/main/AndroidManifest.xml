@@ -69,6 +69,19 @@
                 android:resource="@xml/watchlist_widget_info" />
         </receiver>
 
+        <!-- Pair widget: two tickers side by side, 4x1 -->
+        <receiver
+            android:name=".widget.PairWidgetReceiver"
+            android:exported="true"
+            android:label="@string/pair_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/pair_widget_info" />
+        </receiver>
+
         <!-- Portfolio (total value) widget -->
         <receiver
             android:name=".widget.PortfolioWidgetReceiver"

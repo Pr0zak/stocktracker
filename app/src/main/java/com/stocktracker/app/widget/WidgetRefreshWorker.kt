@@ -46,6 +46,7 @@ class WidgetRefreshWorker(
         }
 
         step("widgets:tickers") { WidgetRefresh.refreshAllTickers(applicationContext) }
+        step("widgets:pairs") { WidgetRefresh.refreshAllPairs(applicationContext) }
         step("widgets:watchlist") { WidgetRefresh.refreshWatchlist(applicationContext) }
         step("widgets:portfolio") { WidgetRefresh.refreshPortfolio(applicationContext) }
         // Mirrors whatever the two widget refreshes above just wrote to a paired watch (WGT-7). Runs

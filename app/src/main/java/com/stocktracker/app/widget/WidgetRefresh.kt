@@ -95,6 +95,7 @@ object WidgetRefresh {
         runCatching { TickerWidget().updateAll(context) }
         runCatching { WatchlistWidget().updateAll(context) }
         runCatching { PortfolioWidget().updateAll(context) }
+        runCatching { PairWidget().updateAll(context) }
     }
 
     suspend fun refreshAllTickers(context: Context) {
@@ -192,6 +193,56 @@ object WidgetRefresh {
             }
         }
         WatchlistWidget().update(context, glanceId)
+    }
+
+    suspend fun refreshAllPairs(context: Context) {
+        GlanceAppWidgetManager(context).getGlanceIds(PairWidget::class.java)
+            .forEach { refreshPair(context, it, force = false) }
+    }
+
+    /**
+     * Refresh one pair widget: both sides fetched independently, each with its own error, so one
+     * symbol's failure neither blanks nor flags the other. Same interval gate and attempt-before-fetch
+     * stamping as [refreshTicker].
+     */
+    suspend fun refreshPair(context: Context, glanceId: GlanceId, force: Boolean = false) {
+        val prefs: Preferences = getAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId)
+        val config = PairWidgetState.readConfig(prefs)
+        val lastRefresh = prefs[PairWidgetState.LAST_REFRESH] ?: 0L
+        val now = System.currentTimeMillis()
+        if (!force && now - lastRefresh < config.refreshMinutes * 60_000L - REFRESH_SLACK_MS) {
+            val stale = listOf(PairWidgetState.QUOTE_LEFT, PairWidgetState.QUOTE_RIGHT)
+                .any { shouldRepaintForStaleness(PairWidgetState.readQuote(prefs, it), now) }
+            if (stale) PairWidget().update(context, glanceId)
+            return // not due yet
+        }
+        updateAppWidgetState(context, glanceId) { it[PairWidgetState.LAST_REFRESH] = now }
+
+        val hideZeroCents = ServiceLocator.settingsStore.hideZeroCents.first()
+        val sides = listOf(
+            Triple(config.left, PairWidgetState.QUOTE_LEFT, PairWidgetState.ERROR_LEFT),
+            Triple(config.right, PairWidgetState.QUOTE_RIGHT, PairWidgetState.ERROR_RIGHT),
+        )
+        for ((slot, quoteKey, errorKey) in sides) {
+            val asset = slot.toAsset()
+            val result = runCatching { ServiceLocator.repository.quote(asset) }
+            val quote = result.getOrNull()
+            if (quote != null) ServiceLocator.priceCache.putQuote(asset.id, quote)
+            val stored = PairWidgetState.readQuote(prefs, quoteKey)
+            updateAppWidgetState(context, glanceId) { mutable ->
+                if (quote != null) {
+                    mutable[quoteKey] = Http.json.encodeToString(quote)
+                    mutable.remove(errorKey)
+                } else {
+                    // Keep an old-but-real quote for the same symbol (the widget labels its age);
+                    // drop one that belongs to a symbol this side no longer tracks.
+                    mutable[errorKey] = result.exceptionOrNull()?.message ?: "Update failed"
+                    if (!shouldKeepQuoteOnFailure(stored, slot.symbol)) mutable.remove(quoteKey)
+                }
+                mutable[PairWidgetState.HIDE_ZERO_CENTS] = hideZeroCents
+            }
+        }
+        PairWidget().update(context, glanceId)
     }
 
     suspend fun refreshPortfolio(context: Context) {

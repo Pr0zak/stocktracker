@@ -9,6 +9,8 @@
     <!-- Widgets -->
     <string name="ticker_widget_label">Ticker</string>
     <string name="watchlist_widget_label">Watchlist</string>
+    <string name="pair_widget_label">Ticker pair</string>
+    <string name="pair_widget_description">Two stocks or crypto side by side in one 4×1 strip.</string>
     <string name="portfolio_widget_label">Portfolio</string>
     <string name="ticker_widget_description">A single stock or crypto price bubble.</string>
     <string name="watchlist_widget_description">A list of your tracked tickers.</string>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Picker preview for the 4x1 pair widget: two symbol/price blocks split by a divider, one up and
+     one down, in the shipping gain/loss tokens (GainGreen #5EDD9C, LossRed #E8663F). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="280dp"
+    android:height="60dp"
+    android:viewportWidth="280"
+    android:viewportHeight="60">
+    <path android:fillColor="#201F25" android:pathData="M10,4 h260 a10,10 0 0 1 10,10 v32 a10,10 0 0 1 -10,10 h-260 a10,10 0 0 1 -10,-10 v-32 a10,10 0 0 1 10,-10 z" />
+    <path android:fillColor="#B4A0FF" android:pathData="M18,18 h26 v8 h-26 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M84,17 h44 v10 h-44 z" />
+    <path android:fillColor="#5EDD9C" android:pathData="M18,34 h36 v6 h-36 z" />
+    <path android:fillColor="#4A4850" android:pathData="M139,14 h2 v32 h-2 z" />
+    <path android:fillColor="#B4A0FF" android:pathData="M152,18 h26 v8 h-26 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M218,17 h44 v10 h-44 z" />
+    <path android:fillColor="#E8663F" android:pathData="M152,34 h36 v6 h-36 z" />
+</vector>

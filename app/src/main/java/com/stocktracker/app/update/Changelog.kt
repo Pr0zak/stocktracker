@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.28.0" to listOf(
+            "New: a Ticker pair widget — two stocks or crypto side by side in one 4×1 strip",
+        ),
         "1.27.1" to listOf(
             "Fixed: price charts fill their height again — your cost and the 200-week line no longer squash the chart; when they are off the scale they show as a label at the edge",
         ),

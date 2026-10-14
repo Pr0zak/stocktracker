@@ -107,10 +107,17 @@ class WidgetConfigActivity : ComponentActivity() {
         // a provider by the time this activity launches, so its provider info says which widget is
         // actually being configured.
         val isWatchlist = isWatchlistWidget(applicationContext, appWidgetId)
+        val isPair = isPairWidget(applicationContext, appWidgetId)
 
         setContent {
             StockTrackerTheme {
-                if (isWatchlist) {
+                if (isPair) {
+                    PairWidgetConfigScreen(
+                        appWidgetId = appWidgetId,
+                        onCancel = { finish() },
+                        onConfirm = ::confirmPair,
+                    )
+                } else if (isWatchlist) {
                     WatchlistWidgetConfigScreen(
                         appWidgetId = appWidgetId,
                         onCancel = { finish() },
@@ -157,7 +164,28 @@ class WidgetConfigActivity : ComponentActivity() {
         }
     }
 
+    private fun confirmPair(config: PairWidgetConfig) {
+        lifecycleScope.launch {
+            val glanceId = GlanceAppWidgetManager(applicationContext).getGlanceIdBy(appWidgetId)
+            updateAppWidgetState(applicationContext, glanceId) { prefs ->
+                prefs[PairWidgetState.CONFIG] = Http.json.encodeToString(config)
+            }
+            WidgetRefresh.refreshPair(applicationContext, glanceId, force = true)
+            WidgetRefreshScheduler.ensureScheduled(applicationContext)
+
+            val result = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            setResult(RESULT_OK, result)
+            finish()
+        }
+    }
+
     companion object {
+        /** True when [appWidgetId] belongs to the pair (two-ticker) widget. */
+        internal fun isPairWidget(context: android.content.Context, appWidgetId: Int): Boolean {
+            val info = AppWidgetManager.getInstance(context).getAppWidgetInfo(appWidgetId)
+            return info?.provider?.className == PairWidgetReceiver::class.java.name
+        }
+
         /** True when [appWidgetId] belongs to the watchlist widget rather than the ticker widget. */
         internal fun isWatchlistWidget(context: android.content.Context, appWidgetId: Int): Boolean {
             val info = AppWidgetManager.getInstance(context).getAppWidgetInfo(appWidgetId)
@@ -611,5 +639,219 @@ private fun WatchlistWidgetPreview(
                 }
             }
         }
+    }
+}
+
+// -----------------------------------------------------------------------------------------------
+// Pair widget configuration — two tickers in a 4×1 strip
+// -----------------------------------------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PairWidgetConfigScreen(
+    appWidgetId: Int,
+    onCancel: () -> Unit,
+    onConfirm: (PairWidgetConfig) -> Unit,
+) {
+    val context = LocalContext.current
+    var config by remember { mutableStateOf(PairWidgetConfig()) }
+    LaunchedEffect(appWidgetId) {
+        runCatching {
+            val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
+            val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId)
+            if (prefs.contains(PairWidgetState.CONFIG)) {
+                config = PairWidgetState.readConfig(prefs)
+            }
+        }
+    }
+    // Which side the search box is currently picking for.
+    var editingLeft by remember { mutableStateOf(true) }
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+
+    val backgroundArgb by ServiceLocator.settingsStore.widgetBackgroundArgb
+        .collectAsState(initial = WidgetBackground.DEFAULT_ARGB)
+    val backgroundTransparency by ServiceLocator.settingsStore.widgetBackgroundTransparency
+        .collectAsState(initial = WidgetBackground.DEFAULT_TRANSPARENCY)
+
+    LaunchedEffect(query) {
+        if (query.isBlank()) {
+            results = emptyList()
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(300)
+        results = runCatching { ServiceLocator.repository.search(query) }.getOrDefault(emptyList())
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Configure Ticker Pair") },
+                navigationIcon = {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.Default.Close, contentDescription = "Cancel")
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { onConfirm(config) }) { Text("Add") }
+                },
+            )
+        },
+        bottomBar = {
+            Button(
+                onClick = { onConfirm(config) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            ) { Text("Add to Home Screen") }
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item { PairWidgetPreview(config, backgroundArgb, backgroundTransparency) }
+
+            item { SectionHeader("Tickers") }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = editingLeft,
+                        onClick = { editingLeft = true },
+                        label = { Text("Left · ${config.left.symbol}") },
+                    )
+                    FilterChip(
+                        selected = !editingLeft,
+                        onClick = { editingLeft = false },
+                        label = { Text("Right · ${config.right.symbol}") },
+                    )
+                }
+            }
+            item {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text(if (editingLeft) "Search left ticker" else "Search right ticker") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            items(results) { result ->
+                SearchResultRow(result) {
+                    val slot = PairSlot(
+                        symbol = result.symbol,
+                        type = result.type,
+                        displayName = result.name,
+                        coinGeckoId = result.coinGeckoId,
+                    )
+                    config = if (editingLeft) config.copy(left = slot) else config.copy(right = slot)
+                    // Move on to the other side after picking the first, so two picks fill both.
+                    if (editingLeft) editingLeft = false
+                    query = ""
+                    results = emptyList()
+                }
+            }
+
+            item { SectionHeader("Display") }
+            item {
+                ToggleRow("Show change %", config.showChangePercent) {
+                    config = config.copy(showChangePercent = it)
+                }
+            }
+
+            item { SectionHeader("Accent") }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PairWidgetConfig.ACCENT_CHOICES.forEach { argb ->
+                        AccentSwatch(
+                            color = Color(argb.toInt()),
+                            selected = config.accentArgb == argb,
+                        ) { config = config.copy(accentArgb = argb) }
+                    }
+                }
+            }
+
+            item { SectionHeader("Refresh") }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PairWidgetConfig.REFRESH_CHOICES.forEach { minutes ->
+                        FilterChip(
+                            selected = config.refreshMinutes == minutes,
+                            onClick = { config = config.copy(refreshMinutes = minutes) },
+                            label = { Text(if (minutes < 60) "${minutes}m" else "${minutes / 60}h") },
+                        )
+                    }
+                }
+            }
+
+            item { Spacer(Modifier.width(1.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun PairWidgetPreview(
+    config: PairWidgetConfig,
+    backgroundArgb: Long = WidgetBackground.DEFAULT_ARGB,
+    backgroundTransparency: Int = WidgetBackground.DEFAULT_TRANSPARENCY,
+) {
+    // Sample numbers only -- the placed widget prices the real symbols.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            modifier = Modifier
+                .background(
+                    Color(WidgetBackground.argbWith(backgroundArgb, backgroundTransparency)),
+                    RoundedCornerShape(20.dp),
+                )
+                .padding(horizontal = 6.dp, vertical = 10.dp)
+                .width(300.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PairPreviewHalf(config.left.symbol, 229.14, 1.20, config, Modifier.weight(1f))
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .height(28.dp)
+                    .background(OnSurfaceVariantDark.copy(alpha = 0.3f)),
+            )
+            PairPreviewHalf(config.right.symbol, 64213.0, -0.82, config, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun PairPreviewHalf(symbol: String, price: Double, pct: Double, config: PairWidgetConfig, modifier: Modifier) {
+    val up = pct >= 0.0
+    Column(modifier.padding(horizontal = 10.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                symbol,
+                color = Color(config.accentArgb.toInt()),
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            Text(Formatting.price(price), color = OnSurfaceDark, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Text(
+            if (config.showChangePercent) {
+                "${Formatting.arrow(up)} ${Formatting.percent(pct)}"
+            } else {
+                "${Formatting.arrow(up)} ${Formatting.change(price * pct / 100.0)}"
+            },
+            color = if (up) GainGreen else LossRed,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }

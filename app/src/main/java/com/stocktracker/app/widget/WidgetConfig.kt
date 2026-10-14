@@ -69,3 +69,32 @@ data class WatchlistWidgetConfig(
         val REFRESH_CHOICES = TickerWidgetConfig.REFRESH_CHOICES
     }
 }
+
+/** One side of a pair widget: just enough to price an asset and open its detail screen. */
+@Serializable
+data class PairSlot(
+    val symbol: String,
+    val type: AssetType = AssetType.STOCK,
+    val displayName: String = symbol,
+    val coinGeckoId: String? = null,
+) {
+    fun toAsset() = Asset(symbol = symbol, type = type, displayName = displayName, coinGeckoId = coinGeckoId)
+}
+
+/**
+ * Per-widget configuration for a pair widget — two tickers side by side in a 4×1 strip. Stored in
+ * that widget's Glance state, same pattern as [TickerWidgetConfig].
+ */
+@Serializable
+data class PairWidgetConfig(
+    val left: PairSlot = PairSlot("AAPL", AssetType.STOCK, "Apple Inc."),
+    val right: PairSlot = PairSlot("BTC", AssetType.CRYPTO, "Bitcoin", coinGeckoId = "bitcoin"),
+    val showChangePercent: Boolean = true,
+    val accentArgb: Long = 0xFFB4A0FF,
+    val refreshMinutes: Int = 15,
+) {
+    companion object {
+        val ACCENT_CHOICES = TickerWidgetConfig.ACCENT_CHOICES
+        val REFRESH_CHOICES = TickerWidgetConfig.REFRESH_CHOICES
+    }
+}

@@ -60,7 +60,7 @@ data class DetailUiState(
     /** The last such refresh reached nothing — the price on screen is the one that was already there. */
     val quoteRefreshFailed: Boolean = false,
     val chart: List<PricePoint> = emptyList(),
-    val range: ChartRange = ChartRange.MONTH,
+    val range: ChartRange = ChartRange.WEEK,
     val loadingChart: Boolean = true,
     /** True when the last fetch *failed transiently* (rate-limit/network) — drives the retry UI. */
     val chartError: Boolean = false,

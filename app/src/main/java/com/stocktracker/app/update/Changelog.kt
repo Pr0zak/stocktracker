@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.28.1" to listOf(
+            "Stock and crypto charts now default to 1W instead of 1M",
+        ),
         "1.28.0" to listOf(
             "New: a Ticker pair widget — two stocks or crypto side by side in one 4×1 strip",
         ),

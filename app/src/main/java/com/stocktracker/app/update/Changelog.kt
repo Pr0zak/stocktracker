@@ -16,6 +16,10 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.29.0" to listOf(
+            "Sandbox: One Share Daily arms (Analyst & Rules) with uncapped limits",
+            "Just-in-Time funding gives 0% cash drag against the S&P 500 benchmark",
+        ),
         "1.28.1" to listOf(
             "Stock and crypto charts now default to 1W instead of 1M",
         ),

@@ -1496,6 +1496,8 @@ private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState, etf
                 Spacer(Modifier.width(8.dp))
                 Text(
                     when {
+                        st.settings.singleShare && st.engine == "rules" -> "One Share Daily — Rules"
+                        st.settings.singleShare -> "One Share Daily — Analyst"
                         etf && st.engine == "rules" -> "ETFs only — no AI"
                         etf -> "ETFs only — AI"
                         st.engine == "rules" -> "Mechanical arm — no AI"
@@ -1505,19 +1507,19 @@ private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState, etf
                 )
             }
             Text(
-                if (etf && st.engine == "rules") {
-                    "A fixed mix by age: US stocks, non-US stocks and bonds. Each buy goes to the " +
-                        "cheapest fund for that index."
-                } else if (etf) {
-                    "Its own weekly plan, from each fund's cost, returns and worst drop. Each buy goes " +
-                        "to the cheapest fund for that index."
-                } else if (st.engine == "rules") {
-                    "Fills toward the standing plan's targets, largest gap first. It takes no view " +
-                        "and never sells — it exists to show what the analyst is worth on top of " +
-                        "simply executing the plan."
-                } else {
-                    "Runs the same analyst on the same market as the main account, with one setting " +
-                        "changed, so the two can be compared."
+                when {
+                    st.settings.singleShare && st.engine == "rules" ->
+                        "Buys 1 share of the top technical candidate every trading day. Pure buy-and-hold accumulation, uncapped position limits, and Just-In-Time funding (zero cash drag)."
+                    st.settings.singleShare ->
+                        "Buys 1 share of the analyst's highest-conviction idea every trading day. Pure buy-and-hold accumulation, uncapped position limits, and Just-In-Time funding (zero cash drag)."
+                    etf && st.engine == "rules" ->
+                        "A fixed mix by age: US stocks, non-US stocks and bonds. Each buy goes to the cheapest fund for that index."
+                    etf ->
+                        "Its own weekly plan, from each fund's cost, returns and worst drop. Each buy goes to the cheapest fund for that index."
+                    st.engine == "rules" ->
+                        "Fills toward the standing plan's targets, largest gap first. It takes no view and never sells — it exists to show what the analyst is worth on top of simply executing the plan."
+                    else ->
+                        "Runs the same analyst on the same market as the main account, with one setting changed, so the two can be compared."
                 },
                 style = MaterialTheme.typography.bodySmall, color = neutral,
             )

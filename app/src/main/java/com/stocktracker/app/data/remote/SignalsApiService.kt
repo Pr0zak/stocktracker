@@ -1474,6 +1474,9 @@ data class SandboxSettings(
     @SerialName("min_conviction_to_trade") val minConvictionToTrade: Int = 55,
     @SerialName("respect_entry_zones") val respectEntryZones: Boolean = true,
     @SerialName("slippage_bps") val slippageBps: Int = 5,
+    @SerialName("single_share") val singleShare: Boolean = false,
+    @SerialName("funding_mode") val fundingMode: String = "cash",
+    @SerialName("allow_sells") val allowSells: Boolean = true,
 )
 
 @Serializable
@@ -1605,6 +1608,7 @@ data class SandboxArm(
     val engine: String = "llm",          // llm | rules
     /** "all" = stocks and funds (the original arms); "etf" = funds only. */
     val universe: String = "all",
+    @SerialName("single_share") val singleShare: Boolean = false,
     val enabled: Boolean = false,
     val cash: Double = 0.0,
     val equity: Double = 0.0,

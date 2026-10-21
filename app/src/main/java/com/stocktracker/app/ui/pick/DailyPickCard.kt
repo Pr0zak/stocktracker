@@ -399,7 +399,7 @@ internal fun ContextChips(resp: DailyPickResponse) {
     if (checksOpen && g != null) {
         MarketChecksDialog(
             g.toGateResponse(),
-            footer = if (g.passed == false) "Because a check fails, today's pick needed a confidence of 70 instead of 60." else null,
+            footer = if (g.passed == false) "A failed check is listed against today's pick. It no longer raises the confidence bar." else null,
             onDismiss = { checksOpen = false },
         )
     }

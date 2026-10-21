@@ -16,6 +16,11 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.30.0" to listOf(
+            "The ETF pick now looks for the sound, low-cost fund with the strongest momentum, up over 6 months and above its 200-day",
+            "Both picks show from a confidence of 60 again; a failed market check is listed against the pick instead of raising the bar",
+            "The ETF pick shows each fund's 6-month and 12-month gain",
+        ),
         "1.29.0" to listOf(
             "Sandbox: One Share Daily arms (Analyst & Rules) with uncapped limits",
             "Just-in-Time funding gives 0% cash drag against the S&P 500 benchmark",

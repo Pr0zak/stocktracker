@@ -14,7 +14,7 @@ import java.time.ZoneId
 /**
  * Polls the Tier-2 signals service for the latest nightly scan and posts one notification per new
  * scan that contains flips (a symbol whose signal changed, confirmed on two runs in a row by the
- * backend). Scans made on a weekend or market holiday never alert. Deduped by the scan's
+ * backend). A scan made on a weekend or market holiday alerts on crypto only. Deduped by the scan's
  * generated-at timestamp so the 15-minute worker never re-notifies the same scan. No-op when no
  * Signals API URL is configured.
  */
@@ -40,17 +40,15 @@ object SignalScanNotifier {
         val generated = scan.generatedAt?.toLong() ?: return
         val last = ServiceLocator.settingsStore.lastScanNotifiedAt.first()
         if (generated <= last) return // already processed this scan
-        // A scan made on a weekend or market holiday is marked seen without any alert. No session
-        // traded, so its "changes" are the model re-reading the last close and wandering, and its
-        // dip alerts repeat the last trading day's. The backend no longer schedules these, but a
-        // manual run (POST /scan/run) can still produce one.
-        if (!madeOnTradingDay(generated)) {
-            ServiceLocator.settingsStore.setLastScanNotifiedAt(generated)
-            return
-        }
+        // On a weekend or market holiday only crypto alerts. No stock session traded, so a stock
+        // "change" in a closed-day scan is the model re-reading the last close and wandering. The
+        // backend scans crypto only on those days and carries the stock rows with no change flags;
+        // this filter covers a full manual run (POST /scan/run) made on a closed day.
+        val alertable: (String) -> Boolean =
+            if (madeOnTradingDay(generated)) { _ -> true } else { sym -> isCryptoSymbol(sym) }
 
-        val flips = results.filter { it.flipped }
-        val squeezes = results.filter { it.squeezeChanged }
+        val flips = results.filter { it.flipped && alertable(it.symbol) }
+        val squeezes = results.filter { it.squeezeChanged && alertable(it.symbol) }
         if (flips.isNotEmpty() || squeezes.isNotEmpty()) {
             val parts = buildList {
                 flips.forEach { add("${it.symbol} → ${it.signal.replace('_', ' ')}") }
@@ -64,7 +62,7 @@ object SignalScanNotifier {
         }
         // 200-week-line crosses — a stance-neutral "heads up" (below the line is long-term
         // mean-reversion context, NOT a buy signal); its own notification so it doesn't muddy flips.
-        val crossed = scan.crossedBelow200wma.orEmpty()
+        val crossed = scan.crossedBelow200wma.orEmpty().filter(alertable)
         if (crossed.isNotEmpty()) {
             val n = crossed.size
             AlertNotifier.notifyScan(
@@ -77,7 +75,7 @@ object SignalScanNotifier {
         }
         // "Good time to add" dip alerts — a cue to add EXTRA cash on weakness, framed as such (never
         // "the bottom is in"). Deep dips get a distinct, more urgent title.
-        val dipAlerts = scan.dipAlerts.orEmpty()
+        val dipAlerts = scan.dipAlerts.orEmpty().filter { alertable(it.symbol) }
         if (dipAlerts.isNotEmpty()) {
             val hasMega = dipAlerts.any { it.dip == "mega_dip" }
             val body = dipAlerts.take(6).joinToString("\n") { a ->
@@ -116,6 +114,9 @@ object SignalScanNotifier {
         val weekend = day.dayOfWeek == DayOfWeek.SATURDAY || day.dayOfWeek == DayOfWeek.SUNDAY
         return !weekend && !MarketHolidays.isMarketHoliday(day)
     }
+
+    /** Yahoo-style crypto tickers (`BTC-USD`); the scan names crypto this way and stocks never are. */
+    internal fun isCryptoSymbol(symbol: String): Boolean = symbol.uppercase().endsWith("-USD")
 
     private val ET: ZoneId = ZoneId.of("America/New_York")
 

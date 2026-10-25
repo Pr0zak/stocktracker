@@ -27,4 +27,11 @@ class SignalScanNotifierTest {
         // 23:30 Friday in Chicago is 00:30 Saturday in New York: no session that day.
         assertFalse(SignalScanNotifier.madeOnTradingDay(at("2026-10-23T23:30:00")))
     }
+
+    @Test fun `crypto is told apart from stocks by its ticker`() {
+        assertTrue(SignalScanNotifier.isCryptoSymbol("ETH-USD"))
+        assertTrue(SignalScanNotifier.isCryptoSymbol("shib-usd"))
+        assertFalse(SignalScanNotifier.isCryptoSymbol("GME.WS"))
+        assertFalse(SignalScanNotifier.isCryptoSymbol("BRK-B"))
+    }
 }

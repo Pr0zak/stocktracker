@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.30.2" to listOf(
+            "Crypto signal and dip alerts come back on weekends and holidays; stock alerts stay off",
+        ),
         "1.30.1" to listOf(
             "No more signal and dip alerts on weekends or market holidays",
             "A signal change is only announced once it shows up two mornings in a row",

@@ -5,11 +5,16 @@ import com.stocktracker.app.data.model.AssetType
 import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.di.ServiceLocator
 import com.stocktracker.app.ui.Routes
+import com.stocktracker.app.util.MarketHolidays
 import kotlinx.coroutines.flow.first
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Polls the Tier-2 signals service for the latest nightly scan and posts one notification per new
- * scan that contains flips (a symbol whose signal changed vs. the prior run). Deduped by the scan's
+ * scan that contains flips (a symbol whose signal changed, confirmed on two runs in a row by the
+ * backend). Scans made on a weekend or market holiday never alert. Deduped by the scan's
  * generated-at timestamp so the 15-minute worker never re-notifies the same scan. No-op when no
  * Signals API URL is configured.
  */
@@ -35,6 +40,14 @@ object SignalScanNotifier {
         val generated = scan.generatedAt?.toLong() ?: return
         val last = ServiceLocator.settingsStore.lastScanNotifiedAt.first()
         if (generated <= last) return // already processed this scan
+        // A scan made on a weekend or market holiday is marked seen without any alert. No session
+        // traded, so its "changes" are the model re-reading the last close and wandering, and its
+        // dip alerts repeat the last trading day's. The backend no longer schedules these, but a
+        // manual run (POST /scan/run) can still produce one.
+        if (!madeOnTradingDay(generated)) {
+            ServiceLocator.settingsStore.setLastScanNotifiedAt(generated)
+            return
+        }
 
         val flips = results.filter { it.flipped }
         val squeezes = results.filter { it.squeezeChanged }
@@ -96,6 +109,15 @@ object SignalScanNotifier {
         maybeWeeklyDigest(context, scan)
         ServiceLocator.settingsStore.setLastScanNotifiedAt(generated)
     }
+
+    /** True when [generatedAtEpochSeconds] falls on a US stock-market trading day, in New York time. */
+    internal fun madeOnTradingDay(generatedAtEpochSeconds: Long): Boolean {
+        val day = Instant.ofEpochSecond(generatedAtEpochSeconds).atZone(ET).toLocalDate()
+        val weekend = day.dayOfWeek == DayOfWeek.SATURDAY || day.dayOfWeek == DayOfWeek.SUNDAY
+        return !weekend && !MarketHolidays.isMarketHoliday(day)
+    }
+
+    private val ET: ZoneId = ZoneId.of("America/New_York")
 
     /**
      * Force an immediate watchlist push to the configured service (the "Sync now" button). Returns

@@ -61,6 +61,7 @@ internal fun TodayCard(
     collapsed: Boolean,
     onToggle: () -> Unit,
     onOpenArm: (String) -> Unit,
+    onOpenSymbol: (String) -> Unit = {},
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     if (today == null) {
@@ -131,7 +132,7 @@ internal fun TodayCard(
         }
         summary.traded.forEachIndexed { i, a ->
             if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            ArmBlock(a, onOpenArm)
+            ArmBlock(a, onOpenArm, onOpenSymbol)
         }
         if (summary.held.isNotEmpty()) {
             if (summary.traded.isNotEmpty()) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -165,7 +166,11 @@ private fun Stat(color: Color, n: Int, word: String) {
 }
 
 @Composable
-private fun ArmBlock(a: SandboxTodayArm, onOpenArm: (String) -> Unit) {
+private fun ArmBlock(
+    a: SandboxTodayArm,
+    onOpenArm: (String) -> Unit,
+    onOpenSymbol: (String) -> Unit,
+) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
@@ -176,14 +181,25 @@ private fun ArmBlock(a: SandboxTodayArm, onOpenArm: (String) -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text(a.label.ifBlank { a.arm }, style = MaterialTheme.typography.titleSmall)
         }
-        a.filled.forEach { o -> OrderRow(o) }
+        a.filled.forEach { o -> OrderRow(o, onOpenSymbol) }
         a.skipped.forEach { o ->
-            Row {
-                Text(o.symbol, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Signal)
+            Row(
+                Modifier.fillMaxWidth().clickable { onOpenSymbol(o.symbol) }.padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    o.symbol,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Signal,
+                )
                 Text(
                     " skipped · " + (o.reason ?: "skipped"),
-                    style = MaterialTheme.typography.bodyMedium, color = muted,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 4.dp),
                 )
             }
         }
@@ -191,13 +207,20 @@ private fun ArmBlock(a: SandboxTodayArm, onOpenArm: (String) -> Unit) {
 }
 
 @Composable
-private fun OrderRow(o: SandboxTodayOrder) {
+private fun OrderRow(o: SandboxTodayOrder, onOpenSymbol: (String) -> Unit) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val sell = o.side == "sell"
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onOpenSymbol(o.symbol) }.padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         if (sell) Text("▼ ", style = MaterialTheme.typography.bodyMedium, color = LossRed)
-        Text(o.symbol, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
-             color = if (sell) LossRed else MaterialTheme.colorScheme.onSurface)
+        Text(
+            o.symbol,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (sell) LossRed else MaterialTheme.colorScheme.primary,
+        )
         o.shares?.let {
             Text(" × " + TodaySummary.shares(it), style = MaterialTheme.typography.bodyMedium, color = muted)
         }

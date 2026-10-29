@@ -247,6 +247,7 @@ fun StockTrackerRoot(
                 com.stocktracker.app.ui.sandbox.SandboxScreen(
                     onOpenSettings = { nav.navigate(Routes.SANDBOX_SETTINGS) },
                     onOpenSignalsSettings = openSignalsSettings,
+                    onOpenDetail = { nav.navigate(Routes.detail(it)) },
                 )
             }
             composable(Routes.SANDBOX_SETTINGS) {

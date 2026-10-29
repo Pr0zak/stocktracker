@@ -82,16 +82,32 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
+import com.stocktracker.app.data.model.Asset
+import com.stocktracker.app.data.model.AssetType
+import com.stocktracker.app.data.model.ChartRange
 import com.stocktracker.app.data.model.PricePoint
+import com.stocktracker.app.data.model.Quote
+import com.stocktracker.app.data.remote.CompanyProfile
 import com.stocktracker.app.data.remote.SandboxPosition
 import com.stocktracker.app.data.remote.SandboxState
 import com.stocktracker.app.data.remote.SandboxStrategyNote
 import com.stocktracker.app.data.remote.SandboxTrade
+import com.stocktracker.app.data.remote.SignalsApiService
 import com.stocktracker.app.ui.components.AllocationDonut
 import com.stocktracker.app.ui.components.ChartLineOverlay
 import com.stocktracker.app.ui.components.ChartMarker
 import com.stocktracker.app.ui.components.DONUT_COLORS
+import com.stocktracker.app.ui.components.GlowCard
+import com.stocktracker.app.ui.components.Pill
 import com.stocktracker.app.ui.components.PriceChart
+import com.stocktracker.app.ui.components.Skeleton
+import com.stocktracker.app.ui.detail.AboutText
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import com.stocktracker.app.ui.theme.BenchmarkGrey
 import com.stocktracker.app.ui.theme.GainGreen
 import com.stocktracker.app.ui.theme.LossRed
@@ -110,7 +126,11 @@ internal val AMBER = Signal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> Unit = {}) {
+fun SandboxScreen(
+    onOpenSettings: () -> Unit = {},
+    onOpenSignalsSettings: () -> Unit = {},
+    onOpenDetail: (Asset) -> Unit = {},
+) {
     val vm: SandboxViewModel = sandboxViewModel()
     val ui by vm.state.collectAsState()
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
@@ -271,6 +291,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
                     collapsed = todayCollapsed,
                     onToggle = { todayScope.launch { settingsStore.setSandboxTodayCollapsed(!todayCollapsed) } },
                     onOpenArm = { vm.selectArm(it) },
+                    onOpenSymbol = { detailSymbol = it },
                 )
             }
             // SBX-3: the comparison leads — every account as a bar around the S&P line, the chart of
@@ -359,7 +380,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             // The world the trader is reasoning against, right above its strategy — a defensive
             // stance or a skipped energy name only makes sense next to the backdrop that caused it.
             item { com.stocktracker.app.ui.components.MacroCard(ui.macro) }
-            st.strategyNote?.let { item { StrategyCard(it) } }
+            st.strategyNote?.let { item { StrategyCard(it, onOpenSymbol = { detailSymbol = it }) } }
             // SBX-3: holdings and the trade log fold into answer rows — together they were most of the
             // tab's length. Each row says its answer before it is opened.
             item {
@@ -455,6 +476,7 @@ fun SandboxScreen(onOpenSettings: () -> Unit = {}, onOpenSignalsSettings: () -> 
             position = ui.state?.positions?.firstOrNull { it.symbol == sym },
             trades = ui.trades.filter { it.symbol == sym },
             staleMarks = ui.state?.staleMarks ?: emptyList(),
+            onOpenDetail = onOpenDetail,
             onDismiss = { detailSymbol = null },
         )
     }
@@ -565,8 +587,79 @@ private fun AutoTradeRow(st: SandboxState, onToggle: (Boolean) -> Unit, onRunNow
     }
 }
 
+private val TICKER_STOP_WORDS = setOf(
+    "I", "A", "US", "ETF", "ETFS", "AI", "NAV", "ER", "RSI", "SMA", "CAGR", "MACD", "PE",
+    "USD", "GDP", "CPI", "OK", "BUY", "SELL", "HOLD", "THE", "AND", "FOR", "WHY", "NOW",
+    "ALL", "NEW", "TOP", "LOW", "HIGH", "DAY", "DAYS", "PTS", "PT", "NOT", "BUT", "OR",
+    "SO", "IF", "AT", "IN", "ON", "TO", "OF", "BY", "AN", "IT", "IS", "AS", "BE", "GAP",
+    "SELLS", "BUYS", "HOLDING", "CLOSED", "CASH", "REAL", "CORE", "PARKED", "FILL", "WAR",
+    "OIL", "RISK", "COST", "RATE", "YIELD", "CUT", "OFF", "SET", "BIG", "RUN", "FLOW"
+)
+
 @Composable
-private fun StrategyCard(n: SandboxStrategyNote) {
+private fun ClickableTickerText(
+    text: String,
+    onOpenSymbol: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodySmall,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    val regex = remember { Regex("""\b([A-Z]{1,5}(?:-USD)?)\b""") }
+    val matches = remember(text) {
+        regex.findAll(text).filter { m ->
+            val sym = m.value
+            !TICKER_STOP_WORDS.contains(sym) && (sym.length >= 2 || sym == "V" || sym == "C")
+        }.toList()
+    }
+
+    if (matches.isEmpty()) {
+        Text(text, style = style, color = color, modifier = modifier)
+        return
+    }
+
+    val annotated = remember(text, primary, matches) {
+        androidx.compose.ui.text.buildAnnotatedString {
+            var lastIdx = 0
+            for (m in matches) {
+                if (m.range.first > lastIdx) {
+                    append(text.substring(lastIdx, m.range.first))
+                }
+                val sym = m.value
+                pushStringAnnotation(tag = "TICKER", annotation = sym)
+                pushStyle(
+                    androidx.compose.ui.text.SpanStyle(
+                        color = primary,
+                        fontWeight = FontWeight.SemiBold,
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                    )
+                )
+                append(sym)
+                pop()
+                pop()
+                lastIdx = m.range.last + 1
+            }
+            if (lastIdx < text.length) {
+                append(text.substring(lastIdx))
+            }
+        }
+    }
+
+    androidx.compose.foundation.text.ClickableText(
+        text = annotated,
+        style = style.copy(color = color),
+        modifier = modifier,
+        onClick = { offset ->
+            annotated.getStringAnnotations(tag = "TICKER", start = offset, end = offset)
+                .firstOrNull()?.let { span ->
+                    onOpenSymbol(span.item)
+                }
+        },
+    )
+}
+
+@Composable
+private fun StrategyCard(n: SandboxStrategyNote, onOpenSymbol: (String) -> Unit = {}) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val color = when (n.stance.lowercase()) {
         "constructive" -> GREEN; "defensive" -> RED; else -> AMBER
@@ -626,11 +719,34 @@ private fun StrategyCard(n: SandboxStrategyNote) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                t.exposureGroup, style = MaterialTheme.typography.labelMedium,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            Row(
                                 modifier = Modifier.weight(1f, fill = false),
-                            )
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    t.exposureGroup, style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                val targetTickers = remember(t.exposureGroup) {
+                                    Regex("""\b([A-Z]{2,5})\b""").findAll(t.exposureGroup)
+                                        .map { it.value }
+                                        .filter { !TICKER_STOP_WORDS.contains(it) }
+                                        .toList()
+                                }
+                                targetTickers.forEach { sym ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                            .clickable { onOpenSymbol(sym) }
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(sym, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
                             Text("${t.targetPct.toInt()}%", style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold, color = neutral)
                         }
@@ -647,18 +763,18 @@ private fun StrategyCard(n: SandboxStrategyNote) {
             if (n.themes.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 StrategyHeading("Lean in")
-                n.themes.forEach { BulletLine("+", it, GREEN) }
+                n.themes.forEach { BulletLine("+", it, GREEN, onOpenSymbol) }
             }
             if (n.avoid.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 StrategyHeading("Avoid")
-                n.avoid.forEach { BulletLine("−", it, RED) }
+                n.avoid.forEach { BulletLine("−", it, RED, onOpenSymbol) }
             }
             // The full reasoning paragraph last, as supporting detail.
             if (n.notes.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
                 StrategyHeading("Why")
-                Text(n.notes, style = MaterialTheme.typography.bodySmall, color = neutral)
+                ClickableTickerText(n.notes, onOpenSymbol = onOpenSymbol, style = MaterialTheme.typography.bodySmall, color = neutral)
             }
         }
     }
@@ -674,14 +790,18 @@ private fun StrategyHeading(text: String) = Text(
 
 /** One idea per line with a colored marker — far more scannable than a "·"-joined run-on. */
 @Composable
-private fun BulletLine(marker: String, text: String, color: Color) {
+private fun BulletLine(marker: String, text: String, color: Color, onOpenSymbol: ((String) -> Unit)? = null) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Text(marker, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = color)
-        Text(text, style = MaterialTheme.typography.bodySmall)
+        if (onOpenSymbol != null) {
+            ClickableTickerText(text, onOpenSymbol = onOpenSymbol, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        } else {
+            Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        }
     }
 }
 
@@ -730,7 +850,7 @@ private fun TradeRow(
     t: SandboxTrade,
     expanded: Boolean,
     onToggle: () -> Unit,
-    onOpenSymbol: () -> Unit,
+    onOpenSymbol: (String) -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val skipped = t.status == "skipped"
@@ -802,16 +922,16 @@ private fun TradeRow(
                         DetailLine("Entry zone", entryZoneText(t))
                     }
                     // Keep the AI's original intent visible so you can see WHAT the rule stopped.
-                    if (t.reason.isNotBlank()) DetailLine("Wanted", t.reason)
+                    if (t.reason.isNotBlank()) DetailLine("Wanted", t.reason, onOpenSymbol = onOpenSymbol)
                 } else if (t.reason.isNotBlank()) {
-                    DetailLine("Why", t.reason)
+                    DetailLine("Why", t.reason, onOpenSymbol = onOpenSymbol)
                 }
                 if (!isCash && t.symbol.isNotBlank()) {
                     TextButton(
-                        onClick = onOpenSymbol,
+                        onClick = { onOpenSymbol(t.symbol) },
                         contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
                     ) {
-                        Text("View $sym history", style = MaterialTheme.typography.labelMedium)
+                        Text("View $sym details", style = MaterialTheme.typography.labelMedium)
                         Icon(Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
                 }
@@ -822,7 +942,12 @@ private fun TradeRow(
 
 /** Label + value, for the opened detail of a trade. */
 @Composable
-private fun DetailLine(label: String, value: String, valueColor: Color? = null) {
+private fun DetailLine(
+    label: String,
+    value: String,
+    valueColor: Color? = null,
+    onOpenSymbol: ((String) -> Unit)? = null,
+) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -832,10 +957,20 @@ private fun DetailLine(label: String, value: String, valueColor: Color? = null) 
             label, style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(74.dp),
         )
-        Text(
-            value, style = MaterialTheme.typography.labelSmall,
-            color = valueColor ?: MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f),
-        )
+        if (onOpenSymbol != null) {
+            ClickableTickerText(
+                value,
+                onOpenSymbol = onOpenSymbol,
+                style = MaterialTheme.typography.labelSmall,
+                color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Text(
+                value, style = MaterialTheme.typography.labelSmall,
+                color = valueColor ?: MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -848,18 +983,64 @@ private fun DetailLine(label: String, value: String, valueColor: Color? = null) 
  * actually held, it says the history is partial instead of letting a truncated list read as the whole
  * story. Same reason the realized figure is labelled as covering only the trades shown.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun TickerDetailSheet(
     symbol: String,
     position: SandboxPosition?,
     trades: List<SandboxTrade>,
     staleMarks: List<String> = emptyList(),
+    onOpenDetail: ((Asset) -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val sym = symbol.removeSuffix("-USD")
     val isStale = staleMarks.contains(symbol)
+    val isCrypto = symbol.endsWith("-USD")
+    val asset = remember(symbol) {
+        Asset(
+            symbol = symbol,
+            type = if (isCrypto) AssetType.CRYPTO else AssetType.STOCK,
+            displayName = sym,
+        )
+    }
+
+    // 1. Profile / "What it is"
+    val settings = com.stocktracker.app.di.ServiceLocator.settingsStore
+    val baseUrl by settings.signalsApiUrl.collectAsState(initial = "")
+    var profile by remember(symbol, baseUrl) { mutableStateOf<CompanyProfile?>(null) }
+    var profileLoading by remember(symbol, baseUrl) { mutableStateOf(baseUrl.isNotBlank()) }
+    LaunchedEffect(symbol, baseUrl) {
+        if (baseUrl.isNotBlank()) {
+            profileLoading = true
+            profile = runCatching {
+                SignalsApiService().profile(baseUrl, symbol, plain = true)
+            }.getOrNull()
+            profileLoading = false
+        } else {
+            profileLoading = false
+        }
+    }
+
+    // 2. Quote / Real-time details
+    var quote by remember(symbol) { mutableStateOf<Quote?>(null) }
+    LaunchedEffect(symbol) {
+        quote = runCatching { com.stocktracker.app.di.ServiceLocator.repository.quote(asset) }.getOrNull()
+    }
+
+    // 3. Price History (default 1W view!)
+    var range by rememberSaveable(symbol) { mutableStateOf(ChartRange.WEEK) }
+    var historyPoints by remember(symbol, range) { mutableStateOf<List<PricePoint>>(emptyList()) }
+    var historyLoading by remember(symbol, range) { mutableStateOf(true) }
+    LaunchedEffect(symbol, range) {
+        historyLoading = true
+        historyPoints = runCatching {
+            com.stocktracker.app.di.ServiceLocator.repository.history(asset, range)
+        }.getOrDefault(emptyList())
+        historyLoading = false
+    }
+
+    // Sandbox position calculations
     val filled = trades.filter { it.status == "filled" }
     val net = filled.sumOf {
         when (it.side) {
@@ -872,67 +1053,274 @@ private fun TickerDetailSheet(
     val partial = kotlin.math.abs(net - held) > 0.01
     val realized = filled.mapNotNull { it.realizedPl }.sum()
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        dragHandle = { androidx.compose.material3.BottomSheetDefaults.DragHandle() },
+    ) {
         Column(
             Modifier.verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 4.dp)
-                .padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(bottom = 36.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            // HEADER: Symbol, Name, Badges, Price & Change
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
             ) {
-                Text(sym, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Pill(if (held > 0) "HOLDING" else "CLOSED", if (held > 0) GREEN else neutral)
-            }
-            position?.let { p ->
-                // The server uses the ticker itself as the group for single-name holdings — repeating it
-                // under the title is noise, so it only shows when it says something new ("SP500").
-                if (p.exposureGroup.isNotBlank() && !p.exposureGroup.equals(sym, ignoreCase = true)) {
-                    Text(p.exposureGroup, style = MaterialTheme.typography.labelSmall, color = neutral)
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(sym, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                        Pill(if (held > 0) "HOLDING" else "CLOSED", if (held > 0) GREEN else neutral)
+                        if (quote?.isEtf == true || profile?.quoteType == "ETF") {
+                            Pill("ETF", com.stocktracker.app.ui.theme.EtfAccent)
+                        } else if (isCrypto) {
+                            Pill("CRYPTO", com.stocktracker.app.ui.theme.Signal)
+                        }
+                    }
+                    val companyName = profile?.name?.ifBlank { null }
+                    if (companyName != null && !companyName.equals(sym, ignoreCase = true)) {
+                        Text(companyName, style = MaterialTheme.typography.bodyMedium, color = neutral)
+                    }
                 }
-                val basis = p.shares * p.avgCost
-                val unrealized = p.value - basis
-                StatLine("Shares", trimNum(p.shares))
-                StatLine("Average cost", Formatting.price(p.avgCost))
-                StatLine(
-                    "Last price",
-                    Formatting.price(p.price),
-                    if (isStale) neutral else null,
-                )
-                StatLine("Cost basis", Formatting.price(basis))
-                StatLine("Market value", Formatting.price(p.value))
-                StatLine(
-                    "Unrealized",
-                    if (isStale) signedMoney(unrealized) else signedMoney(unrealized) + (p.unrealizedPct?.let { " (${signedPct(it)})" } ?: ""),
-                    if (isStale) neutral else if (unrealized >= 0) GREEN else RED,
-                )
+
+                // Price readout
+                val currentPrice = quote?.price ?: position?.price
+                if (currentPrice != null) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            Formatting.price(currentPrice),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        quote?.let { q ->
+                            val up = q.change >= 0.0
+                            val changeText = (if (up) "+" else "") + Formatting.price(q.change) +
+                                " (" + String.format(java.util.Locale.US, if (up) "+%.2f%%" else "%.2f%%", q.changePercent) + ")"
+                            Text(
+                                changeText,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (up) GREEN else RED,
+                            )
+                        }
+                    }
+                }
             }
-            if (realized != 0.0) {
-                StatLine(
-                    if (partial) "Realized (shown)" else "Realized",
-                    signedMoney(realized),
-                    if (realized >= 0) GREEN else RED,
-                )
+
+            // SECTION 1: WHAT IT IS (Plain words summary from AI & profile)
+            val lead = profile?.let { AboutText.lead(it) }
+            val markets = profile?.let { AboutText.market(it) } ?: emptyList()
+            if (profileLoading) {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Skeleton(Modifier.width(120.dp).height(16.dp))
+                    Skeleton(Modifier.fillMaxWidth().height(36.dp))
+                }
+            } else if (lead != null || markets.isNotEmpty() || profile?.summary != null) {
+                GlowCard(tint = null, spacing = 8.dp) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "WHAT IT IS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        if (profile?.whatItDoes != null) {
+                            Pill("AI SUMMARY", MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    if (markets.isNotEmpty()) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            markets.forEach { m -> Pill(m, neutral) }
+                        }
+                    }
+
+                    if (lead != null) {
+                        Text(lead, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Normal)
+                    }
+
+                    profile?.customers?.let { cust ->
+                        Text("Customers: $cust", style = MaterialTheme.typography.bodySmall, color = neutral)
+                    }
+
+                    profile?.summary?.let { summaryText ->
+                        var showFullSummary by rememberSaveable { mutableStateOf(false) }
+                        Column {
+                            if (showFullSummary) {
+                                Text(summaryText, style = MaterialTheme.typography.bodySmall, color = neutral)
+                            }
+                            Text(
+                                if (showFullSummary) "Show less" else "Read full description",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { showFullSummary = !showFullSummary }.padding(top = 4.dp),
+                            )
+                        }
+                    }
+                }
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("Activity", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            if (trades.isEmpty()) {
-                Text(
-                    "No $sym trades in the loaded history.",
-                    style = MaterialTheme.typography.bodySmall, color = neutral,
-                )
-            } else {
-                trades.forEach { ActivityRow(it) }
+
+            // SECTION 2: PRICE HISTORY
+            GlowCard(tint = null, spacing = 8.dp) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "PRICE HISTORY",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = neutral,
+                    )
+
+                    // Range chips: 1D, 1W, 1M, 1Y
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf(
+                            ChartRange.DAY to "1D",
+                            ChartRange.WEEK to "1W",
+                            ChartRange.MONTH to "1M",
+                            ChartRange.YEAR to "1Y",
+                        ).forEach { (r, label) ->
+                            val sel = range == r
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent)
+                                    .clickable { range = r }
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                            ) {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (sel) MaterialTheme.colorScheme.primary else neutral,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (historyLoading) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
+                } else if (historyPoints.size >= 2) {
+                    val firstPrice = historyPoints.first().price
+                    val lastPrice = historyPoints.last().price
+                    val periodChangePct = if (firstPrice > 0) (lastPrice / firstPrice - 1.0) * 100.0 else 0.0
+                    val up = lastPrice >= firstPrice
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            (if (up) "+" else "") + String.format(java.util.Locale.US, "%.2f%%", periodChangePct) + " over ${range.name.lowercase()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (up) GREEN else RED,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    PriceChart(
+                        points = historyPoints,
+                        up = up,
+                        showAxis = true,
+                        showHighLow = true,
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        valueFormatter = { "$" + Formatting.compact(it) },
+                        timeFormatter = {
+                            com.stocktracker.app.util.formatChartTimestamp(it, range)
+                        },
+                    )
+                } else {
+                    Text("No price history available for ${range.name.lowercase()}.", style = MaterialTheme.typography.bodySmall, color = neutral)
+                }
             }
-            if (partial) {
-                val sharesHeld = trimNum(held) + if (held == 1.0) " share" else " shares"
-                Text(
-                    "Only the most recent trades are loaded, and what's listed here doesn't add up to " +
-                        "the $sharesHeld held — so $sym has earlier activity that isn't shown.",
-                    style = MaterialTheme.typography.labelSmall, color = AMBER,
-                )
+
+            // SECTION 3: KEY DETAILS / STATS
+            val tiles = profile?.let { AboutText.tiles(it) } ?: emptyList()
+            if (tiles.isNotEmpty() || quote?.high != null) {
+                GlowCard(tint = null, spacing = 8.dp) {
+                    Text("DETAILS", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = neutral)
+                    tiles.forEach { tile ->
+                        StatLine(tile.label, tile.value, tile.color)
+                    }
+                    quote?.high?.let { hi ->
+                        quote?.low?.let { lo ->
+                            StatLine("Day range", "${Formatting.price(lo)} – ${Formatting.price(hi)}")
+                        }
+                    }
+                }
+            }
+
+            // SECTION 4: SANDBOX HOLDING STATS (if held)
+            position?.let { p ->
+                GlowCard(tint = null, spacing = 8.dp) {
+                    Text("SANDBOX POSITION", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = neutral)
+                    if (p.exposureGroup.isNotBlank() && !p.exposureGroup.equals(sym, ignoreCase = true)) {
+                        Text(p.exposureGroup, style = MaterialTheme.typography.labelSmall, color = neutral)
+                    }
+                    val basis = p.shares * p.avgCost
+                    val unrealized = p.value - basis
+                    StatLine("Shares", trimNum(p.shares))
+                    StatLine("Average cost", Formatting.price(p.avgCost))
+                    StatLine("Last price", Formatting.price(p.price), if (isStale) neutral else null)
+                    StatLine("Cost basis", Formatting.price(basis))
+                    StatLine("Market value", Formatting.price(p.value))
+                    StatLine(
+                        "Unrealized",
+                        if (isStale) signedMoney(unrealized) else signedMoney(unrealized) + (p.unrealizedPct?.let { " (${signedPct(it)})" } ?: ""),
+                        if (isStale) neutral else if (unrealized >= 0) GREEN else RED,
+                    )
+                }
+            }
+
+            // SECTION 5: ACTIVITY (Sandbox trades if any)
+            if (trades.isNotEmpty()) {
+                GlowCard(tint = null, spacing = 8.dp) {
+                    Text("SANDBOX ACTIVITY", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = neutral)
+                    trades.forEach { ActivityRow(it) }
+                    if (realized != 0.0) {
+                        StatLine(if (partial) "Realized (shown)" else "Realized", signedMoney(realized), if (realized >= 0) GREEN else RED)
+                    }
+                }
+            }
+
+            // SECTION 6: OPEN FULL DETAIL BUTTON
+            if (onOpenDetail != null) {
+                OutlinedButton(
+                    onClick = {
+                        onDismiss()
+                        onOpenDetail(asset)
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text("View Full Stock Chart & Signals", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
             }
         }
     }

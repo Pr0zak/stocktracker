@@ -1075,7 +1075,11 @@ private fun TickerDetailSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(sym, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                        Pill(if (held > 0) "HOLDING" else "CLOSED", if (held > 0) GREEN else neutral)
+                        if (quote?.isDelisted == true) {
+                            Pill("DELISTED", LossRed)
+                        } else {
+                            Pill(if (held > 0) "HOLDING" else "CLOSED", if (held > 0) GREEN else neutral)
+                        }
                         if (quote?.isEtf == true || profile?.quoteType == "ETF") {
                             Pill("ETF", com.stocktracker.app.ui.theme.EtfAccent)
                         } else if (isCrypto) {
@@ -1099,13 +1103,13 @@ private fun TickerDetailSheet(
                         )
                         quote?.let { q ->
                             val up = q.change >= 0.0
-                            val changeText = (if (up) "+" else "") + Formatting.price(q.change) +
-                                " (" + String.format(java.util.Locale.US, if (up) "+%.2f%%" else "%.2f%%", q.changePercent) + ")"
+                            val changeText = if (q.isDelisted) "DELISTED" else ((if (up) "+" else "") + Formatting.price(q.change) +
+                                " (" + String.format(java.util.Locale.US, if (up) "+%.2f%%" else "%.2f%%", q.changePercent) + ")")
                             Text(
                                 changeText,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (up) GREEN else RED,
+                                color = if (q.isDelisted) RED else if (up) GREEN else RED,
                             )
                         }
                     }

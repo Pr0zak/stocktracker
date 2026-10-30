@@ -119,14 +119,17 @@ private fun TickerContent(
         )
         if (display is TickerDisplay.Priced) {
             val priced = display.quote
-            val changeStr = if (config.showChangePercent) {
+            val isDelisted = priced.isDelisted
+            val changeStr = if (isDelisted) {
+                "DELISTED"
+            } else if (config.showChangePercent) {
                 "${Formatting.arrow(up)} ${Formatting.percent(priced.changePercent)}"
             } else {
                 "${Formatting.arrow(up)} ${Formatting.change(priced.change, hideZeroCents, reference = priced.price)}"
             }
             Text(
                 text = changeStr,
-                style = TextStyle(color = ColorProvider(changeColor), fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                style = TextStyle(color = ColorProvider(if (isDelisted) Down else changeColor), fontSize = 13.sp, fontWeight = FontWeight.Medium),
                 maxLines = 1,
             )
             // A widget that can't refresh used to keep rendering its last payload indefinitely with

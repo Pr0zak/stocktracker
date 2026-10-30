@@ -278,7 +278,9 @@ fun WatchlistScreen(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                         }
                         if (state.items.isNotEmpty()) {
-                            val stamps = state.items.map { it.quote?.asOfEpochMs ?: 0L }
+                            val activeItems = state.items.filter { it.quote?.isDelisted != true }
+                            val targetItems = if (activeItems.isNotEmpty()) activeItems else state.items
+                            val stamps = targetItems.map { it.quote?.asOfEpochMs ?: 0L }
                             FreshnessLine(
                                 freshness = listFreshness(stamps, nowMs, marketState.phase),
                                 staleRows = staleRowCount(stamps, nowMs, marketState.phase),
@@ -508,6 +510,7 @@ fun WatchlistScreen(
                         } else {
                             null
                         }
+                        val isDelisted = q?.isDelisted == true
                         // The drag modifier is passed IN, not built here: longPressDraggableHandle
                         // is an extension on ReorderableItem's own scope, which this hoisted helper
                         // is deliberately outside of so the grouped path can reuse it.
@@ -516,8 +519,8 @@ fun WatchlistScreen(
                                 symbol = item.asset.symbol,
                                 name = item.asset.displayName,
                                 priceText = q?.let { Formatting.price(it.price, it.currency, hideZeroCents) } ?: "—",
-                                changeText = q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents, reference = it.price) } ?: "…",
-                                up = up,
+                                changeText = if (isDelisted) "DELISTED" else (q?.let { Formatting.changeLine(it.change, it.changePercent, it.isUp, hideZeroCents, reference = it.price) } ?: "…"),
+                                up = if (isDelisted) false else up,
                                 sparkline = item.sparkline,
                                 // The level changeText is measured from, so the line and the
                                 // number can be read against the same baseline.
@@ -527,11 +530,12 @@ fun WatchlistScreen(
                                 isCrypto = item.asset.type == AssetType.CRYPTO,
                                 isEtf = item.quote?.isEtf == true,
                                 belowLine = item.below200wma == true,
+                                isDelisted = isDelisted,
                                 onClick = { onOpenDetail(item.asset) },
                                 showDragHandle = draggable,
                                 favorite = item.asset.favorite,
                                 onToggleFavorite = { vm.toggleFavorite(item.asset) },
-                                changePercent = q?.changePercent,
+                                changePercent = if (isDelisted) null else q?.changePercent,
                             )
                         }
                     }

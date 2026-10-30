@@ -16,6 +16,10 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.30.4" to listOf(
+            "Mark delisted and expired tickers clearly with a DELISTED badge",
+            "Delisted tickers preserve last closing price without blocking watchlist refresh",
+        ),
         "1.30.3" to listOf(
             "Tap any ticker in Sandbox to view details, what it is, and price history in a drawer",
         ),

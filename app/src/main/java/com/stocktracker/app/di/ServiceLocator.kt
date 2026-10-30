@@ -106,6 +106,7 @@ object ServiceLocator {
             finnhub = FinnhubService { effectiveFinnhubKey },
             coinGecko = CoinGeckoService(),
             yahoo = YahooFinanceService(),
+            priceCache = priceCache,
         )
         initialized = true
     }

@@ -63,6 +63,7 @@ fun AssetRow(
     isCrypto: Boolean = false,
     isEtf: Boolean = false,
     belowLine: Boolean = false,
+    isDelisted: Boolean = false,
     showDragHandle: Boolean = false,
     /** Starred — pinned to the Favorites section at the top of the watchlist. */
     favorite: Boolean = false,
@@ -114,6 +115,19 @@ fun AssetRow(
                         maxLines = 1,
                         softWrap = false,
                     )
+                    // Delisted marker — ceased trading or expired.
+                    if (isDelisted) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "DELISTED",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = LossRed,
+                            modifier = Modifier
+                                .background(LossRed.copy(alpha = 0.16f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                        )
+                    }
                     // Amber "below its 200-week line" marker — long-term value context, not a buy flag.
                     if (belowLine) {
                         Spacer(Modifier.width(6.dp))
@@ -179,18 +193,19 @@ fun AssetRow(
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(priceText, style = PriceMedium, color = MaterialTheme.colorScheme.onSurface)
+                val pillColor = if (isDelisted) LossRed else if (up) GainGreen else LossRed
                 Text(
                     changeText,
                     // Mono and tabular, like the price it sits under. In bodySmall the two lines
                     // disagreed about where the digits were, so the change appeared to shuffle
                     // sideways under a price that stayed put.
                     style = NumberSmall,
-                    color = if (up) GainGreen else LossRed,
+                    color = pillColor,
                     fontWeight = FontWeight.Medium,
                     // A filled pill, narrow on purpose (6dp a side): this row is width-starved.
                     modifier = Modifier
                         .padding(top = 1.dp)
-                        .background((if (up) GainGreen else LossRed).copy(alpha = 0.13f), RoundedCornerShape(50))
+                        .background(pillColor.copy(alpha = 0.13f), RoundedCornerShape(50))
                         .padding(horizontal = 6.dp),
                 )
             }

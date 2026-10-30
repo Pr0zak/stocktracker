@@ -60,6 +60,14 @@ class WidgetDisplayTest {
     }
 
     @Test
+    fun `a delisted quote says Delisted rather than Update failed`() {
+        val now = 1_000_000L
+        val q = Quote(symbol = "GME.WS", price = 0.20, change = 0.0, changePercent = 0.0, asOfEpochMs = now, isDelisted = true)
+        val d = tickerDisplay(q, error = null, nowMs = now)
+        assertEquals("Delisted", (d as TickerDisplay.Priced).ageLabel)
+    }
+
+    @Test
     fun `a kept quote alongside a fresh error says the refresh failed, not merely that time passed`() {
         val now = 1_000_000L
         // Even a quote that is still WITHIN the staleness window must say "Update failed" when the

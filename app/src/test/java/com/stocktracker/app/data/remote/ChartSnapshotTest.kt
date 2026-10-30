@@ -124,6 +124,16 @@ class ChartSnapshotTest {
     }
 
     @Test
+    fun `a delisted symbol is flagged isDelisted`() {
+        val snap = svc.parseChartSnapshot(
+            "GME.WS",
+            decode("""{"chart":{"result":null,"error":{"code":"Not Found","description":"No data found, symbol may be delisted"}}}"""),
+        )
+        assertNull(snap.quote)
+        assertTrue(snap.isDelisted)
+    }
+
+    @Test
     fun `change and percent are measured against the previous close`() {
         val snap = svc.parseChartSnapshot("AAPL", decode(payload()))
         assertEquals(187.5 - 185.0, snap.quote!!.change, 1e-9)

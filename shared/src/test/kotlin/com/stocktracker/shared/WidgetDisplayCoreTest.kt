@@ -54,6 +54,14 @@ class WidgetDisplayCoreTest {
     }
 
     @Test
+    fun `a delisted quote says Delisted rather than Update failed`() {
+        val now = 1_000_000L
+        val q = Quote(symbol = "GME.WS", price = 0.20, change = 0.0, changePercent = 0.0, asOfEpochMs = now, isDelisted = true)
+        val d = tickerDisplay(q, error = null, nowMs = now)
+        assertEquals("Delisted", (d as TickerDisplay.Priced).ageLabel)
+    }
+
+    @Test
     fun `no portfolio summary and not yet loaded reads as loading`() {
         assertEquals(
             PortfolioDisplay.Message("Loading…"),

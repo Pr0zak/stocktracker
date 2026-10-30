@@ -24,6 +24,7 @@ data class ChartSnapshot(
     val quote: Quote?,
     val sparkline: List<PricePoint>,
     val fiftyTwoWeek: Pair<Double, Double>?,
+    val isDelisted: Boolean = false,
 )
 
 /**
@@ -318,12 +319,17 @@ class YahooFinanceService {
      *  without a network call (DATA-6). */
     internal fun parseChartSnapshot(symbol: String, response: YahooChartResponse): ChartSnapshot {
         val result = response.chart.result?.firstOrNull()
-            ?: return ChartSnapshot(quote = null, sparkline = emptyList(), fiftyTwoWeek = null)
+        if (result == null) {
+            val err = response.chart.error
+            val isDelisted = err?.isNoData == true && err.isDelisted
+            return ChartSnapshot(quote = null, sparkline = emptyList(), fiftyTwoWeek = null, isDelisted = isDelisted)
+        }
         val sparkline = pricePointsFrom(result, prePost = false)
         return ChartSnapshot(
             quote = quoteFrom(symbol, result),
             sparkline = sparkline,
             fiftyTwoWeek = fiftyTwoWeekFrom(result.meta),
+            isDelisted = false,
         )
     }
 
@@ -475,6 +481,11 @@ data class YahooError(val code: String? = null, val description: String? = null)
         get() = code.equals("Not Found", ignoreCase = true) ||
             description?.contains("delisted", ignoreCase = true) == true ||
             description?.contains("No data", ignoreCase = true) == true
+
+    /** True when Yahoo explicitly diagnoses the absence as delisting/expiry or unknown symbol. */
+    val isDelisted: Boolean
+        get() = description?.contains("delisted", ignoreCase = true) == true ||
+            code.equals("Not Found", ignoreCase = true)
 }
 
 @Serializable

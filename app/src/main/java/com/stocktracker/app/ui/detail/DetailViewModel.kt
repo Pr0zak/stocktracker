@@ -911,7 +911,7 @@ class DetailViewModel(private val asset: Asset) : ViewModel() {
                     // so the as-of line can say the refresh failed instead of freezing silently.
                     quote = fresh ?: it.quote,
                     quoteRefreshing = false,
-                    quoteRefreshFailed = fresh == null,
+                    quoteRefreshFailed = fresh == null && it.quote?.isDelisted != true,
                 )
             }
             selectRange(_state.value.range)   // the chart is the same reading drawn as a shape

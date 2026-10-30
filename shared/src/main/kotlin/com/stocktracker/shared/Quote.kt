@@ -32,6 +32,8 @@ data class Quote(
     val postMarketChangePercent: Double? = null,
     /** Yahoo's session tag ("REGULAR" | "POST" | "POSTPOST" | "CLOSED" | "PRE" | "PREPRE"); null if absent. */
     val marketState: String? = null,
+    /** True when the symbol has ceased trading or was delisted/expired by the exchange. */
+    val isDelisted: Boolean = false,
 ) {
     val isUp: Boolean get() = change >= 0.0
 }

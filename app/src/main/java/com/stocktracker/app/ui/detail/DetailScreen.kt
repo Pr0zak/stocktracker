@@ -391,8 +391,8 @@ fun DetailScreen(
             com.stocktracker.app.ui.components.BackendStatusBanner()
             // The hero: price, today's move as a pill, how fresh it is, and where it sits in its year.
             // Glows in today's direction — but not when the last refresh failed, since the move it
-            // would be celebrating may be yesterday's.
-            GlowCard(tint = if (quote != null && !state.quoteRefreshFailed) directionTint(quote.change) else null, spacing = 8.dp) {
+            // would be celebrating may be yesterday's. Delisted tickers do not glow.
+            GlowCard(tint = if (quote != null && !quote.isDelisted && !state.quoteRefreshFailed) directionTint(quote.change) else null, spacing = 8.dp) {
             // Stacked, not side by side: a four-digit price and the pill do not fit one line at 360dp.
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
@@ -400,11 +400,15 @@ fun DetailScreen(
                     style = PriceLarge,
                 )
                 if (quote != null) {
-                    Pill(
-                        "${if (up) "▲" else "▼"} ${Formatting.price(kotlin.math.abs(quote.change), quote.currency, hideZeroCents, reference = quote.price)} · " +
-                            String.format(java.util.Locale.US, "%.2f%%", kotlin.math.abs(quote.changePercent)) + " today",
-                        if (up) GainGreen else LossRed,
-                    )
+                    if (quote.isDelisted) {
+                        Pill("DELISTED", LossRed)
+                    } else {
+                        Pill(
+                            "${if (up) "▲" else "▼"} ${Formatting.price(kotlin.math.abs(quote.change), quote.currency, hideZeroCents, reference = quote.price)} · " +
+                                String.format(java.util.Locale.US, "%.2f%%", kotlin.math.abs(quote.changePercent)) + " today",
+                            if (up) GainGreen else LossRed,
+                        )
+                    }
                 }
             }
             // Directly under the price it qualifies, not in a footer. The "Today" line above is the
@@ -415,7 +419,8 @@ fun DetailScreen(
                 phase = detailMarketState.phase,
                 nowMs = detailNowMs,
                 refreshing = state.quoteRefreshing,
-                failed = state.quoteRefreshFailed,
+                failed = if (quote?.isDelisted == true) false else state.quoteRefreshFailed,
+                isDelisted = quote?.isDelisted == true,
                 onRefresh = { vm.refreshQuote() },
             )
             val lo = state.fiftyTwoWeekLow
@@ -589,18 +594,20 @@ fun DetailScreen(
                         timeFormatter = chartTimeFormatter,
                     )
                     // No data at all (delisted/expired symbol) → say so, no pointless retry.
-                    state.chartNoData -> Column(
+                    state.chartNoData || (quote?.isDelisted == true && state.chart.isEmpty()) -> Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
-                            "Chart unavailable — no historical data for this symbol",
+                            if (quote?.isDelisted == true) "Symbol is delisted or expired — trading ceased"
+                            else "Chart unavailable — no historical data for this symbol",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (quote != null) {
                             Text(
-                                "Live price still tracked above.",
+                                if (quote.isDelisted) "Last closing price shown above."
+                                else "Live price still tracked above.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1420,18 +1427,19 @@ private fun QuoteAsOfLine(
     nowMs: Long,
     refreshing: Boolean,
     failed: Boolean,
+    isDelisted: Boolean = false,
     onRefresh: () -> Unit,
 ) {
     val f = freshnessOf(asOfEpochMs, nowMs, phase)
     // In-flight is never a warning — see FreshnessLine on the watchlist for the same reasoning.
-    val warn = !refreshing && (failed || f.stale)
-    val tint = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    val warn = !refreshing && !isDelisted && (failed || f.stale)
+    val tint = if (isDelisted || warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
-            .clickable(enabled = !refreshing) { onRefresh() }
+            .clickable(enabled = !refreshing && !isDelisted) { onRefresh() }
             // The tap that recovers a stale price was about 24dp tall. The controls the honesty
             // model leans on should not be the hardest ones in the app to hit.
             .heightIn(min = 48.dp)
@@ -1441,7 +1449,7 @@ private fun QuoteAsOfLine(
             CircularProgressIndicator(modifier = Modifier.size(11.dp), strokeWidth = 1.5.dp)
         } else {
             Icon(
-                imageVector = if (warn) Icons.Filled.Warning else Icons.Filled.Refresh,
+                imageVector = if (isDelisted || warn) Icons.Filled.Warning else Icons.Filled.Refresh,
                 contentDescription = null,
                 tint = tint,
                 modifier = Modifier.size(13.dp),
@@ -1450,6 +1458,7 @@ private fun QuoteAsOfLine(
         Text(
             text = when {
                 refreshing -> "Refreshing…"
+                isDelisted -> "Trading terminated · Delisted / expired"
                 // Distinct from merely old: we tried, and it did not work. Without this the user taps
                 // refresh, the timestamp does not move, and nothing explains why. Lead with the
                 // failure — "Updated just now · refresh failed" asserts two opposing things.

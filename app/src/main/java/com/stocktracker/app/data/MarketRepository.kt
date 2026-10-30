@@ -24,6 +24,7 @@ class MarketRepository(
     private val finnhub: FinnhubService,
     private val coinGecko: CoinGeckoService,
     private val yahoo: YahooFinanceService,
+    private val priceCache: com.stocktracker.app.data.prefs.PriceCache? = null,
 ) {
     // Stocks now work with no key (quotes + search come from Yahoo); Finnhub is an optional extra.
     val stocksEnabled: Boolean get() = true
@@ -108,9 +109,32 @@ class MarketRepository(
     suspend fun quote(asset: Asset): Quote = cached("q:${asset.id}", QUOTE_TTL) {
         when (asset.type) {
             // Yahoo (no key) is primary; fall back to Finnhub only if a key is set and Yahoo missed.
-            AssetType.STOCK -> stockSnapshot(asset).quote
-                ?: if (finnhub.hasKey) finnhub.quote(asset.symbol)
-                else throw java.io.IOException("No quote for ${asset.symbol}")
+            AssetType.STOCK -> {
+                val snap = stockSnapshot(asset)
+                snap.quote ?: run {
+                    if (snap.isDelisted) {
+                        // Yahoo reports this symbol as delisted/no data. Preserve the last known price
+                        // from the cache so users can see where it terminated without failing the refresh.
+                        val prev = priceCache?.snapshotQuotes()?.get(asset.id)
+                            ?: (cache["q:${asset.id}"]?.value as? Quote)
+                        val lastPrice = prev?.price ?: 0.0
+                        Quote(
+                            symbol = asset.symbol,
+                            price = lastPrice,
+                            change = 0.0,
+                            changePercent = 0.0,
+                            prevClose = prev?.prevClose ?: lastPrice,
+                            currency = prev?.currency ?: "USD",
+                            asOfEpochMs = System.currentTimeMillis(),
+                            isDelisted = true,
+                        )
+                    } else if (finnhub.hasKey) {
+                        finnhub.quote(asset.symbol)
+                    } else {
+                        throw java.io.IOException("No quote for ${asset.symbol}")
+                    }
+                }
+            }
             AssetType.CRYPTO -> serverCoinQuote(asset) ?: try {
                 coinGecko.quote(asset.coinGeckoId ?: asset.symbol.lowercase(), asset.symbol)
             } catch (ce: kotlin.coroutines.cancellation.CancellationException) {

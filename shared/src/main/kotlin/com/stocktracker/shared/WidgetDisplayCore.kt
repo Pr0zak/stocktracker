@@ -54,6 +54,7 @@ fun tickerDisplay(
     staleAfterMs: Long = WIDGET_STALE_AFTER_MS,
 ): TickerDisplay {
     if (quote == null) return TickerDisplay.NoData(tapToOpen = error != null)
+    if (quote.isDelisted) return TickerDisplay.Priced(quote, "Delisted")
     val ageMs = if (quote.asOfEpochMs > 0L) nowMs - quote.asOfEpochMs else 0L
     val ageLabel = when {
         // An error alongside a kept quote means the number on screen is old, not that this refresh

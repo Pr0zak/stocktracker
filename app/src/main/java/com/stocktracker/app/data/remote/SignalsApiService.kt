@@ -748,6 +748,23 @@ class SignalsApiService {
         )
     }
 
+    // ---------------------------------------------------------- Ask AI
+    /** The example questions shown under the box. Free (no LLM). */
+    suspend fun askExamples(baseUrl: String): AskExamples? {
+        if (baseUrl.isBlank()) return null
+        return Http.json.decodeFromString<AskExamples>(sGet("${baseUrl.trimEnd('/')}/ask/examples"))
+    }
+
+    /** One free-form question, answered by the deep model from today's data. `slow`: the first
+     *  question after a quiet spell also reads ~100 fund histories before the model runs. */
+    suspend fun ask(baseUrl: String, question: String, holdings: List<AskHolding> = emptyList()): AskResponse? {
+        if (baseUrl.isBlank() || question.isBlank()) return null
+        val body = Http.json.encodeToString(AskRequest(question, holdings))
+        return Http.json.decodeFromString<AskResponse>(
+            sPost("${baseUrl.trimEnd('/')}/ask", body, slow = true),
+        )
+    }
+
     // ---------------------------------------------------------- SWT-1: the nightly market scan
     //
     // A separate wrapper from [latestScan] rather than a widened one. /scan/latest is the WATCHLIST
@@ -3299,4 +3316,57 @@ data class CompanyProfile(
     @SerialName("target_mean") val targetMean: Double? = null,
     @SerialName("n_analysts") val nAnalysts: Int? = null,
     @SerialName("dividend_yield_pct") val dividendYieldPct: Double? = null,
+)
+
+
+// ------------------------------------------------------------------------------------------ Ask AI
+
+@Serializable
+data class AskExamples(val examples: List<String> = emptyList(), @SerialName("max_chars") val maxChars: Int = 500)
+
+/** Symbol + share of the portfolio. Only the weight travels — never share counts or cost. */
+@Serializable
+data class AskHolding(val symbol: String, @SerialName("weight_pct") val weightPct: Double? = null)
+
+@Serializable
+data class AskRequest(val question: String, val holdings: List<AskHolding> = emptyList())
+
+@Serializable
+data class AskIdea(
+    val symbol: String,
+    val kind: String = "stock",
+    val headline: String = "",
+    val why: String = "",
+    @SerialName("watch_out") val watchOut: String = "",
+    @SerialName("entry_low") val entryLow: Double? = null,
+    @SerialName("entry_high") val entryHigh: Double? = null,
+    /** Re-stamped by the server from today's data, not the model's. Null = not priced. */
+    val price: Double? = null,
+    @SerialName("today_pct") val todayPct: Double? = null,
+    @SerialName("pct_off_52w_high") val pctOff52wHigh: Double? = null,
+    @SerialName("fee_pct") val feePct: Double? = null,
+)
+
+@Serializable
+data class AskAsOf(
+    val today: String? = null,
+    @SerialName("stock_scan_night") val stockScanNight: String? = null,
+    @SerialName("etf_history") val etfHistory: String? = null,
+    val session: String? = null,
+)
+
+@Serializable
+data class AskResponse(
+    val question: String = "",
+    val answer: String = "",
+    val ideas: List<AskIdea> = emptyList(),
+    @SerialName("none_reason") val noneReason: String? = null,
+    /** Names the model suggested that today's data did not cover — removed before display. */
+    val dropped: List<String> = emptyList(),
+    /** Data blocks that could not be built for this answer. */
+    val missing: List<String> = emptyList(),
+    @SerialName("as_of") val asOf: AskAsOf? = null,
+    @SerialName("gate_passed") val gatePassed: Boolean? = null,
+    val model: String? = null,
+    @SerialName("cost_usd") val costUsd: Double? = null,
 )

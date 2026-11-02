@@ -28,6 +28,7 @@ object Routes {
     const val WATCHLIST = "watchlist"
     const val PORTFOLIO = "portfolio"
     const val IDEAS = "ideas"
+    const val ASK = "ask"
     const val HEATMAP = "heatmap"
     const val MARKET_SCAN = "market_scan"
     const val SANDBOX = "sandbox"

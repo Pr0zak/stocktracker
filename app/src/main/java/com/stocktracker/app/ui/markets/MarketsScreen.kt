@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.TravelExplore
@@ -103,6 +104,7 @@ fun MarketsScreen(
     onOpenVix: () -> Unit = {},
     onOpenFunds: () -> Unit = {},
     onOpenExplore: () -> Unit = {},
+    onOpenAsk: () -> Unit = {},
 ) {
     // The same reading the watchlist strip and the dip radar are looking at, from the one store
     // that holds it. A hub whose rows only describe what is behind each door in the abstract asks
@@ -154,6 +156,11 @@ fun MarketsScreen(
                     val r = SignalsApiService().reports(base, limit = 1)?.reports?.firstOrNull()
                     r to r?.id?.let { com.stocktracker.app.ui.report.ReportPortfolioStore.get(it)?.changePct }
                 }
+            }
+            // Ask AI leads: it is the one door that takes a question in the user's own words.
+            Tile("Ask AI", Icons.Filled.AutoAwesome, onOpenAsk, Modifier.fillMaxWidth()) {
+                Text("“Which ETF has a decent dip today?” — answered from today's data.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             ReportsTile(latestReport, onOpenReports)
             ScanTile(marketScanStatus(market, marketScan), marketScan?.getOrNull(), onOpenScan)

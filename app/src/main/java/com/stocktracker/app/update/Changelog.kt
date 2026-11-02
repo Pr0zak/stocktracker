@@ -16,6 +16,10 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.31.0" to listOf(
+            "Ask AI: ask which ETF or stock to buy today, answered from today's market data",
+            "Tap an example question, or turn on \"Consider my holdings\" to fit your portfolio",
+        ),
         "1.30.4" to listOf(
             "Mark delisted and expired tickers clearly with a DELISTED badge",
             "Delisted tickers preserve last closing price without blocking watchlist refresh",

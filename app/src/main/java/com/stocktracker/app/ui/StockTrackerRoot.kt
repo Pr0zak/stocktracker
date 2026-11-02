@@ -236,6 +236,13 @@ fun StockTrackerRoot(
                     onOpenDetail = { nav.navigate(Routes.detail(it)) },
                 )
             }
+            composable(Routes.ASK) {
+                com.stocktracker.app.ui.ask.AskScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { nav.navigate(Routes.detail(it)) },
+                    onOpenSignalsSettings = openSignalsSettings,
+                )
+            }
             composable(TopDest.Ideas.route) {
                 IdeasScreen(
                     onOpenDetail = { nav.navigate(Routes.detail(it)) },
@@ -265,6 +272,7 @@ fun StockTrackerRoot(
                     onOpenVix = { nav.navigate(Routes.VIX) },
                     onOpenFunds = { nav.navigate(Routes.FUNDS) },
                     onOpenExplore = { nav.navigate(Routes.fundsExplore()) },
+                    onOpenAsk = { nav.navigate(Routes.ASK) },
                 )
             }
             composable(Routes.FUNDS) { entry ->

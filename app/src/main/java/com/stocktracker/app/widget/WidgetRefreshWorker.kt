@@ -64,6 +64,7 @@ class WidgetRefreshWorker(
         step("sandboxTrades") { com.stocktracker.app.notify.SandboxTradeNotifier.check(applicationContext) }
         step("reports") { com.stocktracker.app.notify.ReportNotifier.check(applicationContext) }
         step("fundFees") { com.stocktracker.app.notify.FundFeeNotifier.check(applicationContext) }
+        step("buyDay") { com.stocktracker.app.notify.CorePlanNotifier.check(applicationContext) }
 
         // Recorded so "are my alerts even running?" is answerable from inside the app instead of
         // requiring a USB cable and logcat.

@@ -78,6 +78,8 @@ class SettingsStore(private val context: Context) {
     private val lastSandboxTradeTsKey = doublePreferencesKey("last_sandbox_trade_ts")
     private val lastBackgroundRunKey = longPreferencesKey("last_background_run_at")
     private val lastBackgroundFailuresKey = stringPreferencesKey("last_background_failures")
+    private val corePlanKey = stringPreferencesKey("core_plan")
+    private val corePlanRemindedKey = stringPreferencesKey("core_plan_reminded_month")
 
     /** Base URL of the self-hosted Signals analyst service (empty = the AI analyst card is off). */
     val signalsApiUrl: Flow<String> = context.dataStore.data.map { it[signalsApiUrlKey] ?: "" }
@@ -459,6 +461,26 @@ class SettingsStore(private val context: Context) {
     val reportPortfolioSnapshots: Flow<String> = context.dataStore.data.map { it[reportPortfolioKey] ?: "" }
     suspend fun setReportPortfolioSnapshots(json: String) =
         context.dataStore.edit { it[reportPortfolioKey] = json }
+
+    /** The Portfolio core plan (target mix, deposit, goal). Null = no plan set, or one that no longer
+     *  decodes — either way the screen offers to set one up rather than inventing targets. */
+    val corePlan: Flow<com.stocktracker.app.ui.portfolio.CorePlan?> = context.dataStore.data.map { prefs ->
+        prefs[corePlanKey]?.let {
+            runCatching { corePlanJson.decodeFromString<com.stocktracker.app.ui.portfolio.CorePlan>(it) }.getOrNull()
+        }
+    }
+    suspend fun setCorePlan(plan: com.stocktracker.app.ui.portfolio.CorePlan?) = context.dataStore.edit {
+        if (plan == null) it.remove(corePlanKey) else it[corePlanKey] = corePlanJson.encodeToString(plan)
+    }
+
+    /** Defaults written out, so a later change to [com.stocktracker.app.ui.portfolio.CorePlans]
+     *  never silently rewrites a plan the user saved with the old defaults. */
+    private val corePlanJson = kotlinx.serialization.json.Json(from = Http.json) { encodeDefaults = true }
+
+    /** "yyyy-MM" of the last buy-day reminder, so each month reminds once. */
+    val corePlanRemindedMonth: Flow<String> = context.dataStore.data.map { it[corePlanRemindedKey] ?: "" }
+    suspend fun setCorePlanRemindedMonth(month: String) =
+        context.dataStore.edit { it[corePlanRemindedKey] = month }
 
     // --- Raw accessors for com.stocktracker.app.data.BackupManager only ---
     //

@@ -37,6 +37,7 @@ object AlertNotifier {
     private const val REPORT_CHANNEL_ID = "reports"
     private const val FUND_CHANNEL_ID = "fund_fees"
     private const val HOURS_CHANNEL_ID = "market_hours"
+    private const val BUY_DAY_CHANNEL_ID = "buy_day"
 
     /** Groups every scan-family post (see [notifyScan]) so they collapse together in the shade instead
      *  of listing separately from a channel a user may not have even opened Settings to name yet. */
@@ -141,6 +142,15 @@ object AlertNotifier {
         )
     }
 
+    /** The core plan's monthly buy-day reminder (see [CorePlanNotifier]). */
+    fun ensureBuyDayChannel(context: Context) {
+        ensureChannel(
+            context, BUY_DAY_CHANNEL_ID, "Buy-day reminders",
+            "Your core plan's monthly buy day, with where the money goes",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+    }
+
     private fun ensureChannel(
         context: Context,
         id: String,
@@ -190,6 +200,10 @@ object AlertNotifier {
     fun notifyMarketHours(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
         post(context, HOURS_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
 
+    /** The core plan's buy-day reminder. Its own channel, so it can be muted on its own. */
+    fun notifyBuyDay(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
+        post(context, BUY_DAY_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
+
     /** Post a sandbox paper-trade notification (its own default-importance channel). */
     fun notifySandbox(context: Context, id: Int, title: String, text: String, route: String?): Boolean =
         post(context, SANDBOX_CHANNEL_ID, NotificationCompat.PRIORITY_DEFAULT, id, title, text, route)
@@ -236,6 +250,7 @@ object AlertNotifier {
             REPORT_CHANNEL_ID -> ensureReportChannel(context)
             FUND_CHANNEL_ID -> ensureFundChannel(context)
             HOURS_CHANNEL_ID -> ensureHoursChannel(context)
+            BUY_DAY_CHANNEL_ID -> ensureBuyDayChannel(context)
             SCAN_CHANNEL_ID -> ensureScanChannel(context)
             else -> ensureChannel(context)
         }

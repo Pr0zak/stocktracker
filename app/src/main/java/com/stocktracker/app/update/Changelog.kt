@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.32.0" to listOf(
+            "Core plan on Portfolio: set a target mix (e.g. 80% VOO, 20% VXUS) and see today's mix against it",
+            "Shows where your next monthly buy goes, filling whatever is under target, with no selling",
+            "Set a goal and year to see a range at 4–8% a year and the monthly amount it needs",
+            "Optional buy-day reminder each month",
+        ),
         "1.31.0" to listOf(
             "Ask AI: ask which ETF or stock to buy today, answered from today's market data",
             "Tap an example question, or turn on \"Consider my holdings\" to fit your portfolio",

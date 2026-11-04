@@ -363,6 +363,14 @@ fun PortfolioScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            // The core plan: target mix vs today's, the next buy and the goal (2026-11-04).
+            CorePlanSection(
+                holdings = state.holdings,
+                unpriced = state.unpricedSymbols,
+                totalValue = state.totalValue,
+                cash = state.cashText.replace(",", "").removePrefix("$").trim().toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0,
+            )
+
             // ABOUT-3 (2026-09-30): answer rows. What stands out, then one row per holding saying
             // what it is, then the tools as visible rows instead of the overflow menu. The chart, the
             // split and the cash box fold into rows; nothing was removed.

@@ -197,6 +197,11 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
                     label = { Text("Market") },
                 )
                 FilterChip(
+                    selected = ui.mode == "etf",
+                    onClick = { vm.setMode("etf") },
+                    label = { Text("ETFs") },
+                )
+                FilterChip(
                     selected = ui.mode == "signals",
                     onClick = { vm.setMode("signals") },
                     label = { Text("My signals") },
@@ -291,14 +296,15 @@ fun HeatmapScreen(onOpenDetail: (Asset) -> Unit, onBack: () -> Unit) {
                     mine = ui.mine, onlyMine = onlyMine,
                 )
             }
-            if (ui.mode == "market" && ui.tiles.isNotEmpty()) MoveKey()
+            if (!signals && ui.tiles.isNotEmpty()) MoveKey()
             if (signals && ui.tiles.isNotEmpty()) TierKey(ui.tiles)
 
             // What the areas and colours MEAN. A heat map without this is decoration.
             Text(
-                if (ui.mode == "market") {
-                    "Size = company value · colour = today's move · tap a tile to open it" +
-                        (if (zoomed == null) " · tap a sector to zoom in" else "") +
+                if (!signals) {
+                    (if (ui.mode == "etf") "Size = fund assets, giants scaled down" else "Size = company value") +
+                        " · colour = today's move · tap a tile to open it" +
+                        (if (zoomed == null) " · tap a ${if (ui.mode == "etf") "group" else "sector"} to zoom in" else "") +
                         (ui.advancing?.let { " · $it up / ${ui.declining} down" } ?: "")
                 } else {
                     "Area = how far below its 52-week high · brighter = deeper dip · " +

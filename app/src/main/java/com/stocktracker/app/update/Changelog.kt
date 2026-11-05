@@ -16,6 +16,10 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.33.0" to listOf(
+            "ETF heat map: Markets → Heat map → ETFs shows 169 popular ETFs, grouped by type and coloured by today's move",
+            "Tap a group (US stocks, Sectors, Bonds, Crypto...) to zoom in; your funds are outlined",
+        ),
         "1.32.0" to listOf(
             "Core plan on Portfolio: set a target mix (e.g. 80% VOO, 20% VXUS) and see today's mix against it",
             "Shows where your next monthly buy goes, filling whatever is under target, with no selling",

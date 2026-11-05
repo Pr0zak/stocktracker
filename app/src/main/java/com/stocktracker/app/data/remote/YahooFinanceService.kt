@@ -430,7 +430,8 @@ class YahooFinanceService {
                 .getOrElse { Http.getString(url.replace("query1", "query2")) }
         val dto = runCatching { Http.json.decodeFromString<YahooSearchResponse>(body) }.getOrNull() ?: return emptyList()
         return dto.quotes.asSequence()
-            .filter { it.quoteType == "EQUITY" || it.quoteType == "ETF" }
+            // MUTUALFUND too: funds such as PTDAX quote and chart through the same v8 endpoint.
+            .filter { it.quoteType == "EQUITY" || it.quoteType == "ETF" || it.quoteType == "MUTUALFUND" }
             .filter { it.symbol.isNotBlank() && '.' !in it.symbol } // '.' = foreign suffix (.F/.SW/.T)
             .map {
                 SearchResult(

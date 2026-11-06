@@ -2,6 +2,7 @@ package com.stocktracker.app.ui.pick
 
 import com.stocktracker.app.data.remote.DailyPickComparison
 import com.stocktracker.app.data.remote.DailyPickLevels
+import com.stocktracker.app.data.remote.DailyPickGate
 import com.stocktracker.app.data.remote.DailyPickReportCard
 import com.stocktracker.app.data.remote.DailyPickResponse
 import com.stocktracker.app.data.remote.DailyPickTrackRecord
@@ -303,6 +304,64 @@ object DailyPickRead {
             return Note("No pick today", resp.noneReason ?: "Nothing cleared the bar this morning.")
         }
         return null
+    }
+
+    /**
+     * Both picks in one buzz, DP-7 extended 2026-11-06. Until then the morning note carried the stock
+     * pick only, so on a day the stock side said "none" and the ETF side picked XLV the phone said
+     * "No pick today" — a pick the server had, hidden by the notification. [etf] null means the ETF
+     * pick could not be read (older server, failed load) and that side is left out, never "none".
+     */
+    fun morningNote(stock: DailyPickResponse?, etf: DailyPickResponse?, today: String): Note? {
+        val s = morningNote(stock, today)
+        val e = etf?.takeIf { it.available && it.date == today && it.stale != true }
+        val eSym = e?.takeIf { it.isPick }?.pick?.symbol
+        val eNone = e?.isNone == true
+        if (s == null && eSym == null && !eNone) return null
+        val sSym = stock?.takeIf { it.isPick && it.date == today && it.stale != true }?.pick?.symbol
+        val sWord = if (s == null) null else sSym ?: "none"
+        val eWord = eSym ?: if (eNone) "none" else null
+        val title = listOfNotNull(sWord?.let { "Stock: $it" }, eWord?.let { "ETF: $it" }).joinToString(" · ")
+        val lines = mutableListOf<String>()
+        if (s != null) lines += if (sSym != null) "$sSym — ${s.body}" else s.body
+        if (eSym != null) {
+            val p = e!!.pick!!
+            val conv = p.conviction?.let { " (confidence $it)" } ?: ""
+            lines += "$eSym$conv — " + (p.headline?.takeIf { it.isNotBlank() }
+                ?: p.thesis?.takeIf { it.isNotBlank() } ?: "tap for the reasons for and against.")
+        } else if (eNone) {
+            lines += "ETF: " + (e!!.noneReason ?: "nothing cleared the bar.")
+        }
+        dipLine(stock?.gate ?: etf?.gate)?.let { lines += it }
+        return Note(title, lines.joinToString("\n"))
+    }
+
+    /** S&P this far under its 50-day EMA, or down this much over 20 sessions, reads as a dip. */
+    const val DIP_PCT = 3.0
+
+    /**
+     * One line when the broad market is in a dip, read from the gate's own SPY legs; null when it is
+     * not, or when neither leg was measured (an unmeasured market is not a calm one).
+     *
+     * The wording is deliberate. The 2026-08-26 backtest found that waiting for a dip loses to buying
+     * on schedule, and that nothing here can call a bottom — so a dip is a good day for the buys
+     * already planned (the core plan's next buy), not a reason to make a bigger one or to go all in.
+     */
+    fun dipLine(gate: DailyPickGate?): String? {
+        val legs = gate?.legs ?: return null
+        val ema = legs.firstOrNull { it.key == "spy_above_ema50" }
+        val underEma = ema?.value?.takeIf { it > 0 }?.let { v -> ema.threshold?.let { t -> (t - v) / t * 100.0 } }
+            ?.takeIf { it.isFinite() }
+        val mom = legs.firstOrNull { it.key == "spy_mom_20d" }?.value?.takeIf { it.isFinite() }
+        val dipEma = underEma != null && underEma >= DIP_PCT
+        val dipMom = mom != null && -mom >= DIP_PCT
+        if (!dipEma && !dipMom) return null
+        val parts = listOfNotNull(
+            underEma?.takeIf { dipEma }?.let { String.format(Locale.US, "%.1f%% under its 50-day", it) },
+            mom?.takeIf { dipMom }?.let { String.format(Locale.US, "%.1f%% over 20 sessions", it) },
+        )
+        return "Market dip: S&P " + parts.joinToString(", ") +
+            " — a good day for the buys you already plan (your next core buy), not a bottom call."
     }
 
     fun reportCardLine(card: DailyPickReportCard): String? {

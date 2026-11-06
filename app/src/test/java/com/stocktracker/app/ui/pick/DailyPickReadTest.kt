@@ -233,3 +233,49 @@ class DailyPickReadTest {
         assertTrue(keys.all { it in DailyPickRead.explanations })
     }
 }
+
+class DailyPickMorningNoteTest {
+    private fun r(status: String, sym: String? = null, conv: Int? = 60, headline: String? = null,
+                  none: String? = null, legs: List<com.stocktracker.app.data.remote.GateLeg> = emptyList()) =
+        DailyPickResponse(
+            available = true, stale = false, date = "2026-11-06", status = status,
+            pick = sym?.let { DailyPick(symbol = it, conviction = conv, headline = headline) },
+            noneReason = none,
+            gate = com.stocktracker.app.data.remote.DailyPickGate(available = true, passed = false, legs = legs),
+        )
+    private fun leg(key: String, value: Double, threshold: Double) =
+        com.stocktracker.app.data.remote.GateLeg(name = key, key = key, ok = false, value = value, threshold = threshold)
+
+    // 2026-11-06: stock none, ETF XLV at 60; the phone said "No pick today".
+    @Test fun `an ETF pick is in the morning note even when the stock side is none`() {
+        val n = DailyPickRead.morningNote(r("none", none = "ANF scored 45/100; it needed 60"),
+            r("pick", "XLV", 60, "Health care, up 29% in 6 months — buy $183-186"), "2026-11-06")!!
+        assertEquals("Stock: none · ETF: XLV", n.title)
+        assertEquals("ANF scored 45/100; it needed 60\nXLV (confidence 60) — Health care, up 29% in 6 months — buy $183-186", n.body)
+    }
+
+    @Test fun `an unreadable ETF side is left out, never none`() {
+        assertEquals("Stock: BRK-B", DailyPickRead.morningNote(r("pick", "BRK-B", 72), null, "2026-11-06")!!.title)
+        assertEquals("Stock: none · ETF: none", DailyPickRead.morningNote(r("none", none = "x"), r("none", none = "y"), "2026-11-06")!!.title)
+        assertNull(DailyPickRead.morningNote(r("failed"), r("failed"), "2026-11-06"))
+        assertNull(DailyPickRead.morningNote(null, null, "2026-11-06"))
+    }
+
+    @Test fun `a dip is read from the gate's SPY legs and worded as a planned buy, not a bottom`() {
+        // The 2026-11-06 gate: SPY 733.00 vs 50-EMA 763.2 (-3.96%), 20-day momentum -5.29%.
+        val legs = listOf(leg("spy_above_ema50", 733.0, 763.2), leg("spy_mom_20d", -5.29, 0.0))
+        val line = DailyPickRead.dipLine(com.stocktracker.app.data.remote.DailyPickGate(available = true, legs = legs))!!
+        assertEquals("Market dip: S&P 4.0% under its 50-day, -5.3% over 20 sessions — a good day for the buys you already plan (your next core buy), not a bottom call.", line)
+        val n = DailyPickRead.morningNote(r("none", none = "x", legs = legs), null, "2026-11-06")!!
+        assertTrue(n.body.endsWith("not a bottom call."))
+    }
+
+    @Test fun `no dip and an unmeasured market both say nothing`() {
+        assertNull(DailyPickRead.dipLine(com.stocktracker.app.data.remote.DailyPickGate(available = true,
+            legs = listOf(leg("spy_above_ema50", 766.81, 764.49), leg("spy_mom_20d", -1.34, 0.0)))))
+        assertNull(DailyPickRead.dipLine(com.stocktracker.app.data.remote.DailyPickGate(available = false)))
+        assertNull(DailyPickRead.dipLine(null))
+        assertNull(DailyPickRead.dipLine(com.stocktracker.app.data.remote.DailyPickGate(available = true,
+            legs = listOf(com.stocktracker.app.data.remote.GateLeg(key = "spy_mom_20d", value = null)))))
+    }
+}

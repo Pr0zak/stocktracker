@@ -16,6 +16,10 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.34.0" to listOf(
+            "Morning pick notification now carries both picks: \"Stock: none · ETF: XLV\"",
+            "When the S&P is 3% under its 50-day or down 3% over 20 sessions, it adds a market-dip line: a good day for the buys you already plan, not a bottom call",
+        ),
         "1.33.1" to listOf(
             "Search now finds mutual funds (e.g. PTDAX), not only stocks and ETFs",
         ),

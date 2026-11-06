@@ -25,7 +25,8 @@ internal const val DAILY_PICK_JOURNAL_NOTE = "Logged from the Daily Pick card."
 /**
  * The Daily Pick's notifications, run from the 15-minute [com.stocktracker.app.widget.WidgetRefreshWorker]:
  *
- * * DP-7 — the morning "today's pick" (or "no pick today"), 08:30–10:00 ET, once per trading day, with
+ * * DP-7 — the morning "Stock: X · ETF: Y" (or none), 08:30–10:00 ET, once per trading day, with a market-dip
+ *   line when the S&P is 3% under its 50-day or down 3% over 20 sessions, and with
  *   DP-14's report cards on past picks folded in as extra lines so the morning is one buzz, not two.
  * * DP-10 — intraday alerts during regular hours when today's pick crosses into its buy zone, runs past
  *   it, or reaches its stop or target; and stop/target alerts on earlier picks the user logged as bought
@@ -62,16 +63,22 @@ object DailyPickNotifier {
         if (!wantMorning && !wantAlerts) return
 
         val resp = runCatching { api.dailyPick(url) }.getOrNull()
-        if (wantMorning) morning(context, url, resp, today, day)
+        if (wantMorning) {
+            // The ETF pick rides along in the morning note only; intraday alerts stay on the stock pick.
+            val etf = runCatching { api.dailyPick(url, kind = "etf") }.getOrNull()
+            morning(context, url, resp, etf, today, day)
+        }
         if (wantAlerts) {
             if (resp != null) intraday(context, resp, today, now)
             heldEarlierPicks(context, today, now)
         }
     }
 
-    private suspend fun morning(context: Context, url: String, resp: DailyPickResponse?, today: String, day: LocalDate) {
+    private suspend fun morning(
+        context: Context, url: String, resp: DailyPickResponse?, etf: DailyPickResponse?, today: String, day: LocalDate,
+    ) {
         val settings = ServiceLocator.settingsStore
-        val note = DailyPickRead.morningNote(resp, today) ?: return
+        val note = DailyPickRead.morningNote(resp, etf, today) ?: return
         val delivered = settings.dailyPickReportCards.first()
         val history = runCatching { api.dailyPickHistory(url, limit = 40) }.getOrNull()
         val due = history?.reportCards.orEmpty().filter { c ->

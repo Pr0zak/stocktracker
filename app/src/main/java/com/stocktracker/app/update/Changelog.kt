@@ -16,6 +16,11 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.35.0" to listOf(
+            "Sandbox: two new paper accounts that trade only calls and puts, one with AI and one without; $10,000 each plus $500 a month. Pick them under \"Calls + puts\"",
+            "Each contract shows its value, profit or loss and days left; with no live quote it shows ≈ and no profit or loss",
+            "Options record in dollars: premium spent, what came back, and what the same money did in the S&P",
+        ),
         "1.34.0" to listOf(
             "Morning pick notification now carries both picks: \"Stock: none · ETF: XLV\"",
             "When the S&P is 3% under its 50-day or down 3% over 20 sessions, it adds a market-dip line: a good day for the buys you already plan, not a bottom call",

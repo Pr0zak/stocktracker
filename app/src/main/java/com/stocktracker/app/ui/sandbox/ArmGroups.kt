@@ -14,7 +14,7 @@ internal object ArmGroups {
     const val ALL = "all"
     const val ETF = "etf"
     const val OPTIONS = "options"
-    /** Not a group of accounts: the chip that shows the matchups (twins, reviewer, tweaks) instead
+    /** Not a group of accounts: the Compare chip, which shows the matchups (twins, reviewer, tweaks) instead
      *  of one group's leaderboard. */
     const val MATCHUPS = "matchups"
 

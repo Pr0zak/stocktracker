@@ -171,7 +171,7 @@ fun SandboxScreen(
     // subtitle names the arm and opens a sheet of every arm, grouped. Two chip rows cost ~200px of
     // the first screen on a phone before a single figure appeared.
     var armSheet by rememberSaveable { mutableStateOf(false) }
-    // SBX-4: the Matchups chip. The group chips need no state of their own: they follow the open
+    // SBX-4: the Compare chip (Matchups in code). The group chips need no state of their own: they follow the open
     // account's group, and picking one opens that group's lead account.
     var showMatchups by rememberSaveable { mutableStateOf(false) }
     val currentArm = ui.arms.firstOrNull { it.arm == ui.arm }
@@ -2171,7 +2171,7 @@ private fun GroupChips(
             androidx.compose.material3.FilterChip(
                 selected = matchups,
                 onClick = onMatchups,
-                label = { Text("Matchups") },
+                label = { Text("Compare") },
             )
         }
     }

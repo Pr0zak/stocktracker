@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class LeaderboardMathTest {
-    private fun a(id: String, v: Double?, label: String = id) = SandboxArm(arm = id, label = label, vsBenchmarkPct = v)
+    private fun a(id: String, v: Double?, label: String = id) = SandboxArm(arm = id, label = label, vsBenchmarkPct = v, lastTickDate = "2026-11-13")
 
     @Test fun `best first, and an account with no figure sinks rather than ranking as zero`() {
         val r = LeaderboardMath.ranked(listOf(a("x", -2.13), a("new", null), a("y", 1.92), a("z", 0.0)))

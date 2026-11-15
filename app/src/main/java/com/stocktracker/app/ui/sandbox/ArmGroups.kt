@@ -14,6 +14,21 @@ internal object ArmGroups {
     const val ALL = "all"
     const val ETF = "etf"
     const val OPTIONS = "options"
+    /** Not a group of accounts: the chip that shows the matchups (twins, reviewer, tweaks) instead
+     *  of one group's leaderboard. */
+    const val MATCHUPS = "matchups"
+
+    /** The account groups in chip order, with their short chip labels. */
+    val ORDER = listOf(ALL to "Stocks", ETF to "ETFs", OPTIONS to "Options")
+
+    /**
+     * The lead over the S&P to show for an account, or null when it has not traded yet.
+     *
+     * A freshly funded account reports `vs_benchmark_pct = 0.0`: its shadow was bought with the same
+     * money that morning, so the two are equal by construction. Drawn as a green "+0.00" it read as
+     * "tied with the S&P", a result it had not earned. No tick yet means no figure.
+     */
+    fun vsShown(a: SandboxArm): Double? = if (a.lastTickDate == null) null else a.vsBenchmarkPct
 
     /** The group a universe belongs to. Anything unknown files under the originals. */
     fun groupOfUniverse(universe: String): String = when (universe) {

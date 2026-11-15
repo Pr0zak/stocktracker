@@ -55,6 +55,7 @@ internal fun Leaderboard(
     selected: String,
     onSelect: (String) -> Unit,
     overTime: (@Composable () -> Unit)?,
+    title: String = "WHO'S BEATING THE S&P",
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val ranked = LeaderboardMath.ranked(arms)
@@ -67,49 +68,21 @@ internal fun Leaderboard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "WHO'S BEATING THE S&P", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium,
+                title.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium,
                 letterSpacing = MaterialTheme.typography.labelMedium.letterSpacing * 1.5f, color = muted,
                 modifier = Modifier.weight(1f),
             )
             Text("tap to open", style = MaterialTheme.typography.labelSmall, color = muted)
         }
         ranked.forEach { a ->
-            val v = a.vsBenchmarkPct
-            val isSel = a.arm == selected
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 36.dp).clickable(onClickLabel = "Open ${a.label}") { onSelect(a.arm) },
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(
-                    LeaderboardMath.shortLabel(a) + if (isSel) " ●" else "",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                val line = muted
-                Canvas(Modifier.width(120.dp).height(12.dp)) {
-                    val mid = size.width / 2f
-                    drawLine(line, Offset(mid, -3f), Offset(mid, size.height + 3f), strokeWidth = 1.dp.toPx())
-                    if (v != null) {
-                        val w = (abs(v) / scale).toFloat().coerceIn(0f, 1f) * mid
-                        val left = if (v >= 0) mid else mid - w
-                        drawRoundRect(
-                            if (v >= 0) GainGreen else LossRed,
-                            topLeft = Offset(left, size.height * 0.2f),
-                            size = Size(w.coerceAtLeast(2f), size.height * 0.6f),
-                            cornerRadius = CornerRadius(3.dp.toPx()),
-                        )
-                    }
-                }
-                Text(
-                    v?.let { (if (it >= 0) "+" else "−") + String.format(Locale.US, "%.2f", abs(it)) } ?: "—",
-                    style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace,
-                    color = when { v == null -> muted; v >= 0 -> GainGreen; else -> LossRed },
-                    textAlign = TextAlign.End, modifier = Modifier.width(56.dp),
-                )
-            }
+            VsRow(
+                label = LeaderboardMath.shortLabel(a),
+                value = ArmGroups.vsShown(a),
+                scale = scale,
+                selected = a.arm == selected,
+                onClickLabel = "Open ${a.label}",
+                onClick = { onSelect(a.arm) },
+            )
         }
         Text(
             "Points ahead of or behind the same money in the S&P. The centre line is the S&P.",
@@ -129,15 +102,69 @@ internal fun Leaderboard(
     }
 }
 
+/**
+ * One account as a bar left or right of a centre line, with its figure at the end. [value] null is
+ * drawn as "—" with no bar: not run yet, or no S&P shadow, which is not the same as level.
+ * Shared by the leaderboard and the matchups, so a point means the same length on both.
+ */
+@Composable
+internal fun VsRow(
+    label: String,
+    value: Double?,
+    scale: Double,
+    selected: Boolean,
+    onClickLabel: String,
+    onClick: () -> Unit,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val v = value
+    val isSel = selected
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 36.dp).clickable(onClickLabel = onClickLabel) { onClick() },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            label + if (isSel) " ●" else "",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        val line = muted
+        Canvas(Modifier.width(120.dp).height(12.dp)) {
+            val mid = size.width / 2f
+            drawLine(line, Offset(mid, -3f), Offset(mid, size.height + 3f), strokeWidth = 1.dp.toPx())
+            if (v != null) {
+                val w = (abs(v) / scale).toFloat().coerceIn(0f, 1f) * mid
+                val left = if (v >= 0) mid else mid - w
+                drawRoundRect(
+                    if (v >= 0) GainGreen else LossRed,
+                    topLeft = Offset(left, size.height * 0.2f),
+                    size = Size(w.coerceAtLeast(2f), size.height * 0.6f),
+                    cornerRadius = CornerRadius(3.dp.toPx()),
+                )
+            }
+        }
+        Text(
+            v?.let { (if (it >= 0) "+" else "−") + String.format(Locale.US, "%.2f", abs(it)) } ?: "—",
+            style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace,
+            color = when { v == null -> muted; v >= 0 -> GainGreen; else -> LossRed },
+            textAlign = TextAlign.End, modifier = Modifier.width(56.dp),
+        )
+    }
+
+}
+
 /** Pure ordering, scale and naming for the leaderboard. */
 internal object LeaderboardMath {
     /** Best first; an account with no figure yet sinks to the bottom rather than ranking as zero. */
     fun ranked(arms: List<SandboxArm>): List<SandboxArm> =
-        arms.sortedWith(compareByDescending<SandboxArm> { it.vsBenchmarkPct != null }.thenByDescending { it.vsBenchmarkPct ?: 0.0 })
+        arms.sortedWith(compareByDescending<SandboxArm> { ArmGroups.vsShown(it) != null }.thenByDescending { ArmGroups.vsShown(it) ?: 0.0 })
 
     /** One scale for every bar: the largest lead or lag, but never under 1 point so a quiet week is not blown up. */
     fun scale(arms: List<SandboxArm>): Double =
-        maxOf(1.0, arms.mapNotNull { it.vsBenchmarkPct?.let(::abs) }.maxOrNull() ?: 1.0)
+        maxOf(1.0, arms.mapNotNull { ArmGroups.vsShown(it)?.let(::abs) }.maxOrNull() ?: 1.0)
 
     /**
      * "Regime gate on (blocks buys when shut)" → "Regime gate on"; the full name is in the title bar.

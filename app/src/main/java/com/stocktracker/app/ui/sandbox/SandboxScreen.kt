@@ -171,6 +171,9 @@ fun SandboxScreen(
     // subtitle names the arm and opens a sheet of every arm, grouped. Two chip rows cost ~200px of
     // the first screen on a phone before a single figure appeared.
     var armSheet by rememberSaveable { mutableStateOf(false) }
+    // SBX-4: the Matchups chip. The group chips need no state of their own: they follow the open
+    // account's group, and picking one opens that group's lead account.
+    var showMatchups by rememberSaveable { mutableStateOf(false) }
     val currentArm = ui.arms.firstOrNull { it.arm == ui.arm }
     if (armSheet && ui.arms.size > 1) {
         ArmPickerSheet(arms = ui.arms, selected = ui.arm,
@@ -296,17 +299,53 @@ fun SandboxScreen(
             }
             // SBX-3: the comparison leads — every account as a bar around the S&P line, the chart of
             // how they got here folded beneath it. The open account's own figures follow.
+            // SBX-4: 14 accounts in one ranking pushed the open account's balance off the first
+            // screen. A chip per group shows that group's ranking only; Matchups pairs the
+            // experiments instead (AI vs rules, the reviewer, the Baseline tweaks).
             if (ui.arms.size > 1) {
                 item {
-                    Leaderboard(
+                    GroupChips(
                         arms = ui.arms,
-                        selected = ui.arm,
-                        onSelect = { vm.selectArm(it) },
-                        overTime = ui.armsNav?.let { n -> { ArmTrendCard(nav = n, selected = ui.arm) } },
+                        group = group,
+                        matchups = showMatchups,
+                        onGroup = { g ->
+                            showMatchups = false
+                            if (g != group) ArmGroups.defaultArm(g, ui.arms)?.let { vm.selectArm(it) }
+                        },
+                        onMatchups = { showMatchups = true },
                     )
                 }
+                item {
+                    if (showMatchups) {
+                        MatchupsCard(arms = ui.arms, selected = ui.arm, onSelect = { vm.selectArm(it) })
+                    } else {
+                        Leaderboard(
+                            arms = ArmGroups.armsIn(group, ui.arms),
+                            selected = ui.arm,
+                            onSelect = { vm.selectArm(it) },
+                            overTime = ui.armsNav?.let { n -> { ArmTrendCard(nav = n, selected = ui.arm, group = group) } },
+                            title = (ArmGroups.ORDER.firstOrNull { it.first == group }?.second ?: "Accounts") + ": who's beating the S&P",
+                        )
+                    }
+                }
             }
-            item { HeaderMetrics(st, trendPctPerMonth = ui.trendPctPerMonth) }
+            if (group == ArmGroups.OPTIONS) {
+                item { OptionsHeader(st) }
+            } else {
+                item { HeaderMetrics(st, trendPctPerMonth = ui.trendPctPerMonth) }
+            }
+            // SBX-5: contracts lead an options account, unfolded. What matters for a contract (how
+            // close each exit is, what the stock has to do) was behind a folded "Contracts" row.
+            if (st.contracts.isNotEmpty()) {
+                val exits = ContractMath.exits(st.settings)
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        st.contracts.sortedBy { it.dte ?: Double.MAX_VALUE }.forEach { c ->
+                            ContractCard(c, exits, onClick = { detailSymbol = c.underlying })
+                        }
+                    }
+                }
+            }
             st.settings.goalAmount?.takeIf { it > 0 }?.let { goal ->
                 item { GoalCard(equity = st.equity, goal = goal, goalDate = st.settings.goalDate) }
             }
@@ -387,21 +426,6 @@ fun SandboxScreen(
             item {
                 val sortedPos = st.positions.sortedByDescending { it.value }
                 com.stocktracker.app.ui.components.AnswerGroup {
-                    if (st.contracts.isNotEmpty()) {
-                        com.stocktracker.app.ui.components.AnswerRow(
-                            icon = Icons.Filled.DonutLarge,
-                            tint = com.stocktracker.app.ui.theme.EtfAccent,
-                            title = "Contracts",
-                            subtitle = st.premiumAtRiskUsd?.let { "${Formatting.price(it)} premium at risk" }
-                                ?: st.contracts.take(2).joinToString(" · ") { it.display },
-                            key = "sbx-contracts:${ui.arm}",
-                            trailing = { com.stocktracker.app.ui.components.Pill("${st.contracts.size}", neutral) },
-                        ) {
-                            HelperText("Tap a contract to open its stock.")
-                            st.contracts.forEach { c -> ContractRow(c, onClick = { detailSymbol = c.underlying }) }
-                        }
-                        com.stocktracker.app.ui.components.AnswerDivider()
-                    }
                     if (st.positions.isNotEmpty()) {
                         com.stocktracker.app.ui.components.AnswerRow(
                             icon = Icons.Filled.DonutLarge,
@@ -517,7 +541,9 @@ private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
     // The S&P shadow's own return on the same deposits, from the server's two figures — the value of
     // the shadow book and what was paid in. Never back-solved from the gap.
     val spRet = st.benchmarkValue?.takeIf { st.fundedTotal > 0 }?.let { (it / st.fundedTotal - 1) * 100 }
-    val gap = if (ret != null && spRet != null) ret - spRet else null
+    // An account that has not run yet equals its shadow by construction: a 0.0 gap is not a result.
+    val ran = st.lastTickDate != null
+    val gap = if (ran && ret != null && spRet != null) ret - spRet else null
     com.stocktracker.app.ui.components.GlowCard(tint = com.stocktracker.app.ui.components.directionTint(gap), spacing = 8.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // The full balance, not "$11.53K": a headline figure that rounds away real dollars reads
@@ -525,7 +551,9 @@ private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
             Text(String.format(java.util.Locale.US, "$%,.2f", st.equity), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Pill("PAPER", neutral)
         }
-        if (ret != null && spRet != null) {
+        if (!ran) {
+            Pill("Not run yet", neutral)
+        } else if (ret != null && spRet != null) {
             // The race: the AI against the same money in the S&P, one bar each, scaled together.
             val scale = maxOf(kotlin.math.abs(ret), kotlin.math.abs(spRet)).takeIf { it > 0 } ?: 1.0
             RaceBar("AI", ret, scale, if (ret >= 0) MaterialTheme.colorScheme.primary else RED, bold = true)
@@ -538,7 +566,7 @@ private fun HeaderMetrics(st: SandboxState, trendPctPerMonth: Double? = null) {
             horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             // Without the shadow's own return the server's gap is still worth showing, as before.
-            if (gap == null) st.vsBenchmarkPct?.let {
+            if (gap == null && ran) st.vsBenchmarkPct?.let {
                 Pill(String.format(java.util.Locale.US, "%.1f pts %s the S&P", kotlin.math.abs(it), if (it >= 0) "ahead of" else "behind"),
                     if (it >= 0) GREEN else RED)
             }
@@ -1707,7 +1735,7 @@ private fun ArmPickerSheet(
                 Text(title, style = MaterialTheme.typography.labelLarge, color = neutral,
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
                 inGroup.forEach { a ->
-                    val v = a.vsBenchmarkPct
+                    val v = ArmGroups.vsShown(a)
                     Row(
                         Modifier.fillMaxWidth().clickable { onSelect(a.arm) }.padding(vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1782,12 +1810,17 @@ private fun dateToEpochMillis(d: String): Long =
 private fun ArmTrendCard(
     nav: com.stocktracker.app.data.remote.SandboxArmsNav,
     selected: String,
+    group: String,
 ) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    // Every arm, both groups, on one axis: each line is that arm's lead over its own S&P shadow (see
-    // ArmGroups.vsShadow). The arm open on this screen is picked out by default; tapping a name in
-    // the key picks out another.
-    val rows = ArmGroups.vsShadow(nav)
+    // The open group's arms on one axis (the ETF and options groups carry main as a reference line):
+    // each line is that arm's lead over its own S&P shadow (see ArmGroups.vsShadow). The arm open on
+    // this screen is picked out by default; tapping a name in the key picks out another.
+    //
+    // One group, not every arm: armStyle has six colours and then the same six dashed, so all 14
+    // arms on one chart drew two pairs of accounts with identical lines. A group is at most nine.
+    val inGroup = ArmGroups.trend(group, nav).first
+    val rows = ArmGroups.vsShadow(nav).filter { inGroup.isEmpty() || it.first.arm in inGroup }
     val axis = ArmGroups.axisArm(rows)
     var focusedArm by rememberSaveable(selected) { mutableStateOf<String?>(selected.takeIf { it != axis }) }
     Box(
@@ -2106,6 +2139,40 @@ private fun OptionsScorecardCard(sc: com.stocktracker.app.data.remote.SandboxOpt
             sc.premiumAtRiskUsd?.takeIf { sc.open > 0 }?.let {
                 StatLine("Open", "${sc.open} · ${Formatting.price(it)} at risk")
             }
+        }
+    }
+}
+
+
+/** SBX-4: one chip per group of accounts, with its count, then Matchups. */
+@Composable
+private fun GroupChips(
+    arms: List<com.stocktracker.app.data.remote.SandboxArm>,
+    group: String,
+    matchups: Boolean,
+    onGroup: (String) -> Unit,
+    onMatchups: () -> Unit,
+) {
+    val hasMatchups = Matchups.twins(arms).isNotEmpty() || Matchups.reviewer(arms) != null
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ArmGroups.ORDER.forEach { (g, name) ->
+            val n = ArmGroups.armsIn(g, arms).size
+            if (n == 0) return@forEach
+            androidx.compose.material3.FilterChip(
+                selected = !matchups && g == group,
+                onClick = { onGroup(g) },
+                label = { Text("$name $n") },
+            )
+        }
+        if (hasMatchups) {
+            androidx.compose.material3.FilterChip(
+                selected = matchups,
+                onClick = onMatchups,
+                label = { Text("Matchups") },
+            )
         }
     }
 }

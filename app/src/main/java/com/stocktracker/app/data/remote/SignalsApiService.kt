@@ -1543,6 +1543,12 @@ data class SandboxSettings(
     @SerialName("notify_on_trade") val notifyOnTrade: Boolean = true,
     @SerialName("max_trades_per_tick") val maxTradesPerTick: Int = 4,
     @SerialName("max_new_positions_per_tick") val maxNewPositionsPerTick: Int = 2,
+    /** The options arms' fixed exits (signals 0.49.0): sell at or under this many days to expiry,
+     *  at this % under the premium paid, at this % over it. Null on a stock arm or an older server;
+     *  the screen then uses the arm's defaults (21, −50, +100). */
+    @SerialName("opt_exit_dte") val optExitDte: Int? = null,
+    @SerialName("opt_stop_pct") val optStopPct: Double? = null,
+    @SerialName("opt_target_pct") val optTargetPct: Double? = null,
     @SerialName("min_conviction_to_trade") val minConvictionToTrade: Int = 55,
     @SerialName("respect_entry_zones") val respectEntryZones: Boolean = true,
     @SerialName("slippage_bps") val slippageBps: Int = 5,

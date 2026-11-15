@@ -177,14 +177,14 @@ private fun ArmBlock(
             Modifier.clickable(onClickLabel = "Open this account") { onOpenArm(a.arm) },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(8.dp).background(if (a.universe == "etf") EtfAccent else Indigo, CircleShape))
+            Box(Modifier.size(8.dp).background(if (a.universe == "etf" || a.universe == "options") EtfAccent else Indigo, CircleShape))
             Spacer(Modifier.width(8.dp))
             Text(a.label.ifBlank { a.arm }, style = MaterialTheme.typography.titleSmall)
         }
         a.filled.forEach { o -> OrderRow(o, onOpenSymbol) }
         a.skipped.forEach { o ->
             Row(
-                Modifier.fillMaxWidth().clickable { onOpenSymbol(o.symbol) }.padding(vertical = 2.dp),
+                Modifier.fillMaxWidth().clickable { onOpenSymbol(TodaySummary.tapSymbol(o)) }.padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -211,7 +211,7 @@ private fun OrderRow(o: SandboxTodayOrder, onOpenSymbol: (String) -> Unit) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val sell = o.side == "sell"
     Row(
-        Modifier.fillMaxWidth().clickable { onOpenSymbol(o.symbol) }.padding(vertical = 2.dp),
+        Modifier.fillMaxWidth().clickable { onOpenSymbol(TodaySummary.tapSymbol(o)) }.padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (sell) Text("▼ ", style = MaterialTheme.typography.bodyMedium, color = LossRed)
@@ -220,6 +220,9 @@ private fun OrderRow(o: SandboxTodayOrder, onOpenSymbol: (String) -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             color = if (sell) LossRed else MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
         o.shares?.let {
             Text(" × " + TodaySummary.shares(it), style = MaterialTheme.typography.bodyMedium, color = muted)
@@ -291,6 +294,11 @@ internal object TodaySummary {
 
     fun money(v: Double, cents: Boolean = true): String =
         "$" + String.format(Locale.US, if (cents) "%,.2f" else "%,.0f", v)
+
+    /** The stock to open when an order is tapped. An option order's symbol is the contract's
+     *  description ("AAPL $360 call …"); its first word is the underlying. */
+    fun tapSymbol(o: SandboxTodayOrder): String =
+        if (o.instrument == "option") o.symbol.substringBefore(' ') else o.symbol
 
     fun shares(v: Double): String =
         if (v == Math.floor(v)) String.format(Locale.US, "%.0f", v) else String.format(Locale.US, "%.3f", v).trimEnd('0')

@@ -483,7 +483,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxArmsResponse>(
-                sGet("${baseUrl.trimEnd('/')}/sandbox/arms", slow = true)).arms
+                sGet("${baseUrl.trimEnd('/')}/sandbox/arms?show_options=true", slow = true)).arms
         }.getOrNull()
     }
 
@@ -493,7 +493,7 @@ class SignalsApiService {
     suspend fun sandboxToday(baseUrl: String): SandboxToday? {
         if (baseUrl.isBlank()) return null
         return runCatching {
-            Http.json.decodeFromString<SandboxToday>(sGet("${baseUrl.trimEnd('/')}/sandbox/today"))
+            Http.json.decodeFromString<SandboxToday>(sGet("${baseUrl.trimEnd('/')}/sandbox/today?show_options=true"))
         }.getOrNull()
     }
 
@@ -501,7 +501,7 @@ class SignalsApiService {
         if (baseUrl.isBlank()) return null
         return runCatching {
             Http.json.decodeFromString<SandboxArmsNav>(
-                sGet("${baseUrl.trimEnd('/')}/sandbox/arms/nav?days=$days", slow = true))
+                sGet("${baseUrl.trimEnd('/')}/sandbox/arms/nav?days=$days&show_options=true", slow = true))
         }.getOrNull()
     }
 
@@ -1437,6 +1437,61 @@ data class SandboxState(
     @SerialName("created_at") val createdAt: Double? = null,
     /** Symbols that could not be priced and are being valued at a fallback mark rather than a live quote. */
     @SerialName("stale_marks") val staleMarks: List<String> = emptyList(),
+    /** "all", "etf" or "options". Absent on servers before 0.49.0 — read as "all". */
+    val universe: String = "all",
+    /** Long-options arms only: the held contracts. [positions] is always empty on those arms, so a
+     *  screen that sizes by shares is never handed a contract. */
+    val contracts: List<SandboxContract> = emptyList(),
+    /** Premium paid for the contracts still held — the most the arm can lose on them. Null off the
+     *  options arms. */
+    @SerialName("premium_at_risk_usd") val premiumAtRiskUsd: Double? = null,
+    @SerialName("options_scorecard") val optionsScorecard: SandboxOptionsScorecard? = null,
+)
+
+/** One held option contract, marked from its chain. A null [mark] means no two-sided quote: the
+ *  value is unknown, never zero. */
+@Serializable
+data class SandboxContract(
+    @SerialName("contract_symbol") val contractSymbol: String = "",
+    val display: String = "",
+    val underlying: String = "",
+    val right: String = "",           // call | put
+    val strike: Double? = null,
+    val expiry: String? = null,
+    val count: Int = 0,
+    @SerialName("premium_paid") val premiumPaid: Double? = null,
+    @SerialName("cost_total") val costTotal: Double? = null,
+    val mark: Double? = null,
+    @SerialName("mark_stale") val markStale: Boolean = false,
+    @SerialName("mark_date") val markDate: String? = null,
+    val value: Double? = null,
+    @SerialName("pl_pct") val plPct: Double? = null,
+    @SerialName("pl_usd") val plUsd: Double? = null,
+    val dte: Double? = null,
+    @SerialName("held_days") val heldDays: Int? = null,
+    val spot: Double? = null,
+    @SerialName("spot_at_open") val spotAtOpen: Double? = null,
+    val delta: Double? = null,
+    val iv: Double? = null,
+    @SerialName("opened_date") val openedDate: String? = null,
+    val conviction: Int? = null,
+    val reason: String? = null,
+)
+
+/** The options arm's record in dollars: closed contracts, what they returned, and what the same
+ *  premium would have done in the S&P over the same days. [indexAltUsd] null = no close had both
+ *  index prices, which is not "the index made nothing". */
+@Serializable
+data class SandboxOptionsScorecard(
+    val closed: Int = 0,
+    @SerialName("premium_deployed_usd") val premiumDeployedUsd: Double = 0.0,
+    @SerialName("pl_usd") val plUsd: Double = 0.0,
+    @SerialName("index_alt_usd") val indexAltUsd: Double? = null,
+    @SerialName("index_alt_n") val indexAltN: Int = 0,
+    @SerialName("direction_right") val directionRight: Int = 0,
+    @SerialName("direction_right_but_lost") val directionRightButLost: Int = 0,
+    val open: Int = 0,
+    @SerialName("premium_at_risk_usd") val premiumAtRiskUsd: Double? = null,
 )
 
 @Serializable
@@ -1586,6 +1641,8 @@ data class SandboxTodayOrder(
     val gross: Double? = null,
     /** Skipped orders only: a short plain reason ("daily trade limit"). */
     val reason: String? = null,
+    /** "option" when [symbol] is a contract description ("AAPL $360 call …") and [shares] a count. */
+    val instrument: String? = null,
 )
 
 @Serializable
@@ -1662,7 +1719,19 @@ data class SandboxTrade(
     /** Set only when the executed size differs from the size the analyst asked for — currently the
      *  round-up of a buy that came in a few cents under one share. Absent on ordinary fills. */
     @SerialName("size_note") val sizeNote: String? = null,
-)
+    /** "option" on the long-options arms; absent on share trades. On an option row [shares] is the
+     *  contract count, [price] the premium per share (x100 per contract) and [symbol] the OCC code. */
+    val instrument: String? = null,
+    val display: String? = null,
+    val underlying: String? = null,
+    val right: String? = null,
+    val rule: String? = null,
+    @SerialName("cost_total") val costTotal: Double? = null,
+    @SerialName("direction_right") val directionRight: Boolean? = null,
+    @SerialName("index_alt_usd") val indexAltUsd: Double? = null,
+) {
+    val isOption: Boolean get() = instrument == "option"
+}
 
 @Serializable
 data class SandboxTickResult(

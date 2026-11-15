@@ -334,11 +334,11 @@ fun SandboxScreen(
                     emptyList()
                 }
                 val markers = ui.trades
-                    .filter { it.status == "filled" && (it.side == "buy" || it.side == "sell") }
+                    .filter { it.status == "filled" && tradeDirection(it) != null }
                     .take(40)
                     // No labels: a dot per trade on the line. The names are in the trade log below,
                     // where they have room; forty of them on the chart could not be read.
-                    .map { ChartMarker((it.ts * 1000).toLong(), if (it.side == "buy") GREEN else RED, "") }
+                    .map { ChartMarker((it.ts * 1000).toLong(), if (tradeDirection(it) == "buy") GREEN else RED, "") }
                 if (ui.nav.size >= 2) {
                     PriceChart(
                         points = ui.nav, up = up, showHighLow = true, showAxis = true,
@@ -370,13 +370,14 @@ fun SandboxScreen(
             if (ui.arm == "main") {
                 item { AutoTradeRow(st, onToggle = { vm.setEnabled(it) }, onRunNow = { vm.runTick() }, ticking = ui.ticking) }
             } else {
-                item { SideArmNotice(st, etf = group == ArmGroups.ETF) }
+                item { SideArmNotice(st, etf = group == ArmGroups.ETF, options = group == ArmGroups.OPTIONS) }
             }
             // Directly under the equity curve and the auto-trade switch: right where someone deciding
             // whether to trust this thing is already looking.
             // The scorecard grades main's analyst and main's own buys. Under the ETF arms it would
             // read as their record, which it is not.
             if (group == ArmGroups.ALL) ui.memory?.let { mem -> item { ScorecardCard(mem) } }
+            if (group == ArmGroups.OPTIONS) st.optionsScorecard?.let { sc -> item { OptionsScorecardCard(sc) } }
             // The world the trader is reasoning against, right above its strategy — a defensive
             // stance or a skipped energy name only makes sense next to the backdrop that caused it.
             item { com.stocktracker.app.ui.components.MacroCard(ui.macro) }
@@ -386,6 +387,21 @@ fun SandboxScreen(
             item {
                 val sortedPos = st.positions.sortedByDescending { it.value }
                 com.stocktracker.app.ui.components.AnswerGroup {
+                    if (st.contracts.isNotEmpty()) {
+                        com.stocktracker.app.ui.components.AnswerRow(
+                            icon = Icons.Filled.DonutLarge,
+                            tint = com.stocktracker.app.ui.theme.EtfAccent,
+                            title = "Contracts",
+                            subtitle = st.premiumAtRiskUsd?.let { "${Formatting.price(it)} premium at risk" }
+                                ?: st.contracts.take(2).joinToString(" · ") { it.display },
+                            key = "sbx-contracts:${ui.arm}",
+                            trailing = { com.stocktracker.app.ui.components.Pill("${st.contracts.size}", neutral) },
+                        ) {
+                            HelperText("Tap a contract to open its stock.")
+                            st.contracts.forEach { c -> ContractRow(c, onClick = { detailSymbol = c.underlying }) }
+                        }
+                        com.stocktracker.app.ui.components.AnswerDivider()
+                    }
                     if (st.positions.isNotEmpty()) {
                         com.stocktracker.app.ui.components.AnswerRow(
                             icon = Icons.Filled.DonutLarge,
@@ -442,7 +458,7 @@ fun SandboxScreen(
                         icon = Icons.AutoMirrored.Filled.ReceiptLong,
                         tint = com.stocktracker.app.ui.theme.ChartSeries[0],
                         title = "Trade log",
-                        subtitle = ui.trades.firstOrNull { it.status == "filled" && (it.side == "buy" || it.side == "sell") }
+                        subtitle = ui.trades.firstOrNull { it.status == "filled" && tradeDirection(it) != null }
                             ?.let { "Last trade ${it.date}" } ?: "No trades yet",
                         key = "sbx-log:${ui.arm}",
                     ) {
@@ -456,7 +472,7 @@ fun SandboxScreen(
                                     t = t,
                                     expanded = expandedTrades.contains(key),
                                     onToggle = { if (!expandedTrades.remove(key)) expandedTrades.add(key) },
-                                    onOpenSymbol = { detailSymbol = t.symbol },
+                                    onOpenSymbol = { detailSymbol = if (t.isOption) t.underlying ?: t.symbol else t.symbol },
                                 )
                             }
                         }
@@ -855,11 +871,11 @@ private fun TradeRow(
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val skipped = t.status == "skipped"
     val isCash = t.symbol == "CASH"
-    val sym = t.symbol.removeSuffix("-USD")
+    val sym = if (t.isOption) t.underlying.orEmpty() else t.symbol.removeSuffix("-USD")
     val color = when {
         skipped -> neutral
-        t.side == "buy" -> GREEN
-        t.side == "sell" -> RED
+        tradeDirection(t) == "buy" -> GREEN
+        tradeDirection(t) == "sell" -> RED
         else -> MaterialTheme.colorScheme.primary   // deposit/withdraw
     }
     Column(
@@ -873,7 +889,7 @@ private fun TradeRow(
         ) {
             // A blocked order gets its own amber BLOCKED pill — a greyed "BUY" read like a real buy at a
             // glance, which hid the fact that a rule stopped it.
-            Pill(if (skipped) "BLOCKED" else t.side.uppercase(), if (skipped) AMBER else color)
+            Pill(if (skipped) "BLOCKED" else sideLabel(t), if (skipped) AMBER else color)
             Text(
                 oneLineSummary(t),
                 style = MaterialTheme.typography.bodySmall,
@@ -903,6 +919,16 @@ private fun TradeRow(
                 DetailLine("Date", t.date)
                 when {
                     isCash -> DetailLine("Amount", signedMoney(t.gross ?: 0.0))
+                    !skipped && t.isOption -> {
+                        t.display?.let { DetailLine("Contract", it) }
+                        DetailLine("Filled", "${t.shares.toInt()} × ${Formatting.price(t.price ?: 0.0)} (×100 shares each)")
+                        t.gross?.let { DetailLine("Value", Formatting.price(kotlin.math.abs(it))) }
+                        t.costTotal?.let { DetailLine("Premium paid", Formatting.price(it)) }
+                        t.realizedPl?.let { DetailLine("Realized", signedMoney(it), if (it >= 0) GREEN else RED) }
+                        t.indexAltUsd?.let { DetailLine("Same money in S&P", signedMoney(it)) }
+                        t.directionRight?.let { DetailLine("Direction", if (it) "right" else "wrong") }
+                        t.rule?.takeIf { it.isNotBlank() }?.let { DetailLine("Exit rule", it) }
+                    }
                     !skipped -> {
                         DetailLine("Filled", "${trimNum(t.shares)} sh @ ${Formatting.price(t.price ?: 0.0)}")
                         t.gross?.let { DetailLine("Value", Formatting.price(kotlin.math.abs(it))) }
@@ -1660,7 +1686,7 @@ private fun ArmPickerSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)
             .verticalScroll(androidx.compose.foundation.rememberScrollState())) {
-            listOf(ArmGroups.ALL to "Stocks + ETFs", ArmGroups.ETF to "ETFs only").forEach { (g, title) ->
+            listOf(ArmGroups.ALL to "Stocks + ETFs", ArmGroups.ETF to "ETFs only", ArmGroups.OPTIONS to "Calls + puts").forEach { (g, title) ->
                 val inGroup = ArmGroups.armsIn(g, arms)
                 if (inGroup.isEmpty()) return@forEach
                 Text(title, style = MaterialTheme.typography.labelLarge, color = neutral,
@@ -1873,7 +1899,7 @@ private fun ArmTrendCard(
 
 /** Shown in place of the auto-trade row on a side arm. The controls it replaces write to main. */
 @Composable
-private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState, etf: Boolean = false) {
+private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState, etf: Boolean = false, options: Boolean = false) {
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         Modifier.fillMaxWidth()
@@ -1890,6 +1916,8 @@ private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState, etf
                     when {
                         st.settings.singleShare && st.engine == "rules" -> "One Share Daily — Rules"
                         st.settings.singleShare -> "One Share Daily — Analyst"
+                        options && st.engine == "rules" -> "Calls + puts — no AI"
+                        options -> "Calls + puts — AI"
                         etf && st.engine == "rules" -> "ETFs only — no AI"
                         etf -> "ETFs only — AI"
                         st.engine == "rules" -> "Mechanical arm — no AI"
@@ -1904,6 +1932,10 @@ private fun SideArmNotice(st: com.stocktracker.app.data.remote.SandboxState, etf
                         "Buys 1 share of the top technical candidate every trading day. Pure buy-and-hold accumulation, uncapped position limits, and Just-In-Time funding (zero cash drag)."
                     st.settings.singleShare ->
                         "Buys 1 share of the analyst's highest-conviction idea every trading day. Pure buy-and-hold accumulation, uncapped position limits, and Just-In-Time funding (zero cash drag)."
+                    options && st.engine == "rules" ->
+                        "Buys a call when the signal score is 55 or more, a put at 45 or less, about two months out. Never sells options it does not own: the most it can lose is the premium paid."
+                    options ->
+                        "The analyst picks calls or puts about two months out, or holds. Never sells options it does not own: the most it can lose is the premium paid."
                     etf && st.engine == "rules" ->
                         "A fixed mix by age: US stocks, non-US stocks and bonds. Each buy goes to the cheapest fund for that index."
                     etf ->
@@ -1968,6 +2000,8 @@ private fun oneLineSummary(t: SandboxTrade): String {
     val sym = t.symbol.removeSuffix("-USD")
     return when {
         t.symbol == "CASH" -> "${shortDate(t.date)} · ${signedUsd(t.gross ?: 0.0)}"
+        t.isOption && t.status == "skipped" -> "${shortDate(t.date)} · ${t.display ?: sym} not placed"
+        t.isOption -> "${shortDate(t.date)} · ${t.display ?: sym} · ${t.shares.toInt()} @ ${Formatting.price(t.price ?: 0.0)}"
         t.status == "skipped" -> "${shortDate(t.date)} · $sym not placed"
         else -> "${shortDate(t.date)} · $sym · ${trimNum(t.shares)} sh @ ${Formatting.price(t.price ?: 0.0)}"
     }
@@ -1979,4 +2013,80 @@ private fun entryZoneText(t: SandboxTrade): String = when {
     t.entryHigh != null -> "≤ ${Formatting.price(t.entryHigh)}"
     t.entryLow != null -> "≥ ${Formatting.price(t.entryLow)}"
     else -> "—"
+}
+
+/** "buy" or "sell" for anything that moved money into or out of a holding, null for deposits and
+ *  interest. Option rows carry their own sides; an expiry or settlement is a sale. */
+internal fun tradeDirection(t: SandboxTrade): String? = when (t.side) {
+    "buy", "buy_to_open" -> "buy"
+    "sell", "sell_to_close", "expired", "settled" -> "sell"
+    else -> null
+}
+
+private fun sideLabel(t: SandboxTrade): String = when (t.side) {
+    "buy_to_open" -> "BUY"
+    "sell_to_close" -> "SELL"
+    "expired" -> "EXPIRED"
+    "settled" -> "SETTLED"
+    else -> t.side.uppercase()
+}
+
+/** One held contract: what it is, how many, what it is worth now against what was paid, and the
+ *  days left. A contract with no live quote says so instead of showing a value. */
+@Composable
+private fun ContractRow(c: com.stocktracker.app.data.remote.SandboxContract, onClick: () -> Unit) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Pill(c.right.uppercase(), if (c.right == "put") RED else GREEN)
+            Spacer(Modifier.width(8.dp))
+            Text("${c.count} × ${c.display}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(c.value?.let { Formatting.price(it) } ?: "—", style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium)
+        }
+        val pl = c.plUsd?.let { usd ->
+            signedMoney(usd) + (c.plPct?.let { " (" + signedPct(it) + ")" } ?: "")
+        }
+        val parts = listOfNotNull(
+            c.costTotal?.let { "paid ${Formatting.price(it)}" },
+            pl,
+            c.dte?.let { "${it.toInt()} days left" },
+            if (c.markStale) "no live quote" + (c.markDate?.let { " since $it" } ?: "") else null,
+        )
+        Text(parts.joinToString(" · "), style = MaterialTheme.typography.labelSmall,
+            color = when {
+                c.markStale -> AMBER
+                (c.plUsd ?: 0.0) > 0 -> GREEN
+                (c.plUsd ?: 0.0) < 0 -> RED
+                else -> neutral
+            })
+    }
+}
+
+/** The options record in dollars: no win rates. What closed contracts cost, what they returned, and
+ *  what the same premium would have done in the S&P. */
+@Composable
+private fun OptionsScorecardCard(sc: com.stocktracker.app.data.remote.SandboxOptionsScorecard) {
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Options record", style = MaterialTheme.typography.titleSmall)
+            if (sc.closed == 0) {
+                Text("No contract closed yet.", style = MaterialTheme.typography.bodySmall, color = neutral)
+            } else {
+                StatLine("Closed", "${sc.closed}")
+                StatLine("Premium spent", Formatting.price(sc.premiumDeployedUsd))
+                StatLine("Profit/loss", signedMoney(sc.plUsd), if (sc.plUsd >= 0) GREEN else RED)
+                StatLine("Same money in S&P", sc.indexAltUsd?.let { signedMoney(it) } ?: "—")
+                StatLine("Direction right", "${sc.directionRight} of ${sc.closed}")
+                if (sc.directionRightButLost > 0) {
+                    StatLine("Right but still lost", "${sc.directionRightButLost}", AMBER)
+                }
+            }
+            sc.premiumAtRiskUsd?.takeIf { sc.open > 0 }?.let {
+                StatLine("Open", "${sc.open} · ${Formatting.price(it)} at risk")
+            }
+        }
+    }
 }

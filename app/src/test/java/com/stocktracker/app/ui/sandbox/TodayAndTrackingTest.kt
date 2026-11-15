@@ -50,6 +50,8 @@ class TodayAndTrackingTest {
     @Test fun `long account names shorten to the part before the parenthesis`() {
         assertEquals("Regime gate on", TodaySummary.shortName("Regime gate on (blocks buys when shut)"))
         assertEquals("+ Second opinion", TodaySummary.shortName("+ Second opinion"))
+        assertEquals("Options (AI)", TodaySummary.shortName("Options (AI)"))
+        assertEquals("ETFs only (no AI)", TodaySummary.shortName("ETFs only (no AI)"))
     }
 
     @Test fun `every arm is measured against its own shadow, so a late starter lines up at zero`() {

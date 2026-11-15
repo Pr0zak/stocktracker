@@ -252,8 +252,11 @@ internal object TodaySummary {
         didNotRun = t.arms.filter { !it.ran },
     )
 
-    /** "Regime gate on (blocks buys when shut)" → "Regime gate on". The full name is one tap away. */
-    fun shortName(label: String): String = label.substringBefore(" (").trim().ifBlank { label }
+    /** "Regime gate on (blocks buys when shut)" → "Regime gate on". The full name is one tap away.
+     *  A short parenthetical is part of the name and stays: cutting "Options (AI)" and "Options
+     *  (no AI)" both to "Options" listed two accounts as the same one. Same rule as the leaderboard. */
+    fun shortName(label: String): String =
+        LeaderboardMath.shortLabel(com.stocktracker.app.data.remote.SandboxArm(arm = label, label = label))
 
     private val MONTH_DAY = DateTimeFormatter.ofPattern("MMM d", Locale.US)
     private val CLOCK = DateTimeFormatter.ofPattern("h:mm a", Locale.US)

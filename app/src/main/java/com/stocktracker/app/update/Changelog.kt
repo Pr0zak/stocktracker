@@ -16,6 +16,12 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.36.0" to listOf(
+            "Sandbox: chips pick the group (Stocks, ETFs, Options), and the ranking shows that group only, so the account's balance is near the top again",
+            "New Compare chip: AI vs rules for each pair, the reviewer's kept trades vs the ones it cut, and each Baseline tweak vs the Baseline",
+            "Options accounts: one card per contract with how close it is to the −50% and +100% sells, days until the 21-day sell, and the price the stock needs to break even",
+            "Accounts that haven't traded yet show — instead of +0.00, and the Today card names twin accounts apart",
+        ),
         "1.35.0" to listOf(
             "Sandbox: two new paper accounts that trade only calls and puts, one with AI and one without; $10,000 each plus $500 a month. Pick them under \"Calls + puts\"",
             "Each contract shows its value, profit or loss and days left; with no live quote it shows ≈ and no profit or loss",

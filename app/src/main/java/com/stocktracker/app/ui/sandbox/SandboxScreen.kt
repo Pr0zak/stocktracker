@@ -490,7 +490,10 @@ fun SandboxScreen(
         TickerDetailSheet(
             symbol = sym,
             position = ui.state?.positions?.firstOrNull { it.symbol == sym },
-            trades = ui.trades.filter { it.symbol == sym },
+            // Option rows carry the contract code as their symbol; on the stock's sheet they belong
+            // under the underlying.
+            contracts = ui.state?.contracts?.filter { it.underlying == sym } ?: emptyList(),
+            trades = ui.trades.filter { it.symbol == sym || (it.isOption && it.underlying == sym) },
             staleMarks = ui.state?.staleMarks ?: emptyList(),
             onOpenDetail = onOpenDetail,
             onDismiss = { detailSymbol = null },
@@ -1015,6 +1018,7 @@ private fun TickerDetailSheet(
     symbol: String,
     position: SandboxPosition?,
     trades: List<SandboxTrade>,
+    contracts: List<com.stocktracker.app.data.remote.SandboxContract> = emptyList(),
     staleMarks: List<String> = emptyList(),
     onOpenDetail: ((Asset) -> Unit)? = null,
     onDismiss: () -> Unit,
@@ -1104,7 +1108,8 @@ private fun TickerDetailSheet(
                         if (quote?.isDelisted == true) {
                             Pill("DELISTED", LossRed)
                         } else {
-                            Pill(if (held > 0) "HOLDING" else "CLOSED", if (held > 0) GREEN else neutral)
+                            val holds = held > 0 || contracts.isNotEmpty()
+                            Pill(if (holds) "HOLDING" else "CLOSED", if (holds) GREEN else neutral)
                         }
                         if (quote?.isEtf == true || profile?.quoteType == "ETF") {
                             Pill("ETF", com.stocktracker.app.ui.theme.EtfAccent)
@@ -1326,6 +1331,13 @@ private fun TickerDetailSheet(
                 }
             }
 
+            if (contracts.isNotEmpty()) {
+                GlowCard(tint = null, spacing = 8.dp) {
+                    Text("SANDBOX CONTRACTS", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = neutral)
+                    contracts.forEach { ContractRow(it, onClick = {}) }
+                }
+            }
+
             // SECTION 5: ACTIVITY (Sandbox trades if any)
             if (trades.isNotEmpty()) {
                 GlowCard(tint = null, spacing = 8.dp) {
@@ -1363,8 +1375,8 @@ private fun ActivityRow(t: SandboxTrade) {
     val skipped = t.status == "skipped"
     val color = when {
         skipped -> AMBER
-        t.side == "buy" -> GREEN
-        t.side == "sell" -> RED
+        tradeDirection(t) == "buy" -> GREEN
+        tradeDirection(t) == "sell" -> RED
         else -> MaterialTheme.colorScheme.primary
     }
     Row(
@@ -1372,12 +1384,15 @@ private fun ActivityRow(t: SandboxTrade) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Pill(if (skipped) "BLOCKED" else t.side.uppercase(), color)
+        Pill(if (skipped) "BLOCKED" else sideLabel(t), color)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(t.date, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
             Text(
                 if (skipped) {
                     "Not placed — " + (t.skipReason ?: "blocked")
+                } else if (t.isOption) {
+                    "${t.shares.toInt()} × ${t.display ?: t.symbol} @ ${Formatting.price(t.price ?: 0.0)}" +
+                        (t.gross?.let { " · ${Formatting.price(kotlin.math.abs(it))}" } ?: "")
                 } else {
                     "${trimNum(t.shares)} sh @ ${Formatting.price(t.price ?: 0.0)}" +
                         (t.gross?.let { " · ${Formatting.price(kotlin.math.abs(it))}" } ?: "")
@@ -2042,10 +2057,14 @@ private fun ContractRow(c: com.stocktracker.app.data.remote.SandboxContract, onC
             Spacer(Modifier.width(8.dp))
             Text("${c.count} × ${c.display}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(c.value?.let { Formatting.price(it) } ?: "—", style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium)
+            // A stale mark is the last quote (or the price paid), so the value is an estimate: it
+            // carries a ≈ and the amber colour rather than reading as today's figure.
+            Text(c.value?.let { (if (c.markStale) "≈" else "") + Formatting.price(it) } ?: "—",
+                style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
+                color = if (c.markStale) AMBER else Color.Unspecified)
         }
-        val pl = c.plUsd?.let { usd ->
+        // P/L off a stale mark is P/L against the last quote or the price paid — not a result.
+        val pl = c.plUsd?.takeUnless { c.markStale }?.let { usd ->
             signedMoney(usd) + (c.plPct?.let { " (" + signedPct(it) + ")" } ?: "")
         }
         val parts = listOfNotNull(

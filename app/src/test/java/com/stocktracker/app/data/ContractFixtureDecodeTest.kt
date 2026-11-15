@@ -5,6 +5,8 @@ import com.stocktracker.app.data.remote.Http
 import com.stocktracker.app.data.remote.PortfolioReviewResponse
 import com.stocktracker.app.data.remote.SandboxState
 import com.stocktracker.app.data.remote.ScanLatest
+import com.stocktracker.app.data.remote.SandboxToday
+import com.stocktracker.app.data.remote.SandboxTradesResponse
 import kotlinx.serialization.decodeFromString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -142,5 +144,54 @@ class ContractFixtureDecodeTest {
         val alert = scan.dipAlerts!!.single()
         assertEquals("AAPL", alert.symbol)
         assertEquals("pullback_10", alert.dip)
+    }
+    // ---------------------------------------------------------------- long-options arm (0.49.0)
+
+    @Test
+    fun `options state decodes contracts and never hands them over as positions`() {
+        val s = Http.json.decodeFromString<SandboxState>(fixture("options_state.json"))
+        assertEquals("options", s.universe)
+        assertTrue(s.positions.isEmpty())
+        assertEquals(2, s.contracts.size)
+        val spy = s.contracts.first { it.underlying == "SPY" }
+        assertEquals(1720.0, spy.value!!, 0.0)
+        assertEquals(75.0, spy.plUsd!!, 0.0)
+        assertEquals(false, spy.markStale)
+        assertEquals(62, spy.conviction)
+        val aapl = s.contracts.first { it.underlying == "AAPL" }
+        assertEquals(true, aapl.markStale)
+        assertEquals(listOf(aapl.contractSymbol), s.staleMarks)
+        assertEquals(2910.0, s.premiumAtRiskUsd!!, 0.0)
+        val sc = s.optionsScorecard!!
+        assertEquals(1, sc.closed)
+        assertEquals(-559.0, sc.plUsd, 0.0)
+        assertEquals(23.99, sc.indexAltUsd!!, 0.0)
+        assertEquals(0, sc.directionRight)
+    }
+
+    @Test
+    fun `options trade log decodes option rows with their scoring fields`() {
+        val t = Http.json.decodeFromString<SandboxTradesResponse>(fixture("options_trades.json")).trades
+        val close = t.first { it.side == "sell_to_close" }
+        assertTrue(close.isOption)
+        assertEquals("QQQ", close.underlying)
+        assertEquals(1.0, close.shares, 0.0)
+        assertEquals(-559.0, close.realizedPl!!, 0.0)
+        assertEquals(false, close.directionRight)
+        assertEquals(23.99, close.indexAltUsd!!, 0.0)
+        assertEquals(1799.0, close.costTotal!!, 0.0)
+        val skip = t.first { it.status == "skipped" }
+        assertEquals(40, skip.conviction)
+        assertEquals("IWM", skip.underlying)
+    }
+
+    @Test
+    fun `today card decodes option orders and taps open the stock`() {
+        val d = Http.json.decodeFromString<SandboxToday>(fixture("options_today.json"))
+        val arm = d.arms.first { it.arm == "options-rules" }
+        assertEquals(listOf("buy", "sell"), arm.filled.map { it.side })
+        assertTrue(arm.filled.all { it.instrument == "option" })
+        assertEquals(listOf("SPY", "QQQ"), arm.filled.map { com.stocktracker.app.ui.sandbox.TodaySummary.tapSymbol(it) })
+        assertEquals("IWM", com.stocktracker.app.ui.sandbox.TodaySummary.tapSymbol(arm.skipped.single()))
     }
 }

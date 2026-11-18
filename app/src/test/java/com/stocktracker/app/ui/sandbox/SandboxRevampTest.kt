@@ -78,4 +78,12 @@ class SandboxRevampTest {
         assertEquals("now $228.90 · −2.3% to go", ContractMath.nowLine(put))
         assertNull(ContractMath.breakEven(put.copy(premiumPaid = null)))
     }
+
+    @Test fun the_weekly_budget_line() {
+        fun w(b: Double, s: Double, f: String?) = com.stocktracker.app.data.remote.SandboxWeeklyBudget(b, s, maxOf(b - s, 0.0), f)
+        assertNull(ContractMath.weekLine(null))
+        assertEquals("This week: $1,500 left to spend", ContractMath.weekLine(w(1500.18, 0.0, null)))
+        assertEquals("This week: $1,410 of $1,487 spent · more from Nov 23", ContractMath.weekLine(w(1486.65, 1410.0, "2026-11-23")))
+        assertEquals("This week: budget used ($2,640 of $1,487) · more from Nov 23", ContractMath.weekLine(w(1486.65, 2640.0, "2026-11-23")))
+    }
 }

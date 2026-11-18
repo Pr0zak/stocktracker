@@ -87,6 +87,16 @@ internal object ContractMath {
         }.getOrDefault(it)
     }
 
+    /** "This week: $1,410 of $1,487 spent · more from Nov 23", or "This week: $1,500 left to spend". */
+    fun weekLine(w: com.stocktracker.app.data.remote.SandboxWeeklyBudget?): String? {
+        w ?: return null
+        val money = { v: Double -> String.format(Locale.US, "$%,.0f", v) }
+        val head = if (w.spentUsd <= 0.0) "This week: ${money(w.roomUsd)} left to spend"
+        else if (w.roomUsd <= 0.0) "This week: budget used (${money(w.spentUsd)} of ${money(w.budgetUsd)})"
+        else "This week: ${money(w.spentUsd)} of ${money(w.budgetUsd)} spent"
+        return head + (shortDate(w.freesOn)?.takeIf { w.spentUsd > 0.0 }?.let { " · more from $it" } ?: "")
+    }
+
     /** "needs AAPL above $289.20 by Dec 18". */
     fun needsLine(c: SandboxContract): String? {
         val be = breakEven(c) ?: return null
@@ -147,6 +157,7 @@ internal fun OptionsHeader(st: SandboxState) {
                     if (it >= 0) GREEN else RED)
             }
         }
+        ContractMath.weekLine(st.weeklyBudget)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = neutral) }
         st.lastTickDate?.let { Text("Last ran $it", style = MaterialTheme.typography.labelSmall, color = neutral) }
     }
 }

@@ -1446,6 +1446,17 @@ data class SandboxState(
      *  options arms. */
     @SerialName("premium_at_risk_usd") val premiumAtRiskUsd: Double? = null,
     @SerialName("options_scorecard") val optionsScorecard: SandboxOptionsScorecard? = null,
+    /** Options arms on servers 0.50.0+: the pacing budget for new premium. Null when off or absent. */
+    @SerialName("weekly_budget") val weeklyBudget: SandboxWeeklyBudget? = null,
+)
+
+/** What an options arm may still open this week (any 7 days), and when older spending drops out. */
+@Serializable
+data class SandboxWeeklyBudget(
+    @SerialName("budget_usd") val budgetUsd: Double,
+    @SerialName("spent_usd") val spentUsd: Double,
+    @SerialName("room_usd") val roomUsd: Double,
+    @SerialName("frees_on") val freesOn: String? = null,
 )
 
 /** One held option contract, marked from its chain. A null [mark] means no two-sided quote: the

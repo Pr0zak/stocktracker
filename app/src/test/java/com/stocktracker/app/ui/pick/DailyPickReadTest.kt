@@ -268,9 +268,9 @@ class DailyPickMorningNoteTest {
         // The 2026-11-06 gate: SPY 733.00 vs 50-EMA 763.2 (-3.96%), 20-day momentum -5.29%.
         val legs = listOf(leg("spy_above_ema50", 733.0, 763.2), leg("spy_mom_20d", -5.29, 0.0))
         val line = DailyPickRead.dipLine(com.stocktracker.app.data.remote.DailyPickGate(available = true, legs = legs))!!
-        assertEquals("S&P is down 5.3% over the past month. A fine day for your planned buy, but it may fall further.", line)
+        assertEquals("S&P is down 5.3% over the past month.", line)
         val n = DailyPickRead.morningNote(r("none", none = "x", legs = legs), null, "2026-11-06")!!
-        assertTrue(n.body.endsWith("but it may fall further."))
+        assertTrue(n.body.endsWith("S&P is down 5.3% over the past month."))
     }
 
     @Test fun `no dip and an unmeasured market both say nothing`() {

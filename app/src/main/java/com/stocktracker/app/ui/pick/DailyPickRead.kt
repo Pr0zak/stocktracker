@@ -383,7 +383,8 @@ object DailyPickRead {
         // One plain figure: the month's fall when it counts, else the gap under the 50-day average.
         val what = if (dipMom) String.format(Locale.US, "S&P is down %.1f%% over the past month.", -mom!!)
         else String.format(Locale.US, "S&P is %.1f%% below its 50-day average.", underEma!!)
-        return "$what A fine day for your planned buy, but it may fall further."
+        // The advice sentence was dropped at the user's request (2026-11-18): the figure is enough.
+        return what
     }
 
     fun reportCardLine(card: DailyPickReportCard): String? {

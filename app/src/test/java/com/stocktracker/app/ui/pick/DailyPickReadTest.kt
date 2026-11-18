@@ -252,14 +252,14 @@ class DailyPickMorningNoteTest {
             r("pick", "XLV", 60, "Health care, up 29% in 6 months — buy $183-186"), "2026-11-06")!!
         assertEquals("ETF pick: XLV", n.title)
         assertTrue(n.body.startsWith("Stock: none. ANF came close (45, needs 60)."))
-        assertEquals("ANF scored 45/100; it needed 60\nXLV (confidence 60) — Health care, up 29% in 6 months — buy $183-186", n.body)
+        assertEquals("Stock: none. ANF came close (45, needs 60).\nXLV (confidence 60) — Health care, up 29% in 6 months — buy $183-186", n.body)
     }
 
     @Test fun `an unreadable ETF side is left out, never none`() {
         assertEquals("Stock pick: BRK-B", DailyPickRead.morningNote(r("pick", "BRK-B", 72), null, "2026-11-06")!!.title)
         val both = DailyPickRead.morningNote(r("none", none = "x"), r("none", none = "XLV scored 58/100; it needed 60"), "2026-11-06")!!
         assertEquals("No picks today", both.title)
-        assertEquals("Stock: none. Nothing scored high enough.\nETF: none. XLV came close (58, needs 60).", both.body)
+        assertEquals("Stock: none. The market looks too risky today.\nETF: none. XLV came close (58, needs 60).", both.body)
         assertNull(DailyPickRead.morningNote(r("failed"), r("failed"), "2026-11-06"))
         assertNull(DailyPickRead.morningNote(null, null, "2026-11-06"))
     }

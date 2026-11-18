@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.37.0" to listOf(
+            "Options accounts: a line under the balance shows this week's budget for new contracts and when more frees up. The server now opens at most one contract a day and spends at most 15% of the account in any 7 days, so it keeps money for a better trade later in the month",
+        ),
         "1.36.0" to listOf(
             "Sandbox: chips pick the group (Stocks, ETFs, Options), and the ranking shows that group only, so the account's balance is near the top again",
             "New Compare chip: AI vs rules for each pair, the reviewer's kept trades vs the ones it cut, and each Baseline tweak vs the Baseline",

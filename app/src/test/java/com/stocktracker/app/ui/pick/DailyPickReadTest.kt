@@ -250,13 +250,16 @@ class DailyPickMorningNoteTest {
     @Test fun `an ETF pick is in the morning note even when the stock side is none`() {
         val n = DailyPickRead.morningNote(r("none", none = "ANF scored 45/100; it needed 60"),
             r("pick", "XLV", 60, "Health care, up 29% in 6 months — buy $183-186"), "2026-11-06")!!
-        assertEquals("Stock: none · ETF: XLV", n.title)
+        assertEquals("ETF pick: XLV", n.title)
+        assertTrue(n.body.startsWith("Stock: none. ANF came close (45, needs 60)."))
         assertEquals("ANF scored 45/100; it needed 60\nXLV (confidence 60) — Health care, up 29% in 6 months — buy $183-186", n.body)
     }
 
     @Test fun `an unreadable ETF side is left out, never none`() {
-        assertEquals("Stock: BRK-B", DailyPickRead.morningNote(r("pick", "BRK-B", 72), null, "2026-11-06")!!.title)
-        assertEquals("Stock: none · ETF: none", DailyPickRead.morningNote(r("none", none = "x"), r("none", none = "y"), "2026-11-06")!!.title)
+        assertEquals("Stock pick: BRK-B", DailyPickRead.morningNote(r("pick", "BRK-B", 72), null, "2026-11-06")!!.title)
+        val both = DailyPickRead.morningNote(r("none", none = "x"), r("none", none = "XLV scored 58/100; it needed 60"), "2026-11-06")!!
+        assertEquals("No picks today", both.title)
+        assertEquals("Stock: none. Nothing scored high enough.\nETF: none. XLV came close (58, needs 60).", both.body)
         assertNull(DailyPickRead.morningNote(r("failed"), r("failed"), "2026-11-06"))
         assertNull(DailyPickRead.morningNote(null, null, "2026-11-06"))
     }
@@ -265,9 +268,9 @@ class DailyPickMorningNoteTest {
         // The 2026-11-06 gate: SPY 733.00 vs 50-EMA 763.2 (-3.96%), 20-day momentum -5.29%.
         val legs = listOf(leg("spy_above_ema50", 733.0, 763.2), leg("spy_mom_20d", -5.29, 0.0))
         val line = DailyPickRead.dipLine(com.stocktracker.app.data.remote.DailyPickGate(available = true, legs = legs))!!
-        assertEquals("Market dip: S&P 4.0% under its 50-day, -5.3% over 20 sessions — a good day for the buys you already plan (your next core buy), not a bottom call.", line)
+        assertEquals("S&P is down 5.3% over the past month. A fine day for your planned buy, but it may fall further.", line)
         val n = DailyPickRead.morningNote(r("none", none = "x", legs = legs), null, "2026-11-06")!!
-        assertTrue(n.body.endsWith("not a bottom call."))
+        assertTrue(n.body.endsWith("but it may fall further."))
     }
 
     @Test fun `no dip and an unmeasured market both say nothing`() {

@@ -321,19 +321,43 @@ object DailyPickRead {
         val sSym = stock?.takeIf { it.isPick && it.date == today && it.stale != true }?.pick?.symbol
         val sWord = if (s == null) null else sSym ?: "none"
         val eWord = eSym ?: if (eNone) "none" else null
-        val title = listOfNotNull(sWord?.let { "Stock: $it" }, eWord?.let { "ETF: $it" }).joinToString(" · ")
+        // 2026-11-18: plain words. The user found "TDC was closest, but every market check failed and
+        // VIX is high / ETF: XLV scored 58/100; it needed 60 / Market dip: S&P 3.5% under its 50-day,
+        // -4.8% over 20 sessions — ..." hard to read in a notification. A "none" is now said in the
+        // app's own short words (the model's reason stays on the card, one tap away).
+        val title = when {
+            sSym != null && eSym != null -> "Picks: $sSym and $eSym"
+            sSym != null -> "Stock pick: $sSym"
+            eSym != null -> "ETF pick: $eSym"
+            sWord != null && eWord != null -> "No picks today"
+            sWord != null -> "No stock pick today"
+            else -> "No ETF pick today"
+        }
         val lines = mutableListOf<String>()
-        if (s != null) lines += if (sSym != null) "$sSym — ${s.body}" else s.body
+        if (s != null) lines += if (sSym != null) "$sSym — ${s.body}" else "Stock: none. " + plainNone(stock!!)
         if (eSym != null) {
             val p = e!!.pick!!
             val conv = p.conviction?.let { " (confidence $it)" } ?: ""
             lines += "$eSym$conv — " + (p.headline?.takeIf { it.isNotBlank() }
                 ?: p.thesis?.takeIf { it.isNotBlank() } ?: "tap for the reasons for and against.")
         } else if (eNone) {
-            lines += "ETF: " + (e!!.noneReason ?: "nothing cleared the bar.")
+            lines += "ETF: none. " + plainNone(e!!)
         }
         dipLine(stock?.gate ?: etf?.gate)?.let { lines += it }
         return Note(title, lines.joinToString("\n"))
+    }
+
+    /**
+     * Why there is no pick, in a few plain words: "XLV came close (58, needs 60)." when the server's
+     * reason names the closest candidate and its score, else whether the market checks shut the day.
+     */
+    fun plainNone(r: DailyPickResponse): String {
+        val m = Regex("""^(\S+) scored (\d+)/100; it needed (\d+)""").find(r.noneReason.orEmpty())
+        if (m != null) {
+            val (sym, got, need) = m.destructured
+            return "$sym came close ($got, needs $need)."
+        }
+        return if (r.gate?.passed == false) "The market looks too risky today." else "Nothing scored high enough."
     }
 
     /** S&P this far under its 50-day EMA, or down this much over 20 sessions, reads as a dip. */
@@ -356,12 +380,10 @@ object DailyPickRead {
         val dipEma = underEma != null && underEma >= DIP_PCT
         val dipMom = mom != null && -mom >= DIP_PCT
         if (!dipEma && !dipMom) return null
-        val parts = listOfNotNull(
-            underEma?.takeIf { dipEma }?.let { String.format(Locale.US, "%.1f%% under its 50-day", it) },
-            mom?.takeIf { dipMom }?.let { String.format(Locale.US, "%.1f%% over 20 sessions", it) },
-        )
-        return "Market dip: S&P " + parts.joinToString(", ") +
-            " — a good day for the buys you already plan (your next core buy), not a bottom call."
+        // One plain figure: the month's fall when it counts, else the gap under the 50-day average.
+        val what = if (dipMom) String.format(Locale.US, "S&P is down %.1f%% over the past month.", -mom!!)
+        else String.format(Locale.US, "S&P is %.1f%% below its 50-day average.", underEma!!)
+        return "$what A fine day for your planned buy, but it may fall further."
     }
 
     fun reportCardLine(card: DailyPickReportCard): String? {

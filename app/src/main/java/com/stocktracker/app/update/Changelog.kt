@@ -16,6 +16,9 @@ object Changelog {
 
     /** Newest first. Key is the exact `versionName` (no leading "v"). */
     private val entries: Map<String, List<String>> = mapOf(
+        "1.38.0" to listOf(
+            "Morning pick notification in plain words: \"No picks today\", one short line each for the stock and ETF, and the S&P figure without advice",
+        ),
         "1.37.0" to listOf(
             "Options accounts: a line under the balance shows this week's budget for new contracts and when more frees up. The server now opens at most one contract a day and spends at most 15% of the account in any 7 days, so it keeps money for a better trade later in the month",
         ),
